@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
 
+    # Supabase Auth. Used only to verify the access token issued by the browser's
+    # Google OAuth flow -- the Python backend stores no Supabase data of its own.
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
     # App & CORS.
     # Comma-separated origin list. "*" is deliberately unsupported: main.py registers the
     # CORS middleware with allow_credentials=True, and browsers reject a wildcard there.

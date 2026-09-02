@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
+import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 import {
   UserPlus,
   Mail,
@@ -235,6 +236,11 @@ export function SignupPage() {
               </CardHeader>
 
               <CardContent>
+                <div className="space-y-3 mb-5">
+                  <GoogleAuthButton label="Sign up with Google" onError={setError} />
+                  <AuthDivider text="or sign up with email" />
+                </div>
+
                 <form onSubmit={handleSubmit} className="space-y-3.5">
                   {error && (
                     <div className="flex items-center gap-2 p-3 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-xl">

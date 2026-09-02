@@ -24,6 +24,7 @@ import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 // Auth Pages
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { SignupPage } from '@/pages/auth/SignupPage';
+import { GoogleCallbackPage } from '@/pages/auth/GoogleCallbackPage';
 
 // Public Pages
 import { SuperProfileHomePage } from '@/pages/public/SuperProfileHomePage';
@@ -61,6 +62,8 @@ export const App: React.FC = () => {
         {/* Dedicated Auth routes */}
         <Route path="/login" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
+        {/* Google OAuth return target. Must sit above the /:username catch-all. */}
+        <Route path="/auth/callback" element={<GoogleCallbackPage />} />
         <Route path="/super-admin/login" element={<Navigate to="/admin/login" replace />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/admin/signup" element={<SignupPage />} />

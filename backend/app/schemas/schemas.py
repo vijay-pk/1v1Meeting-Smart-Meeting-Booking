@@ -13,6 +13,43 @@ class UserSignup(BaseModel):
     phone: Optional[str] = None
     username: str
 
+class GoogleAuthRequest(BaseModel):
+    """The Supabase access token from the browser's completed Google OAuth flow."""
+    supabase_access_token: str
+
+
+class GoogleAuthCompleteRequest(GoogleAuthRequest):
+    """Second leg: the username a brand-new Google user picked for their page."""
+    username: str
+    phone: Optional[str] = None
+
+
+class GoogleAuthResponse(BaseModel):
+    """
+    One of two outcomes.
+
+    status == "authenticated"          -> the token fields are populated, sign the user in.
+    status == "registration_required"  -> no account for this Google address yet; the
+                                          client collects a username and calls /google/complete.
+    """
+    status: str
+    account_status: Optional[str] = None
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    role: Optional[str] = None
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    suggested_username: Optional[str] = None
+
+
+class UsernameAvailability(BaseModel):
+    username: str
+    available: bool
+    reason: Optional[str] = None
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

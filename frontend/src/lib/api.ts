@@ -8,6 +8,15 @@ function getAuthHeaders(): HeadersInit {
   };
 }
 
+function persistSession(data: any) {
+  if (!data || !data.access_token) return;
+  localStorage.setItem('bmm_auth_token', data.access_token);
+  localStorage.setItem('bmm_current_user_role', data.role);
+  localStorage.setItem('bmm_logged_admin_id', data.user_id);
+  if (data.username) localStorage.setItem('bmm_logged_username', data.username);
+  if (data.name) localStorage.setItem('bmm_logged_admin_name', data.name);
+}
+
 export const api = {
   // Auth
   login: async (username_or_email: string, password: string) => {
@@ -46,6 +55,41 @@ export const api = {
     if (resData.username) localStorage.setItem('bmm_logged_username', resData.username);
     if (resData.name) localStorage.setItem('bmm_logged_admin_name', resData.name);
     return resData;
+  },
+
+  // --- Google sign-in (Supabase runs the OAuth dance, the backend owns the account) ---
+
+  // First leg. Returns either status:"authenticated" with a token, or
+  // status:"registration_required" with a suggested username for a new Google user.
+  googleAuth: async (supabaseAccessToken: string) => {
+    const res = await fetch(`${API_BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supabase_access_token: supabaseAccessToken })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Google sign-in failed');
+    if (data.status === 'authenticated') persistSession(data);
+    return data;
+  },
+
+  // Second leg, for a Google address with no account yet.
+  googleAuthComplete: async (supabaseAccessToken: string, username: string, phone?: string) => {
+    const res = await fetch(`${API_BASE}/auth/google/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supabase_access_token: supabaseAccessToken, username, phone })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Could not create your account');
+    persistSession(data);
+    return data;
+  },
+
+  checkUsername: async (username: string) => {
+    const res = await fetch(`${API_BASE}/auth/username-available?username=${encodeURIComponent(username)}`);
+    if (!res.ok) return { username, available: false, reason: 'Could not check availability right now.' };
+    return res.json();
   },
 
   getMe: async () => {

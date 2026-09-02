@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
+import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -163,6 +164,11 @@ export const AdminLoginPage: React.FC = () => {
         {/* Login Card */}
         <Card className="bg-slate-900/90 border-slate-800 shadow-2xl backdrop-blur-md">
           <CardContent className="pt-6">
+            <div className="space-y-3 mb-5">
+              <GoogleAuthButton label="Continue with Google" onError={setError} />
+              <AuthDivider text="or sign in with password" />
+            </div>
+
             <form onSubmit={handleLogin} className="space-y-4">
               {error && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2 text-red-300 text-xs">
