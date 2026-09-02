@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -33,7 +33,11 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  Upload,
+  Image as ImageIcon,
+  Film,
+  X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -397,6 +401,108 @@ function ProfileCustomizer({
   const [superChat, setSuperChat] = useState(admin.social_links?.super_chat || admin.super_chat_url || '');
   const [telegram, setTelegram] = useState(admin.social_links?.telegram || '');
   const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
+
+  // Media Upload & Selection States (Picture & Video from Device)
+  const [photoTab, setPhotoTab] = useState<'device' | 'url'>('device');
+  const [videoTab, setVideoTab] = useState<'device' | 'url'>('device');
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState('');
+  const [videoUploadError, setVideoUploadError] = useState('');
+  const [photoUploadSuccess, setPhotoUploadSuccess] = useState('');
+  const [videoUploadSuccess, setVideoUploadSuccess] = useState('');
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [isDraggingVideo, setIsDraggingVideo] = useState(false);
+
+  const processPhotoFile = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setPhotoUploadError('Please select a valid image file (PNG, JPG, WEBP, GIF, SVG).');
+      setTimeout(() => setPhotoUploadError(''), 5000);
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setPhotoUploadError('Image file size exceeds 25MB limit.');
+      setTimeout(() => setPhotoUploadError(''), 5000);
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    setPhotoUploadError('');
+    setPhotoUploadSuccess('');
+
+    try {
+      const res = await api.uploadMedia(file, 'photo');
+      if (res && res.url) {
+        setPhotoUrl(res.url);
+        setPhotoUploadSuccess('✓ Picture uploaded successfully from device!');
+        setTimeout(() => setPhotoUploadSuccess(''), 4000);
+      } else {
+        throw new Error('Upload returned no URL');
+      }
+    } catch (err: any) {
+      console.warn('Backend upload failed, fallback to local FileReader:', err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setPhotoUrl(reader.result);
+          setPhotoUploadSuccess('✓ Picture selected from device!');
+          setTimeout(() => setPhotoUploadSuccess(''), 4000);
+        }
+      };
+      reader.readAsDataURL(file);
+      if (err?.message && !err.message.includes('Failed to fetch')) {
+        setPhotoUploadError(err.message);
+        setTimeout(() => setPhotoUploadError(''), 5000);
+      }
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const processVideoFile = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      setVideoUploadError('Please select a valid video file (MP4, WebM, MOV, MKV).');
+      setTimeout(() => setVideoUploadError(''), 5000);
+      return;
+    }
+    if (file.size > 150 * 1024 * 1024) {
+      setVideoUploadError('Video file size exceeds 150MB limit.');
+      setTimeout(() => setVideoUploadError(''), 5000);
+      return;
+    }
+
+    setIsUploadingVideo(true);
+    setVideoUploadError('');
+    setVideoUploadSuccess('');
+
+    try {
+      const res = await api.uploadMedia(file, 'video');
+      if (res && res.url) {
+        setIntroVideo(res.url);
+        setVideoUploadSuccess('✓ Video uploaded successfully from device!');
+        setTimeout(() => setVideoUploadSuccess(''), 4000);
+      } else {
+        throw new Error('Upload returned no URL');
+      }
+    } catch (err: any) {
+      console.warn('Backend video upload failed, fallback to local object URL:', err);
+      try {
+        const localUrl = URL.createObjectURL(file);
+        setIntroVideo(localUrl);
+        setVideoUploadSuccess('✓ Video selected from device!');
+        setTimeout(() => setVideoUploadSuccess(''), 4000);
+      } catch {
+        setVideoUploadError(err?.message || 'Could not load video file.');
+        setTimeout(() => setVideoUploadError(''), 5000);
+      }
+    } finally {
+      setIsUploadingVideo(false);
+    }
+  };
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -932,31 +1038,435 @@ function ProfileCustomizer({
         </div>
       </div>
 
-      {/* Media & Video */}
+      {/* 2. Media & Intro Video (Device Upload & URL options) */}
       <div className="space-y-4 pt-4 border-t border-slate-100">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">2. Media & Intro Video</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold">Profile Photo URL</Label>
-            <Input
-              value={photoUrl}
-              onChange={(e) => setPhotoUrl(e.target.value)}
-              placeholder="https://... or /assets/mahir.png"
-              className="text-xs rounded-xl"
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span>2. Media & Intro Video</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                Device Upload
+              </span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Choose to upload directly from your device (phone/computer) or paste a web link for both picture and video.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* A. PROFILE PICTURE / PHOTO */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold">
+                  <ImageIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">Profile Picture</h4>
+                  <p className="text-[10px] text-slate-400">Displayed on your booking page & portrait</p>
+                </div>
+              </div>
+
+              {/* Toggle Source */}
+              <div className="flex items-center p-0.5 rounded-lg bg-slate-100 text-[10px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setPhotoTab('device')}
+                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
+                    photoTab === 'device'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>From Device</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoTab('url')}
+                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
+                    photoTab === 'url'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Globe className="w-3 h-3" />
+                  <span>Image URL</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Hidden Photo File Input */}
+            <input
+              type="file"
+              ref={photoInputRef}
+              accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) processPhotoFile(f);
+                if (e.target) e.target.value = '';
+              }}
             />
+
+            {/* Notification messages */}
+            {photoUploadSuccess && (
+              <div className="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{photoUploadSuccess}</span>
+              </div>
+            )}
+            {photoUploadError && (
+              <div className="text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{photoUploadError}</span>
+              </div>
+            )}
+
+            {photoTab === 'device' ? (
+              <div className="space-y-3">
+                {/* Active Photo Preview or Upload Dropzone */}
+                {photoUrl ? (
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center gap-3">
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-200 border border-slate-300 shrink-0 shadow-sm">
+                      <img
+                        src={photoUrl}
+                        alt="Profile preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold uppercase tracking-wider">
+                          Active Picture
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 truncate font-mono">
+                        {photoUrl.startsWith('data:') ? 'Local file from device' : photoUrl.split('/').pop() || photoUrl}
+                      </p>
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isUploadingPhoto}
+                          onClick={() => photoInputRef.current?.click()}
+                          className="h-6 text-[10px] px-2 rounded-md font-semibold cursor-pointer"
+                        >
+                          {isUploadingPhoto ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin mr-1" />
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-2.5 h-2.5 mr-1" />
+                              Change Picture
+                            </>
+                          )}
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoUrl('')}
+                          className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDraggingPhoto(true);
+                    }}
+                    onDragLeave={() => setIsDraggingPhoto(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingPhoto(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) processPhotoFile(f);
+                    }}
+                    onClick={() => photoInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
+                      isDraggingPhoto
+                        ? 'border-orange-500 bg-orange-50/50'
+                        : 'border-slate-200 hover:border-orange-400 hover:bg-orange-50/20 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center">
+                      {isUploadingPhoto ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Upload className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">
+                        {isUploadingPhoto ? 'Uploading image from device...' : 'Click to add picture from device'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        PNG, JPG, JPEG, WEBP, GIF (up to 25MB)
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={isUploadingPhoto}
+                      className="h-7 text-xs font-semibold px-3 rounded-lg mt-1 bg-white border border-slate-200 shadow-sm cursor-pointer"
+                    >
+                      Browse Device Files
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* URL Mode for Photo */
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-slate-600">Enter Image URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={photoUrl}
+                    onChange={(e) => setPhotoUrl(e.target.value)}
+                    placeholder="https://images.unsplash.com/... or /assets/mahir.png"
+                    className="text-xs rounded-xl"
+                  />
+                  {photoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPhotoUrl('')}
+                      className="h-9 px-2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                {photoUrl && (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                    <img
+                      src={photoUrl}
+                      alt="URL preview"
+                      className="w-8 h-8 rounded-md object-cover border border-slate-300"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                    <span className="text-[10px] text-slate-500 truncate flex-1">{photoUrl}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
-              <Video className="w-3.5 h-3.5 text-orange-600" />
-              <span>Intro Video URL (Vimeo or YouTube)</span>
-            </Label>
-            <Input
-              value={introVideo}
-              onChange={(e) => setIntroVideo(e.target.value)}
-              placeholder="https://vimeo.com/1130419767 or https://youtube.com/..."
-              className="text-xs rounded-xl"
+          {/* B. INTRO VIDEO */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Film className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">Intro Video</h4>
+                  <p className="text-[10px] text-slate-400">Featured greeting video on your page</p>
+                </div>
+              </div>
+
+              {/* Toggle Source */}
+              <div className="flex items-center p-0.5 rounded-lg bg-slate-100 text-[10px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setVideoTab('device')}
+                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
+                    videoTab === 'device'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>From Device</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoTab('url')}
+                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
+                    videoTab === 'url'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Globe className="w-3 h-3" />
+                  <span>Video Link</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Hidden Video File Input */}
+            <input
+              type="file"
+              ref={videoInputRef}
+              accept="video/mp4,video/webm,video/quicktime,video/ogg,video/x-matroska"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) processVideoFile(f);
+                if (e.target) e.target.value = '';
+              }}
             />
+
+            {/* Notification messages */}
+            {videoUploadSuccess && (
+              <div className="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{videoUploadSuccess}</span>
+              </div>
+            )}
+            {videoUploadError && (
+              <div className="text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{videoUploadError}</span>
+              </div>
+            )}
+
+            {videoTab === 'device' ? (
+              <div className="space-y-3">
+                {introVideo ? (
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                    {/* If it's a direct uploaded video or blob, render HTML5 video preview */}
+                    {!introVideo.includes('youtube.com') && !introVideo.includes('youtu.be') && !introVideo.includes('vimeo.com') ? (
+                      <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
+                        <video
+                          src={introVideo}
+                          controls
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
+                        <Video className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span className="truncate flex-1 font-mono text-[11px]">{introVideo}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold uppercase tracking-wider">
+                        Active Intro Video
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isUploadingVideo}
+                          onClick={() => videoInputRef.current?.click()}
+                          className="h-6 text-[10px] px-2 rounded-md font-semibold cursor-pointer"
+                        >
+                          {isUploadingVideo ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin mr-1" />
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-2.5 h-2.5 mr-1" />
+                              Change Video
+                            </>
+                          )}
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => setIntroVideo('')}
+                          className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDraggingVideo(true);
+                    }}
+                    onDragLeave={() => setIsDraggingVideo(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingVideo(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) processVideoFile(f);
+                    }}
+                    onClick={() => videoInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
+                      isDraggingVideo
+                        ? 'border-indigo-500 bg-indigo-50/50'
+                        : 'border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/20 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                      {isUploadingVideo ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Film className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">
+                        {isUploadingVideo ? 'Uploading video from device...' : 'Click to add video from device'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        MP4, WebM, MOV, MKV (up to 150MB)
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={isUploadingVideo}
+                      className="h-7 text-xs font-semibold px-3 rounded-lg mt-1 bg-white border border-slate-200 shadow-sm cursor-pointer"
+                    >
+                      Browse Video Files
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* URL Mode for Video */
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-slate-600">Enter Video Link (Vimeo or YouTube)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={introVideo}
+                    onChange={(e) => setIntroVideo(e.target.value)}
+                    placeholder="https://vimeo.com/1130419767 or https://youtube.com/..."
+                    className="text-xs rounded-xl"
+                  />
+                  {introVideo && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIntroVideo('')}
+                      className="h-9 px-2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Tip: Paste a Vimeo link (e.g. vimeo.com/1130419767) or a YouTube video link.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

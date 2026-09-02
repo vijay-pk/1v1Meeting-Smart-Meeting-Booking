@@ -377,5 +377,38 @@ export const api = {
     const res = await fetch(`${API_BASE}/super-admin/bookings`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
     return res.json();
+  },
+
+  // Media Upload (Photos & Videos from Device)
+  uploadMedia: async (file: File, fileType: 'photo' | 'video' | 'auto' = 'auto'): Promise<{
+    success: boolean;
+    url: string;
+    filename: string;
+    saved_as: string;
+    type: string;
+    size: number;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('file_type', fileType);
+
+    const token = localStorage.getItem('bmm_auth_token');
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to upload media file to server');
+    }
+
+    return await res.json();
   }
 };

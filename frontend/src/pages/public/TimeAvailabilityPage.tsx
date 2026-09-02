@@ -376,6 +376,25 @@ export const TimeAvailabilityPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
+              ) : selectedAdminUser.intro_video ? (
+                <div className="relative group w-full max-w-md">
+                  <div className="absolute -inset-1 bg-gradient-to-tr from-orange-500 to-indigo-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500" />
+                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border-2 border-white/20 shadow-2xl">
+                    <video
+                      src={selectedAdminUser.intro_video}
+                      controls
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+
+                  {/* Video Info Badge */}
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
+                    <div className="flex items-center gap-1.5">
+                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" />
+                      <span className="font-semibold text-white">Watch: Intro Video ({selectedAdminUser.full_name})</span>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="relative group flex items-center justify-center">
                   <div className="absolute -inset-2 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-3xl blur-md opacity-50 group-hover:opacity-75 transition duration-500" />

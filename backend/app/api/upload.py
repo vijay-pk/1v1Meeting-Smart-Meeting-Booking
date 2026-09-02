@@ -57,7 +57,14 @@ async def upload_file(
     with open(dest_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    base_url = str(request.base_url).rstrip("/")
+    # Resolve public base URL respecting proxies (Render, Cloudflare, etc.)
+    forwarded_proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+
+    if "onrender.com" in forwarded_host or "vercel.app" in forwarded_host:
+        forwarded_proto = "https"
+
+    base_url = f"{forwarded_proto}://{forwarded_host}".rstrip("/")
     file_url = f"{base_url}/uploads/{subfolder}/{saved_filename}"
 
     return {
