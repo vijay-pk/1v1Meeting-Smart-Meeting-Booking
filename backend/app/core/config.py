@@ -1,5 +1,6 @@
 import os
 from typing import List
+from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -7,22 +8,41 @@ class Settings(BaseSettings):
     VERSION: str = "2.0.0"
     API_V1_STR: str = "/api"
 
-    # Security & JWT
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "bmm-super-secure-jwt-secret-key-32byteslong-2026!")
+    # Security & JWT.
+    # SECRET_KEY and ENCRYPTION_KEY have NO defaults on purpose: a shipped default is a
+    # published default, and anyone holding it can mint valid tokens or read every stored
+    # Google refresh token and Razorpay secret. Missing values fail startup (see below).
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
-    # Encryption key for Google Refresh Tokens & Razorpay Secrets at rest
-    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "bmm_super_secret_encryption_key_32_bytes_!")
+    # Encryption key for Google Refresh Tokens & Razorpay Secrets at rest.
+    # Rotating this makes every already-encrypted secret undecryptable — set it once.
+    ENCRYPTION_KEY: str
 
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./bookmymeet.db")
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_db_scheme(cls, v: str) -> str:
+        # Managed Postgres providers (Render, Heroku) hand out "postgres://" URLs, a scheme
+        # SQLAlchemy 2.0 no longer recognises.
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql://", 1)
+        return v
+
     # Super Admin initial seed credentials
     SUPER_ADMIN_USERNAME: str = os.getenv("SUPER_ADMIN_USERNAME", "ameen")
     SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "mahir@adwaysacademy.com")
-    SUPER_ADMIN_PASSWORD: str = os.getenv("SUPER_ADMIN_PASSWORD", "admin123")
+    SUPER_ADMIN_PASSWORD: str
     SUPER_ADMIN_NAME: str = os.getenv("SUPER_ADMIN_NAME", "Ameen Ahsan")
+
+    # Demo staff admins (alex / priya / david) seeded by main.seed_initial_data().
+    # Off by default so a deployment never boots with known demo logins; turn it on in
+    # backend/.env for local development.
+    SEED_DEMO_ADMINS: bool = os.getenv("SEED_DEMO_ADMINS", "false").lower() in ("1", "true", "yes")
+    DEMO_ADMIN_PASSWORD: str = os.getenv("DEMO_ADMIN_PASSWORD", "")
 
     # Payments.
     # Simulation lets the seeded demo admins complete a booking without real Razorpay
@@ -36,18 +56,33 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
 
-    # App & CORS
+    # App & CORS.
+    # Comma-separated origin list. "*" is deliberately unsupported: main.py registers the
+    # CORS middleware with allow_credentials=True, and browsers reject a wildcard there.
+    # Add the deployed frontend origin (e.g. https://<project>.vercel.app) via env.
     APP_URL: str = os.getenv("APP_URL", "http://localhost:5173")
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "*"
-    ]
+    CORS_ALLOWED_ORIGINS: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:3000,http://127.0.0.1:3000"
+    )
+
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
 
     class Config:
         env_file = ".env"
         extra = "allow"
 
-settings = Settings()
+try:
+    settings = Settings()
+except ValidationError as exc:
+    missing = sorted({str(e["loc"][0]) for e in exc.errors() if e["type"] == "missing"})
+    if not missing:
+        raise
+    raise RuntimeError(
+        "Missing required configuration: " + ", ".join(missing) + ".\n"
+        "Set these in backend/.env for local development, or in the host's environment "
+        "panel (Render / Docker / CI) before starting the API. They have no defaults "
+        "because a shipped default secret is a published secret."
+    ) from exc

@@ -151,7 +151,6 @@ def seed_initial_data():
                 "name": "Alex Rivera",
                 "email": "alex@adwaysacademy.com",
                 "phone": "+919876500001",
-                "password": "alex@123",
                 "title": "Senior Technical Consultant",
                 "bio": "Senior Technical Consultant & Ad Tracking Architect with 8+ years resolving attribution drop-offs.",
                 "heading_text": "Technical Architecture & Conversion Tracking Audit",
@@ -167,7 +166,6 @@ def seed_initial_data():
                 "name": "Priya Sharma",
                 "email": "priya@adwaysacademy.com",
                 "phone": "+919876500002",
-                "password": "priya@123",
                 "title": "Product & Growth Strategist",
                 "bio": "Product & Growth Strategist specializing in retention loops and conversion rate optimization.",
                 "heading_text": "1:1 Growth Architecture & Retention Strategy",
@@ -183,7 +181,6 @@ def seed_initial_data():
                 "name": "David Chen",
                 "email": "david@adwaysacademy.com",
                 "phone": "+919876500003",
-                "password": "david@123",
                 "title": "Marketing & Automation Lead",
                 "bio": "Marketing & Automation Lead focused on CRM integration and multi-channel drip automation.",
                 "heading_text": "Automate & Scale Your Lead Funnels with David",
@@ -196,13 +193,25 @@ def seed_initial_data():
             }
         ]
 
+        # Demo staff admins ship with well-known logins, so they are seeded only when
+        # explicitly enabled AND given a password from the environment. A deployment that
+        # sets neither boots with the super admin only.
+        if not settings.SEED_DEMO_ADMINS:
+            staff_admins_data = []
+        elif not settings.DEMO_ADMIN_PASSWORD:
+            logger.warning(
+                "SEED_DEMO_ADMINS is enabled but DEMO_ADMIN_PASSWORD is empty - "
+                "skipping the demo staff admin seed."
+            )
+            staff_admins_data = []
+
         for s_admin in staff_admins_data:
             existing_staff = db.query(User).filter(User.email == s_admin["email"]).first()
             if not existing_staff:
                 staff_user = User(
                     name=s_admin["name"],
                     email=s_admin["email"],
-                    password_hash=get_password_hash(s_admin["password"]),
+                    password_hash=get_password_hash(settings.DEMO_ADMIN_PASSWORD),
                     phone=s_admin["phone"],
                     role="admin",
                     status="ACTIVE"

@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in a root .env file}
       POSTGRES_DB: ${POSTGRES_DB:-bookmymeet}
     ports:
       - "5432:5432"
@@ -28,11 +28,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Secrets carry no defaults: compose fails fast rather than silently booting the
+    # stack on a credential that is published in this file. Supply them in a root .env.
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/bookmymeet
-      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-in-production-2026}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0Wd-z6aR1q_j9kG07y8t1oP4_9u9a-v1w4-q5-v7-8M=}
-      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:5173,http://localhost:80,http://localhost}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in a root .env file}@postgres:5432/${POSTGRES_DB:-bookmymeet}
+      - SECRET_KEY=${SECRET_KEY:?set SECRET_KEY in a root .env file}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in a root .env file}
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:?set SUPER_ADMIN_PASSWORD in a root .env file}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:80,http://localhost}
     ports:
       - "8000:8000"
 
