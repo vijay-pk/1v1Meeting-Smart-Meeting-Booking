@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: bookmymeet-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-bookmymeet}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bookmymeet-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/bookmymeet
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-in-production-2026}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0Wd-z6aR1q_j9kG07y8t1oP4_9u9a-v1w4-q5-v7-8M=}
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:5173,http://localhost:80,http://localhost}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bookmymeet-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,2123 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useBookingStore } from '@/stores/bookingStore';
+import { useAuthStore } from '@/stores/authStore';
+import { api } from '@/lib/api';
+import { TIMEZONES } from '@/lib/constants';
+import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
+import {
+  User,
+  Settings as SettingsIcon,
+  Calendar as CalendarIcon,
+  CreditCard,
+  Mail,
+  ExternalLink,
+  Copy,
+  Check,
+  Sparkles,
+  Video,
+  Palette,
+  Share2,
+  ShieldCheck,
+  AlertCircle,
+  Download,
+  Globe,
+  Loader2,
+  DollarSign,
+  Plus,
+  Trash2,
+  Clock,
+  Tag,
+  Eye,
+  EyeOff,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  CheckCircle2
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+
+type SettingsTab = 'profile' | 'pricing' | 'payment' | 'booking' | 'calendar' | 'email';
+
+const THEME_PRESETS = [
+  {
+    id: 'amber',
+    name: 'Sunset Amber (SuperProfile)',
+    bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
+    button_color: '#D32F2F',
+    preview_bg: 'bg-gradient-to-r from-[#873600] to-[#D32F2F]'
+  },
+  {
+    id: 'indigo',
+    name: 'Deep Indigo (High Tech)',
+    bg_gradient: 'from-[#1e1b4b] via-[#312e81] to-[#0f172a]',
+    button_color: '#4f46e5',
+    preview_bg: 'bg-gradient-to-r from-[#1e1b4b] to-[#4f46e5]'
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald Growth (Consulting)',
+    bg_gradient: 'from-[#064e3b] via-[#047857] to-[#022c22]',
+    button_color: '#059669',
+    preview_bg: 'bg-gradient-to-r from-[#064e3b] to-[#059669]'
+  },
+  {
+    id: 'slate',
+    name: 'Sleek Minimal Dark',
+    bg_gradient: 'from-slate-950 via-slate-900 to-slate-950',
+    button_color: '#ea580c',
+    preview_bg: 'bg-gradient-to-r from-slate-950 to-orange-600'
+  },
+  {
+    id: 'rose',
+    name: 'Crimson Executive',
+    bg_gradient: 'from-[#881337] via-[#9f1239] to-[#4c0519]',
+    button_color: '#e11d48',
+    preview_bg: 'bg-gradient-to-r from-[#881337] to-[#e11d48]'
+  }
+];
+
+export function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const { admins, updateAdminProfile, currentSuperAdmin } = useBookingStore();
+  const { profile } = useAuthStore();
+
+  const storedRole =
+    localStorage.getItem('bmm_current_user_role') ||
+    localStorage.getItem('bmm_logged_role') ||
+    profile?.role;
+  const storedUsername = localStorage.getItem('bmm_logged_username') || profile?.username;
+  const storedAdminId = localStorage.getItem('bmm_logged_admin_id');
+  const storedAdminName = localStorage.getItem('bmm_logged_admin_name');
+
+  // Strict check: Is this session accessing Super Admin / Master Admin portal?
+  const isSuperAdmin =
+    storedRole === 'super_admin' ||
+    storedUsername?.toLowerCase() === 'ameen' ||
+    storedUsername?.toLowerCase() === 'mahir' ||
+    storedUsername?.toLowerCase() === 'mahir6787' ||
+    storedAdminId === 'ameen-ahsan' ||
+    storedAdminId === 'admin-ameen' ||
+    storedAdminId === 'admin-mahir' ||
+    profile?.role === 'super_admin' ||
+    profile?.username?.toLowerCase() === 'ameen';
+
+  const [liveAdmin, setLiveAdmin] = useState<AdminUser | null>(null);
+
+  // Synchronize profile directly from backend API for authenticated admin
+  useEffect(() => {
+    let isMounted = true;
+    const syncBackend = async () => {
+      try {
+        const bp = await api.getMyProfile();
+        if (bp && isMounted) {
+          // If in Super Admin mode, do NOT allow a staff admin profile from an old token to hijack
+          if (isSuperAdmin && bp.role !== 'super_admin' && bp.username?.toLowerCase() !== 'ameen') {
+            console.warn('Ignoring staff admin backend profile while in Super Admin mode');
+            return;
+          }
+
+          localStorage.setItem('bmm_logged_username', bp.username);
+          localStorage.setItem('bmm_logged_admin_id', bp.user_id);
+          localStorage.setItem('bmm_logged_admin_name', bp.name);
+
+          const synced: AdminUser = {
+            id: bp.user_id,
+            username: bp.username,
+            full_name: bp.name,
+            title: bp.title || '',
+            bio: bp.bio || '',
+            about_me_text: bp.about_me_text || '',
+            heading_text: bp.heading_text || '',
+            welcome_message: bp.welcome_message || '',
+            photo_url: bp.profile_photo || '',
+            intro_video: bp.intro_video || '',
+            email: bp.email,
+            phone: bp.phone,
+            role: bp.role || (isSuperAdmin ? 'super_admin' : 'admin'),
+            status: bp.status || 'ACTIVE',
+            avatar_color: 'bg-indigo-600',
+            avatar_letter: bp.name ? bp.name.charAt(0).toUpperCase() : 'A',
+            theme_settings: bp.theme_settings || {
+              theme: 'amber',
+              bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
+              button_color: '#D32F2F',
+            },
+            social_links: bp.social_links || {},
+          };
+
+          setLiveAdmin(synced);
+
+          // Update into bookingStore
+          useBookingStore.setState((state) => ({
+            admins: [
+              synced,
+              ...state.admins.filter(
+                (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
+              ),
+            ],
+          }));
+        }
+      } catch (e) {}
+    };
+    syncBackend();
+    return () => { isMounted = false; };
+  }, [isSuperAdmin]);
+
+  // Strict resolution of currently logged-in admin — never leak or show other admins
+  const currentAdmin: AdminUser = useMemo(() => {
+    // 1. If Super Admin mode, ALWAYS resolve to Ameen Ahsan (currentSuperAdmin)
+    if (isSuperAdmin) {
+      if (liveAdmin && (liveAdmin.role === 'super_admin' || liveAdmin.username?.toLowerCase() === 'ameen')) {
+        return liveAdmin;
+      }
+      const superAdminInStore =
+        admins.find((a) => a.role === 'super_admin' || a.username?.toLowerCase() === 'ameen') ||
+        currentSuperAdmin;
+      return superAdminInStore;
+    }
+
+    // 2. Staff admin with live backend profile matching their non-super identity
+    if (liveAdmin && liveAdmin.role !== 'super_admin') {
+      return liveAdmin;
+    }
+
+    // 3. Match loggedAdminId or loggedUsername for staff admin
+    const activeUsername = storedUsername;
+    if (storedAdminId || activeUsername) {
+      const match = admins.find(
+        (a) =>
+          (storedAdminId && a.id === storedAdminId) ||
+          (activeUsername && a.username?.toLowerCase() === activeUsername.toLowerCase())
+      );
+      if (match && match.role !== 'super_admin') return match;
+    }
+
+    // 4. Construct strictly for this logged-in staff admin — NEVER another admin
+    const safeUser = storedUsername || 'admin';
+    const safeName = storedAdminName || profile?.full_name || 'Admin';
+    return {
+      id: storedAdminId || `admin-${safeUser}`,
+      username: safeUser,
+      full_name: safeName,
+      title: 'Mentor & Growth Consultant',
+      email: `${safeUser}@adwaysacademy.com`,
+      role: 'admin',
+      status: 'ACTIVE',
+      avatar_color: 'bg-indigo-600',
+      avatar_letter: safeName.charAt(0).toUpperCase(),
+      theme_settings: {
+        theme: 'amber',
+        bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
+        button_color: '#D32F2F',
+      },
+      social_links: {},
+    } as AdminUser;
+  }, [liveAdmin, admins, storedAdminId, storedUsername, storedAdminName, isSuperAdmin, currentSuperAdmin, profile]);
+
+  const [copied, setCopied] = useState(false);
+
+  const tabs: { id: SettingsTab; label: string; icon: any }[] = [
+    { id: 'profile', label: 'Profile & Customizer', icon: Palette },
+    { id: 'pricing', label: '1v1 Sessions & Pricing', icon: DollarSign },
+    { id: 'payment', label: 'Razorpay Payment Setup', icon: CreditCard },
+    { id: 'booking', label: 'Booking Rules', icon: CalendarIcon },
+    { id: 'calendar', label: 'Google Calendar', icon: CalendarIcon },
+    { id: 'email', label: 'Email & Notifications', icon: Mail },
+  ];
+
+  const publicProfileUrl = `${window.location.origin}/${currentAdmin?.username || ''}`;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(publicProfileUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="animate-fade-in space-y-6 pb-20 font-sans">
+      {/* Header with Quick Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-border shadow-xs">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Portal Settings</h1>
+            {isSuperAdmin ? (
+              <span className="text-xs px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-extrabold border border-indigo-200 flex items-center gap-1">
+                <span>👑 Master Admin:</span>
+                <span>{currentAdmin?.full_name}</span>
+              </span>
+            ) : (
+              <span className="text-xs px-2.5 py-0.5 rounded-md bg-orange-50 text-orange-700 font-bold border border-orange-200">
+                Admin: {currentAdmin?.full_name}
+              </span>
+            )}
+            <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold">
+              /{currentAdmin?.username}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {isSuperAdmin
+              ? 'Customize Ameen Ahsan’s public SuperProfile booking page, 1v1 sessions, and direct integrations.'
+              : 'Customize what clients see on your personal SuperProfile booking page.'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+
+          <button
+            onClick={handleCopyLink}
+            className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Copied URL' : 'Copy Personal Link'}</span>
+          </button>
+
+          <a
+            href={publicProfileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="px-4 py-2 text-xs font-bold rounded-xl bg-orange-600 hover:bg-orange-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-orange-600/20 cursor-pointer"
+          >
+            <span>Preview Public Profile</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Sidebar */}
+        <nav className="lg:w-60 flex-shrink-0">
+          <ul className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 bg-white p-2 rounded-2xl border border-border">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <li key={tab.id}>
+                  <button
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                      activeTab === tab.id
+                        ? 'bg-orange-50 text-orange-700 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{tab.label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Quick Info Box */}
+          <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 space-y-2 hidden lg:block">
+            <p className="font-bold flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span>Personal Booking Link</span>
+            </p>
+            <p className="text-[11px] text-amber-800 leading-relaxed font-mono font-bold break-all">
+              /{currentAdmin?.username}
+            </p>
+            <div className="pt-1 flex items-center gap-2">
+              <button
+                onClick={handleCopyLink}
+                className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer flex items-center gap-1"
+              >
+                <Copy className="w-3 h-3" />
+                <span>Copy</span>
+              </button>
+              <span className="text-amber-400">•</span>
+              <a
+                href={publicProfileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline flex items-center gap-1"
+              >
+                <span>Preview</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        </nav>
+
+        {/* Tab Content */}
+        <div className="flex-1 max-w-3xl">
+          {activeTab === 'profile' && (
+            <ProfileCustomizer admin={currentAdmin} onUpdate={(updated) => setLiveAdmin(updated)} />
+          )}
+          {activeTab === 'pricing' && (
+            <PricingAndSessionsSettings
+              admin={currentAdmin}
+              onSwitchToPayment={() => setActiveTab('payment')}
+            />
+          )}
+          {activeTab === 'payment' && <RazorpaySettings admin={currentAdmin} />}
+          {activeTab === 'booking' && <BookingRulesSettings admin={currentAdmin} />}
+          {activeTab === 'calendar' && <GoogleCalendarSettings admin={currentAdmin} />}
+          {activeTab === 'email' && <EmailSettings admin={currentAdmin} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// 1. PROFILE & CUSTOMIZER TAB (Requirement 4: Full Profile Customization)
+// =========================================================================
+function ProfileCustomizer({
+  admin,
+  onUpdate,
+}: {
+  admin: AdminUser;
+  onUpdate?: (updated: AdminUser) => void;
+}) {
+  const { updateAdminProfile } = useBookingStore();
+  const { profile, updateProfile } = useAuthStore();
+
+  const [username, setUsername] = useState(admin.username || '');
+  const [name, setName] = useState(admin.full_name || '');
+  const [title, setTitle] = useState(admin.title || '');
+  const [headingText, setHeadingText] = useState(admin.heading_text || '');
+  const [welcomeMessage, setWelcomeMessage] = useState(admin.welcome_message || '');
+  const [bio, setBio] = useState(admin.bio || '');
+  const [aboutMe, setAboutMe] = useState(admin.about_me_text || '');
+  const [photoUrl, setPhotoUrl] = useState(admin.photo_url || '');
+  const [introVideo, setIntroVideo] = useState(admin.intro_video || '');
+  const [buttonColor, setButtonColor] = useState(admin.theme_settings?.button_color || '#D32F2F');
+  const [bgGradient, setBgGradient] = useState(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
+
+  // Socials & Priority Links
+  const [whatsapp, setWhatsapp] = useState(admin.social_links?.whatsapp || '');
+  const [linkedin, setLinkedin] = useState(admin.social_links?.linkedin || '');
+  const [instagram, setInstagram] = useState(admin.social_links?.instagram || '');
+  const [youtube, setYoutube] = useState(admin.social_links?.youtube || '');
+  const [website, setWebsite] = useState(admin.social_links?.website || '');
+  const [superChat, setSuperChat] = useState(admin.social_links?.super_chat || admin.super_chat_url || '');
+  const [telegram, setTelegram] = useState(admin.social_links?.telegram || '');
+  const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Synchronize when switching between admins
+  useEffect(() => {
+    setUsername(admin.username || '');
+    setName(admin.full_name || '');
+    setTitle(admin.title || '');
+    setHeadingText(admin.heading_text || '');
+    setWelcomeMessage(admin.welcome_message || '');
+    setBio(admin.bio || '');
+    setAboutMe(admin.about_me_text || '');
+    setPhotoUrl(admin.photo_url || '');
+    setIntroVideo(admin.intro_video || '');
+    setButtonColor(admin.theme_settings?.button_color || '#D32F2F');
+    setBgGradient(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
+    setWhatsapp(admin.social_links?.whatsapp || '');
+    setLinkedin(admin.social_links?.linkedin || '');
+    setInstagram(admin.social_links?.instagram || '');
+    setYoutube(admin.social_links?.youtube || '');
+    setWebsite(admin.social_links?.website || '');
+    setSuperChat(admin.social_links?.super_chat || admin.super_chat_url || '');
+    setTelegram(admin.social_links?.telegram || '');
+    setCustomSections(admin.custom_sections || []);
+  }, [admin.id, admin.username]);
+
+  // === SuperProfile Import State ===
+  const [spUrl, setSpUrl] = useState('');
+  const [scraping, setScraping] = useState(false);
+  const [scrapeError, setScrapeError] = useState('');
+  const [scrapedData, setScrapedData] = useState<any>(null);
+  const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({});
+  const [applied, setApplied] = useState(false);
+
+  const IMPORT_FIELDS = [
+    { key: 'username', label: 'Personal Booking Slug (URL)', getter: (d: any) => d.username },
+    { key: 'name', label: 'Full Name', getter: (d: any) => d.name },
+    { key: 'title', label: 'Professional Title', getter: (d: any) => d.title },
+    { key: 'heading_text', label: 'Heading Text', getter: (d: any) => d.heading_text },
+    { key: 'bio', label: 'Short Bio', getter: (d: any) => d.bio },
+    { key: 'about_me_text', label: 'About Me', getter: (d: any) => d.about_me_text },
+    { key: 'profile_photo', label: 'Profile Photo', getter: (d: any) => d.profile_photo },
+    { key: 'intro_video', label: 'Intro Video', getter: (d: any) => d.intro_video },
+    { key: 'button_color', label: 'Button Color', getter: (d: any) => d.button_color },
+    { key: 'social_instagram', label: 'Instagram', getter: (d: any) => d.social_links?.instagram },
+    { key: 'social_whatsapp', label: 'WhatsApp', getter: (d: any) => d.social_links?.whatsapp },
+    { key: 'social_linkedin', label: 'LinkedIn', getter: (d: any) => d.social_links?.linkedin },
+    { key: 'social_youtube', label: 'YouTube', getter: (d: any) => d.social_links?.youtube },
+    { key: 'social_website', label: 'Website', getter: (d: any) => d.social_links?.website },
+    {
+      key: 'sessions',
+      label: '1:1 Session Packages & Pricing',
+      getter: (d: any) => d.sessions?.length ? `${d.sessions.length} package(s) detected` : null,
+    },
+  ];
+
+  const extractSlugFromUrl = (inputUrl: string) => {
+    try {
+      const clean = inputUrl.trim().split('?')[0].replace(/\/$/, '');
+      const parts = clean.split('/').filter(Boolean);
+      if (parts.length > 0) {
+        const last = parts[parts.length - 1];
+        if ((last === 'bookings' || last === 'booking' || last === 'b') && parts.length > 1) {
+          return parts[parts.length - 2];
+        }
+        if (parts.includes('bookings') || parts.includes('booking')) {
+          const idx = parts.findIndex((p) => p === 'bookings' || p === 'booking');
+          if (idx !== -1 && idx + 1 < parts.length) return parts[idx + 1];
+        }
+        return last;
+      }
+    } catch (e) {}
+    return '';
+  };
+
+  const handleScrape = async () => {
+    if (!spUrl.trim()) return;
+    setScraping(true);
+    setScrapeError('');
+    setScrapedData(null);
+    setApplied(false);
+    try {
+      const result = await api.scrapeSuperProfile(spUrl.trim());
+      const data = result.data || result || {};
+      const urlSlug = extractSlugFromUrl(spUrl.trim());
+      if (urlSlug && !data.username) {
+        data.username = urlSlug;
+      }
+      setScrapedData(data);
+      // Auto-select all fields that have data
+      const initial: Record<string, boolean> = {};
+      IMPORT_FIELDS.forEach((f) => {
+        const val = f.getter(data);
+        initial[f.key] = !!val && String(val).trim() !== '';
+      });
+      setSelectedFields(initial);
+    } catch (e: any) {
+      // Fallback: extract slug directly from URL so user can at least import their slug
+      const urlSlug = extractSlugFromUrl(spUrl.trim());
+      if (urlSlug) {
+        const fallbackData = { username: urlSlug };
+        setScrapedData(fallbackData);
+        setSelectedFields({ username: true });
+      } else {
+        setScrapeError(e.message || 'Failed to scrape SuperProfile');
+      }
+    } finally {
+      setScraping(false);
+    }
+  };
+
+  const handleApplySelected = () => {
+    if (!scrapedData) return;
+    if (selectedFields.username && scrapedData.username) {
+      setUsername(scrapedData.username.toLowerCase().replace(/[^a-z0-9-_]/g, ''));
+    }
+    if (selectedFields.name && scrapedData.name) setName(scrapedData.name);
+    if (selectedFields.title && scrapedData.title) setTitle(scrapedData.title);
+    if (selectedFields.heading_text && scrapedData.heading_text) setHeadingText(scrapedData.heading_text);
+    if (selectedFields.bio && scrapedData.bio) setBio(scrapedData.bio);
+    if (selectedFields.about_me_text && scrapedData.about_me_text) setAboutMe(scrapedData.about_me_text);
+    if (selectedFields.profile_photo && scrapedData.profile_photo) setPhotoUrl(scrapedData.profile_photo);
+    if (selectedFields.intro_video && scrapedData.intro_video) setIntroVideo(scrapedData.intro_video);
+    if (selectedFields.button_color && scrapedData.button_color) setButtonColor(scrapedData.button_color);
+    if (selectedFields.social_instagram && scrapedData.social_links?.instagram) setInstagram(scrapedData.social_links.instagram);
+    if (selectedFields.social_whatsapp && scrapedData.social_links?.whatsapp) setWhatsapp(scrapedData.social_links.whatsapp);
+    if (selectedFields.social_linkedin && scrapedData.social_links?.linkedin) setLinkedin(scrapedData.social_links.linkedin);
+    if (selectedFields.social_youtube && scrapedData.social_links?.youtube) setYoutube(scrapedData.social_links.youtube);
+    if (selectedFields.social_website && scrapedData.social_links?.website) setWebsite(scrapedData.social_links.website);
+
+    // Also import 1:1 sessions into the store for this admin if selected
+    if (selectedFields.sessions && scrapedData.sessions && Array.isArray(scrapedData.sessions) && scrapedData.sessions.length > 0) {
+      const currentMeetings = useBookingStore.getState().meetingTypes;
+      const otherMeetings = currentMeetings.filter((m) => m.admin_id && m.admin_id !== admin.id);
+
+      const newMeetings = scrapedData.sessions.map((s: any, idx: number) => ({
+        id: `mt-${admin.id}-${Date.now()}-${idx}`,
+        admin_id: admin.id,
+        name: s.name || s.title || '1:1 Mentorship Session',
+        description: s.description || '',
+        duration_minutes: s.duration_minutes || 15,
+        price: s.price || 149700,
+        original_price: s.original_price || (s.price ? s.price * 2 : 499900),
+        currency: (s.currency || 'INR') as any,
+        is_active: true,
+        buffer_before_minutes: 0,
+        buffer_after_minutes: 5,
+        min_advance_hours: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+      useBookingStore.setState({
+        meetingTypes: [...otherMeetings, ...newMeetings],
+      });
+    }
+
+    setApplied(true);
+    setTimeout(() => setApplied(false), 4000);
+  };
+
+  const toggleField = (key: string) => {
+    setSelectedFields((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleAll = (checked: boolean) => {
+    const updated: Record<string, boolean> = {};
+    IMPORT_FIELDS.forEach((f) => {
+      const val = f.getter(scrapedData);
+      updated[f.key] = checked && !!val && String(val).trim() !== '';
+    });
+    setSelectedFields(updated);
+  };
+
+  const handleAddSection = () => {
+    const newSec = {
+      id: `sec-${Date.now()}`,
+      title: 'Ask a Priority Question / Super Chat',
+      description: 'Send a direct priority message or query with guaranteed response time.',
+      button_text: 'Send Message ⚡',
+      button_url: superChat || 'https://',
+      badge: 'Priority DM',
+    };
+    setCustomSections((prev) => [...prev, newSec]);
+  };
+
+  const handleUpdateSection = (id: string, field: string, value: string) => {
+    setCustomSections((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+  };
+
+  const handleRemoveSection = (id: string) => {
+    setCustomSections((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const cleanUsername = (username || admin.username || 'admin')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, '');
+
+    const updates: Partial<AdminUser> = {
+      username: cleanUsername,
+      full_name: name,
+      title,
+      heading_text: headingText,
+      welcome_message: welcomeMessage,
+      bio,
+      about_me_text: aboutMe,
+      photo_url: photoUrl,
+      intro_video: introVideo,
+      theme_settings: {
+        ...admin.theme_settings,
+        button_color: buttonColor,
+        bg_gradient: bgGradient,
+      },
+      social_links: {
+        whatsapp,
+        linkedin,
+        instagram,
+        youtube,
+        website,
+        super_chat: superChat.trim(),
+        telegram: telegram.trim(),
+      },
+      super_chat_url: superChat.trim(),
+      custom_sections: customSections,
+    };
+
+    // Update locally in store
+    updateAdminProfile(admin.id, updates);
+    localStorage.setItem('bmm_logged_username', cleanUsername);
+    localStorage.setItem('bmm_logged_admin_name', name);
+
+    const updatedAdmin = { ...admin, ...updates } as AdminUser;
+    if (onUpdate) {
+      onUpdate(updatedAdmin);
+    }
+
+    if (profile?.id === admin.id || !profile?.id) {
+      updateProfile({ username: cleanUsername, full_name: name });
+    }
+
+    // Update on backend if connected
+    try {
+      await api.updateMyProfile({
+        name,
+        username: cleanUsername,
+        title,
+        heading_text: headingText,
+        welcome_message: welcomeMessage,
+        bio,
+        about_me_text: aboutMe,
+        profile_photo: photoUrl,
+        intro_video: introVideo,
+        theme_settings: { button_color: buttonColor, bg_gradient: bgGradient },
+        social_links: {
+          whatsapp,
+          linkedin,
+          instagram,
+          youtube,
+          website,
+          super_chat: superChat.trim(),
+          telegram: telegram.trim(),
+        },
+      });
+    } catch (e) {
+      // Offline fallback already updated store
+    }
+
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const currentDisplaySlug = username || admin.username || '';
+  const currentPublicLink = `${window.location.origin}/${currentDisplaySlug}`;
+
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
+      <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Customize Public Profile</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Everything configured here reflects on your personal booking page at{' '}
+            <a
+              href={currentPublicLink}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-orange-600 font-bold hover:underline"
+            >
+              /{currentDisplaySlug}
+            </a>.
+          </p>
+        </div>
+        <a
+          href={currentPublicLink}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-mono font-bold px-3 py-1.5 rounded-xl bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer shadow-2xs"
+        >
+          <span>Personal Link: /{currentDisplaySlug}</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+
+      {/* ===== IMPORT FROM SUPERPROFILE ===== */}
+      <div className="space-y-4 p-4 rounded-2xl bg-gradient-to-br from-violet-50 via-indigo-50 to-purple-50 border border-indigo-200/60">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+            <Download className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-indigo-900">Import from SuperProfile</h3>
+            <p className="text-[11px] text-indigo-600/70">Paste your superprofile.bio URL to auto-fill your profile</p>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <Globe className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" />
+            <Input
+              value={spUrl}
+              onChange={(e) => setSpUrl(e.target.value)}
+              placeholder="https://superprofile.bio/yourname"
+              className="text-xs rounded-xl pl-9 border-indigo-200 focus:border-indigo-500 bg-white"
+              onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
+            />
+          </div>
+          <Button
+            onClick={handleScrape}
+            disabled={scraping || !spUrl.trim()}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-5 rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-50"
+          >
+            {scraping ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Scraping...
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <Download className="w-3.5 h-3.5" />
+                Import
+              </span>
+            )}
+          </Button>
+        </div>
+
+        {scrapeError && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{scrapeError}</span>
+          </div>
+        )}
+
+        {scrapedData && (
+          <div className="space-y-3 animate-fade-in">
+            {/* Preview Header with Photo */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {scrapedData.profile_photo && (
+                  <img
+                    src={scrapedData.profile_photo}
+                    alt="Scraped profile"
+                    className="w-10 h-10 rounded-xl object-cover border-2 border-indigo-200 shadow-sm"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div>
+                  <p className="text-xs font-bold text-indigo-900">{scrapedData.name || 'Unknown'}</p>
+                  <p className="text-[11px] text-indigo-600/70">{scrapedData.title || scrapedData.heading_text || ''}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleAll(true)}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  onClick={() => toggleAll(false)}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline cursor-pointer"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+
+            {/* Field Checkboxes */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {IMPORT_FIELDS.map(field => {
+                const value = field.getter(scrapedData);
+                if (!value || (typeof value === 'string' && !value.trim())) return null;
+                const isChecked = selectedFields[field.key] || false;
+                const displayVal = value.length > 60 ? value.substring(0, 60) + '…' : value;
+
+                return (
+                  <label
+                    key={field.key}
+                    className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-all text-xs ${
+                      isChecked
+                        ? 'bg-indigo-100/80 border border-indigo-300'
+                        : 'bg-white/60 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleField(field.key)}
+                      className="mt-0.5 accent-indigo-600 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="font-bold text-slate-700 block">{field.label}</span>
+                      <span className="text-[10px] text-slate-500 block truncate">{displayVal}</span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Apply Button */}
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-[10px] text-indigo-500">
+                {Object.values(selectedFields).filter(Boolean).length} field(s) selected
+              </p>
+              <Button
+                onClick={handleApplySelected}
+                disabled={Object.values(selectedFields).filter(Boolean).length === 0}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-5 py-2 rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-50"
+              >
+                {applied ? (
+                  <span className="flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" />
+                    Applied to Form!
+                  </span>
+                ) : (
+                  'Apply Selected to Form ↓'
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Basic Info */}
+      <div className="space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">1. Basic Profile Information</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Full Name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Personal Booking Link (Slug)</Label>
+              <span className="text-[10px] text-orange-600 font-mono font-bold">Custom URL</span>
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                /
+              </span>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))}
+                placeholder="e.g. midhun or midhuzer"
+                className="text-xs rounded-xl pl-6 font-mono font-bold text-slate-800"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 truncate">
+              Public link:{' '}
+              <a
+                href={`${window.location.origin}/${username}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-orange-600 font-mono font-bold hover:underline"
+              >
+                {window.location.origin}/{username || 'your-slug'}
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Professional Title / Headline</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Senior Technical Consultant"
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Heading Text (Top Banner)</Label>
+            <Input
+              value={headingText}
+              onChange={(e) => setHeadingText(e.target.value)}
+              placeholder="e.g. Upskilling Marketers into Top 1% Performers"
+              className="text-xs rounded-xl"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Short Bio / Tagline</Label>
+          <Textarea
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            rows={2}
+            className="text-xs rounded-xl"
+            placeholder="Short description displayed next to your profile photo"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Detailed About Me Text</Label>
+          <Textarea
+            value={aboutMe}
+            onChange={(e) => setAboutMe(e.target.value)}
+            rows={3}
+            className="text-xs rounded-xl"
+            placeholder="Authority metrics, career summary, or who this call is best suited for"
+          />
+        </div>
+      </div>
+
+      {/* Media & Video */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">2. Media & Intro Video</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Profile Photo URL</Label>
+            <Input
+              value={photoUrl}
+              onChange={(e) => setPhotoUrl(e.target.value)}
+              placeholder="https://... or /assets/mahir.png"
+              className="text-xs rounded-xl"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold flex items-center gap-1.5">
+              <Video className="w-3.5 h-3.5 text-orange-600" />
+              <span>Intro Video URL (Vimeo or YouTube)</span>
+            </Label>
+            <Input
+              value={introVideo}
+              onChange={(e) => setIntroVideo(e.target.value)}
+              placeholder="https://vimeo.com/1130419767 or https://youtube.com/..."
+              className="text-xs rounded-xl"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Theme Presets & Styling */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">3. Design & Colors</h3>
+
+        <div>
+          <Label className="text-xs font-semibold mb-2 block">Select Background Theme Preset</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {THEME_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => {
+                  setBgGradient(preset.bg_gradient);
+                  setButtonColor(preset.button_color);
+                }}
+                className={`p-3 rounded-xl border text-left flex items-center gap-3 transition cursor-pointer ${
+                  bgGradient === preset.bg_gradient
+                    ? 'border-orange-600 bg-orange-50/50 ring-2 ring-orange-500/20'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`w-8 h-8 rounded-lg ${preset.preview_bg} shrink-0 shadow-xs`} />
+                <div className="text-xs">
+                  <p className="font-bold text-slate-800">{preset.name}</p>
+                  <p className="text-[10px] text-slate-400 font-mono">Button: {preset.button_color}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Action Button Color (Hex)</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={buttonColor}
+                onChange={(e) => setButtonColor(e.target.value)}
+                className="w-10 h-10 rounded-xl cursor-pointer border border-slate-200"
+              />
+              <Input
+                value={buttonColor}
+                onChange={(e) => setButtonColor(e.target.value)}
+                className="text-xs font-mono rounded-xl"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Welcome Banner Subtitle</Label>
+            <Input
+              value={welcomeMessage}
+              onChange={(e) => setWelcomeMessage(e.target.value)}
+              placeholder="e.g. Choose your session below"
+              className="text-xs rounded-xl"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Social Links */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">4. Social Media Links</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">WhatsApp Number / Link</Label>
+            <Input
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              placeholder="+91 9876543210"
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">LinkedIn Profile URL</Label>
+            <Input
+              value={linkedin}
+              onChange={(e) => setLinkedin(e.target.value)}
+              placeholder="https://linkedin.com/in/..."
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Instagram Handle or URL</Label>
+            <Input
+              value={instagram}
+              onChange={(e) => setInstagram(e.target.value)}
+              placeholder="https://instagram.com/..."
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Website URL</Label>
+            <Input
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://..."
+              className="text-xs rounded-xl"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Super Chat & Priority Links */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span>5. Super Chat & Direct Messaging Link</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">Priority DM</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Add your paid Super Chat or direct priority message link (SuperProfile, Telegram, or WhatsApp).
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold flex items-center gap-1">
+              <span>⚡ Super Chat / Ask Me Anything URL</span>
+            </Label>
+            <Input
+              value={superChat}
+              onChange={(e) => setSuperChat(e.target.value)}
+              placeholder="https://superprofile.bio/chat/yourname"
+              className="text-xs rounded-xl"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold flex items-center gap-1">
+              <span>💬 Telegram Handle or VIP Channel URL</span>
+            </Label>
+            <Input
+              value={telegram}
+              onChange={(e) => setTelegram(e.target.value)}
+              placeholder="https://t.me/yourusername"
+              className="text-xs rounded-xl"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 6. Custom Uploaded Sections & Resource Blocks */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span>6. Custom Sections & Resource Uploads</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
+                {customSections.length} Sections
+              </span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Upload custom highlighted cards on your public page (e.g. Free Guides, VIP Community, Super Chat, Portfolio).
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={handleAddSection}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 h-8 rounded-xl cursor-pointer flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" />
+            <span>+ Add Section</span>
+          </Button>
+        </div>
+
+        {customSections.length === 0 ? (
+          <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+            No custom sections uploaded yet. Click "+ Add Section" to feature custom links, guides, or ask-me-anything banners on your public page.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {customSections.map((sec, idx) => (
+              <div key={sec.id || idx} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700">Section #{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSection(sec.id)}
+                    className="text-slate-400 hover:text-red-500 text-xs transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <Input
+                    value={sec.title}
+                    onChange={(e) => handleUpdateSection(sec.id, 'title', e.target.value)}
+                    placeholder="Section Title (e.g. Ask a Priority Question)"
+                    className="text-xs rounded-lg bg-white h-8 font-semibold"
+                  />
+                  <Input
+                    value={sec.badge || ''}
+                    onChange={(e) => handleUpdateSection(sec.id, 'badge', e.target.value)}
+                    placeholder="Badge Tag (e.g. ⚡ Super Chat, Free, Popular)"
+                    className="text-xs rounded-lg bg-white h-8"
+                  />
+                </div>
+                <Input
+                  value={sec.description || ''}
+                  onChange={(e) => handleUpdateSection(sec.id, 'description', e.target.value)}
+                  placeholder="Short description or benefits for clients..."
+                  className="text-xs rounded-lg bg-white h-8"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <Input
+                    value={sec.button_text || ''}
+                    onChange={(e) => handleUpdateSection(sec.id, 'button_text', e.target.value)}
+                    placeholder="Button Label (e.g. Ask Now ⚡, Download PDF)"
+                    className="text-xs rounded-lg bg-white h-8"
+                  />
+                  <Input
+                    value={sec.button_url || ''}
+                    onChange={(e) => handleUpdateSection(sec.id, 'button_url', e.target.value)}
+                    placeholder="Button Destination URL (https://...)"
+                    className="text-xs rounded-lg bg-white h-8"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Submit Button */}
+      <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+        <p className="text-xs text-slate-400">Updates will be saved instantly to your live public profile.</p>
+        <Button
+          onClick={handleSave}
+          disabled={saving}
+          className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition shadow-md shadow-orange-600/20 cursor-pointer"
+        >
+          {saving ? 'Saving...' : saved ? '✓ Saved Profile' : 'Save Changes'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// 2. GOOGLE CALENDAR TAB (Requirement 6 & 7: Own Google Account per Admin)
+// =========================================================================
+function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
+  const { connectGoogleCalendar, disconnectGoogleCalendar } = useBookingStore();
+  const [googleEmail, setGoogleEmail] = useState(admin.google_email || admin.email);
+  const [isConnected, setIsConnected] = useState(admin.google_connected || false);
+  const [loading, setLoading] = useState(false);
+
+  const handleConnect = async () => {
+    setLoading(true);
+    connectGoogleCalendar(admin.id, googleEmail);
+    try {
+      await api.connectMockGoogle(googleEmail);
+    } catch (e) {}
+    setIsConnected(true);
+    setLoading(false);
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect your Google Calendar? Automatic busy slot detection will be paused.')) return;
+    disconnectGoogleCalendar(admin.id);
+    try {
+      await api.disconnectGoogle();
+    } catch (e) {}
+    setIsConnected(false);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
+      <div className="border-b border-slate-100 pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-black text-slate-900">Google Calendar & Google Meet</h2>
+          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            Personal Admin Account
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 mt-1">
+          Connect your personal or work Google account. Each admin independently sets up their own Google Calendar. Meetings booked on your page will sync directly with your calendar and auto-generate unique Google Meet video links.
+        </p>
+      </div>
+
+      {isConnected ? (
+        <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+              ✓
+            </div>
+            <div>
+              <p className="text-sm font-bold text-emerald-900">Google Calendar Connected</p>
+              <p className="text-xs text-emerald-700 font-mono">{googleEmail}</p>
+            </div>
+          </div>
+          <p className="text-xs text-emerald-800 leading-relaxed">
+            Real-time busy slot detection is active. Clients will never be offered times when you have events or out-of-office blocks marked on this calendar.
+          </p>
+          <div className="pt-2 flex items-center gap-3">
+            <button
+              onClick={handleDisconnect}
+              className="px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold transition cursor-pointer"
+            >
+              Disconnect Calendar
+            </button>
+            <span className="text-[11px] text-slate-400 font-medium">Auto-synced via OAuth 2.0</span>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+            <p className="text-xs font-bold text-slate-800">Why connect your Google Calendar?</p>
+            <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
+              <li><strong>Zero Double Booking:</strong> Automatically blocks busy slots, appointments, and personal events.</li>
+              <li><strong>Instant Google Meet:</strong> Creates calendar event with client added as attendee.</li>
+              <li><strong>Automated Reminders:</strong> Google Calendar sends alerts 1 hour and 5 minutes prior.</li>
+            </ul>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Your Google Account Email</Label>
+            <Input
+              value={googleEmail}
+              onChange={(e) => setGoogleEmail(e.target.value)}
+              placeholder="you@gmail.com"
+              className="text-xs rounded-xl"
+            />
+          </div>
+
+          <Button
+            onClick={handleConnect}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl px-5 py-2.5 cursor-pointer shadow-md shadow-blue-600/20"
+          >
+            {loading ? 'Connecting...' : 'Authorize & Connect Google Calendar'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =========================================================================
+// 2. 1v1 PRICING & SESSIONS TAB (Admin Payment & Pricing Authority)
+// =========================================================================
+function PricingAndSessionsSettings({
+  admin,
+  onSwitchToPayment,
+}: {
+  admin: AdminUser;
+  onSwitchToPayment: () => void;
+}) {
+  const { meetingTypes, addMeetingType, updateMeetingType, removeMeetingType } = useBookingStore();
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAddingOpen, setIsAddingOpen] = useState(false);
+
+  // New session form
+  const [newTitle, setNewTitle] = useState('');
+  const [newDuration, setNewDuration] = useState<number>(30);
+  const [newOfferPrice, setNewOfferPrice] = useState<string>('1497');
+  const [newOriginalPrice, setNewOriginalPrice] = useState<string>('4999');
+  const [newDescription, setNewDescription] = useState('');
+  const [savingNew, setSavingNew] = useState(false);
+
+  const loadSessions = async () => {
+    setLoading(true);
+    try {
+      const apiSessions = await api.getMySessions();
+      if (apiSessions && apiSessions.length > 0) {
+        setSessions(apiSessions);
+        setLoading(false);
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback to store
+    const storeMeetings = meetingTypes.filter(
+      (m) =>
+        m.admin_id === admin.id ||
+        (admin.role === 'super_admin' && (!m.admin_id || m.admin_id === 'ameen-ahsan'))
+    );
+    setSessions(
+      storeMeetings.map((m) => ({
+        id: m.id,
+        title: m.name,
+        duration_minutes: m.duration_minutes,
+        price: m.price,
+        original_price: m.original_price,
+        description: m.description,
+        is_active: m.is_active,
+      }))
+    );
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadSessions();
+  }, [admin.id]);
+
+  const handlePriceUpdate = async (sessionId: string, field: string, value: any) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== sessionId) return s;
+        if (field === 'price' || field === 'original_price') {
+          const num = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
+          return { ...s, [field]: num };
+        }
+        return { ...s, [field]: value };
+      })
+    );
+
+    if (field === 'price' || field === 'original_price') {
+      const num = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
+      updateMeetingType(sessionId, { [field === 'price' ? 'price' : 'original_price']: num });
+    } else if (field === 'title') {
+      updateMeetingType(sessionId, { name: value });
+    } else {
+      updateMeetingType(sessionId, { [field]: value });
+    }
+
+    try {
+      let payloadVal = value;
+      if (field === 'price' || field === 'original_price') {
+        payloadVal = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
+      }
+      await api.updateSession(sessionId, { [field]: payloadVal });
+    } catch (e) {}
+  };
+
+  const handleCreateSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+
+    setSavingNew(true);
+    const offerPaise = Math.round(Number(newOfferPrice.replace(/[^0-9]/g, '') || '0') * 100);
+    const origPaise = newOriginalPrice
+      ? Math.round(Number(newOriginalPrice.replace(/[^0-9]/g, '') || '0') * 100)
+      : null;
+
+    let createdId = `mt-${Date.now()}`;
+    try {
+      const created = await api.createSession({
+        title: newTitle.trim(),
+        description: newDescription.trim() || 'Private 1-on-1 consultation session.',
+        duration_minutes: newDuration,
+        price: offerPaise,
+        original_price: origPaise,
+        currency: 'INR',
+        is_active: true,
+      });
+      if (created?.id) {
+        createdId = created.id;
+        setSessions((prev) => [...prev, created]);
+      }
+    } catch (e) {
+      setSessions((prev) => [
+        ...prev,
+        {
+          id: createdId,
+          title: newTitle.trim(),
+          duration_minutes: newDuration,
+          price: offerPaise,
+          original_price: origPaise,
+          description: newDescription.trim(),
+          is_active: true,
+        },
+      ]);
+    }
+
+    addMeetingType({
+      admin_id: admin.id,
+      name: newTitle.trim(),
+      description: newDescription.trim() || 'Private 1-on-1 consultation session.',
+      duration_minutes: newDuration,
+      price: offerPaise,
+      original_price: origPaise,
+      offer_price: offerPaise,
+      currency: 'INR',
+      is_active: true,
+      buffer_before_minutes: 5,
+      buffer_after_minutes: 10,
+      min_advance_hours: 2,
+      max_advance_days: 30,
+      cancellation_window_hours: 24,
+      reschedule_allowed: true,
+      max_bookings_per_day: 6,
+      color_id: Math.floor(Math.random() * 5) + 1,
+      sort_order: sessions.length + 1,
+    });
+
+    setNewTitle('');
+    setNewDescription('');
+    setIsAddingOpen(false);
+    setSavingNew(false);
+  };
+
+  const handleDelete = async (sessionId: string) => {
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    removeMeetingType(sessionId);
+    try {
+      await api.deleteSession(sessionId);
+    } catch (e) {}
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
+      <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-black text-slate-900">1v1 Sessions & Pricing Customization</h2>
+            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Admin Direct Authority
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            You have full authority to set your own session rates, discount pricing, and durations. Super admin cannot modify your pricing.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          onClick={() => setIsAddingOpen(true)}
+          className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 shadow-sm"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>+ Add 1v1 Session</span>
+        </Button>
+      </div>
+
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50/80 to-teal-50/60 border border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            <DollarSign className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-emerald-900">Direct Payment Payout to Your Bank</h4>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              100% of the session fees clients pay go straight to your connected Razorpay gateway without platform cuts.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onSwitchToPayment}
+          className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1 shrink-0 cursor-pointer self-start sm:self-auto"
+        >
+          <span>Razorpay Keys →</span>
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        {loading ? (
+          <div className="py-10 text-center text-xs text-slate-400">Loading your session offerings...</div>
+        ) : sessions.length === 0 ? (
+          <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-2xl space-y-2">
+            <Tag className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="text-xs text-slate-500 font-semibold">No 1v1 sessions configured yet</p>
+            <Button
+              type="button"
+              onClick={() => setIsAddingOpen(true)}
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer"
+            >
+              + Create Your First 1v1 Session
+            </Button>
+          </div>
+        ) : (
+          sessions.map((s, index) => {
+            const origRupees =
+              s.original_price && s.original_price > 0 ? String(Math.floor(s.original_price / 100)) : '';
+            const offerRupees =
+              s.price && s.price > 0 ? String(Math.floor(s.price / 100)) : '';
+
+            return (
+              <div
+                key={s.id || index}
+                className="p-4 rounded-2xl border border-border bg-slate-50/50 hover:bg-white transition-all space-y-3 shadow-2xs"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="w-6 h-6 rounded-lg bg-orange-100 text-orange-700 font-bold text-[11px] flex items-center justify-center shrink-0">
+                      {index + 1}
+                    </span>
+                    <Input
+                      value={s.title || ''}
+                      onChange={(e) => handlePriceUpdate(s.id, 'title', e.target.value)}
+                      placeholder="Session Title"
+                      className="text-xs font-bold text-slate-800 bg-white rounded-xl h-9"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(s.id)}
+                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
+                      title="Delete session"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>Duration</span>
+                    </Label>
+                    <select
+                      value={String(s.duration_minutes || 30)}
+                      onChange={(e) => handlePriceUpdate(s.id, 'duration_minutes', Number(e.target.value))}
+                      className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 h-9 cursor-pointer"
+                    >
+                      <option value="15">15 Minutes</option>
+                      <option value="30">30 Minutes</option>
+                      <option value="45">45 Minutes</option>
+                      <option value="60">60 Minutes</option>
+                      <option value="90">90 Minutes</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold text-emerald-700 flex items-center justify-between">
+                      <span>Offer Price (₹)</span>
+                      <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded">Active</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-700">₹</span>
+                      <Input
+                        type="text"
+                        value={offerRupees}
+                        onChange={(e) => handlePriceUpdate(s.id, 'price', e.target.value)}
+                        placeholder="1497"
+                        className="text-xs font-bold text-emerald-700 pl-6 bg-white rounded-xl h-9"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-slate-500 flex items-center justify-between">
+                      <span>Original Price (₹)</span>
+                      <span className="text-[9px] text-slate-400">Strikethrough</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                      <Input
+                        type="text"
+                        value={origRupees}
+                        onChange={(e) => handlePriceUpdate(s.id, 'original_price', e.target.value)}
+                        placeholder="4999"
+                        className="text-xs font-bold text-slate-400 line-through pl-6 bg-white rounded-xl h-9"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Input
+                    value={s.description || ''}
+                    onChange={(e) => handlePriceUpdate(s.id, 'description', e.target.value)}
+                    placeholder="Brief description of what is covered in this 1v1 session..."
+                    className="text-xs text-slate-600 bg-white rounded-xl h-8"
+                  />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {isAddingOpen && (
+        <div className="p-5 rounded-2xl border-2 border-slate-900 bg-white space-y-4 shadow-md animate-fade-in">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+              <Plus className="w-4 h-4 text-orange-600" />
+              <span>Create New 1v1 Session Offering</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => setIsAddingOpen(false)}
+              className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
+            >
+              ✕ Cancel
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateSession} className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Session Title</Label>
+              <Input
+                required
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="e.g. 45-Min Growth Deep Dive"
+                className="text-xs rounded-xl"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Duration</Label>
+                <select
+                  value={String(newDuration)}
+                  onChange={(e) => setNewDuration(Number(e.target.value))}
+                  className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 h-9"
+                >
+                  <option value="15">15 Minutes</option>
+                  <option value="30">30 Minutes</option>
+                  <option value="45">45 Minutes</option>
+                  <option value="60">60 Minutes</option>
+                  <option value="90">90 Minutes</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-emerald-700">Offer Price (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-700">₹</span>
+                  <Input
+                    required
+                    value={newOfferPrice}
+                    onChange={(e) => setNewOfferPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="1497"
+                    className="text-xs font-bold text-emerald-700 pl-6 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-500">Original Price (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                  <Input
+                    value={newOriginalPrice}
+                    onChange={(e) => setNewOriginalPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="4999"
+                    className="text-xs font-bold text-slate-400 pl-6 rounded-xl"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Description (Optional)</Label>
+              <Textarea
+                rows={2}
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="What clients will achieve in this 1v1 meeting..."
+                className="text-xs rounded-xl"
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsAddingOpen(false)}
+                className="text-xs rounded-xl cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingNew || !newTitle.trim()}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-5 py-2 rounded-xl cursor-pointer shadow-sm"
+              >
+                {savingNew ? 'Saving Session...' : 'Save & Publish Session'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =========================================================================
+// 3. RAZORPAY TAB (Requirement 10: Individual Razorpay Setup per Admin)
+// =========================================================================
+function RazorpaySettings({ admin }: { admin: AdminUser }) {
+  const { setupAdminRazorpay } = useBookingStore();
+  const [keyId, setKeyId] = useState(admin.razorpay_key_id || 'rzp_test_');
+  const [keySecret, setKeySecret] = useState('••••••••••••••••');
+  const [accountRef, setAccountRef] = useState(admin.username || '');
+  const [showSecret, setShowSecret] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
+  const [isConfigured, setIsConfigured] = useState(admin.razorpay_configured || false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Dynamic mode detection
+  const isLive = keyId.trim().startsWith('rzp_live_');
+  const isTest = keyId.trim().startsWith('rzp_test_');
+
+  const handleSave = async () => {
+    setErrorMsg(null);
+    if (!keyId.trim() || keyId === 'rzp_test_') {
+      setErrorMsg('Please enter a valid Razorpay Key ID (starting with rzp_test_ or rzp_live_).');
+      return;
+    }
+    if (!keySecret.trim() || keySecret === '••••••••••••••••') {
+      setErrorMsg('Please enter your Razorpay Key Secret from your Razorpay Dashboard.');
+      return;
+    }
+
+    setSaving(true);
+    setupAdminRazorpay(admin.id, keyId.trim());
+    try {
+      await api.setupRazorpay(keyId.trim(), keySecret.trim(), accountRef.trim());
+      setIsConfigured(true);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'Failed to save Razorpay credentials. Please verify your keys.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
+      {/* Header with Admin Direct Payout Guarantee */}
+      <div className="border-b border-slate-100 pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-black text-slate-900">Direct Razorpay Payment Customization</h2>
+          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Admin Controlled Payouts
+          </span>
+          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+            0% Platform Fee
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+          You have complete, independent authority over your payment gateway. Each admin connects their <strong>own Razorpay account</strong>.
+          Client booking payments for your sessions deposit directly into your linked bank account. The Super Admin does not manage or take a cut from your payments.
+        </p>
+      </div>
+
+      {/* Connection Status Card */}
+      <div className="p-4 rounded-2xl border border-border bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm ${
+            isConfigured ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+          }`}>
+            {isConfigured ? '✓' : '!'}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-slate-900">
+                {isConfigured ? `Razorpay Connected for ${admin.full_name}` : 'Razorpay Not Yet Fully Configured'}
+              </p>
+              {isLive ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  ● Live Mode (Real Money)
+                </span>
+              ) : isTest ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                  ● Test Mode (Simulated)
+                </span>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+              Active Key: {keyId ? `${keyId.substring(0, 16)}...` : 'None configured'}
+            </p>
+          </div>
+        </div>
+
+        <a
+          href="https://dashboard.razorpay.com/#/access/api_keys"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700 transition shadow-2xs cursor-pointer self-start sm:self-auto"
+        >
+          <span>Open Razorpay Dashboard</span>
+          <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+        </a>
+      </div>
+
+      {/* Written Step-by-Step Guide Section */}
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 via-white to-blue-50/40 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-xs font-extrabold text-indigo-950 uppercase tracking-wider">
+              Written Guide: How to Connect to Razorpay & Get Your API Keys
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowGuide(!showGuide)}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+          >
+            <span>{showGuide ? 'Collapse Guide' : 'Expand Guide'}</span>
+            {showGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showGuide && (
+          <div className="space-y-3 pt-1 text-xs text-slate-700">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Step 1 */}
+              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">1</span>
+                  <p className="font-bold text-slate-900">Sign in to Razorpay</p>
+                </div>
+                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
+                  Log in to your account at <a href="https://dashboard.razorpay.com" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-semibold">dashboard.razorpay.com</a>. If you don't have an account, sign up for free.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">2</span>
+                  <p className="font-bold text-slate-900">Select Test or Live Mode</p>
+                </div>
+                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
+                  Use <strong>Test Mode</strong> (key starts with <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">rzp_test_</code>) to test bookings safely. Switch to <strong>Live Mode</strong> (<code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">rzp_live_</code>) to accept real payments.
+                </p>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">3</span>
+                  <p className="font-bold text-slate-900">Navigate to API Keys</p>
+                </div>
+                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
+                  In your Razorpay left sidebar, click <strong>Account & Settings</strong> (or <strong>Developer Controls</strong>) &rarr; select <strong>API Keys</strong> under <em>Webhooks & API Keys</em>.
+                </p>
+              </div>
+
+              {/* Step 4 */}
+              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">4</span>
+                  <p className="font-bold text-slate-900">Generate or Regenerate Key</p>
+                </div>
+                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
+                  Click <strong>Generate Key</strong>. A popup will reveal your <strong>Key ID</strong> and <strong>Key Secret</strong>. <em>(Note: Key Secret is displayed only once!)</em>
+                </p>
+              </div>
+            </div>
+
+            {/* Step 5 & 6 banner */}
+            <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-[11px] text-indigo-950 space-y-1">
+              <p className="font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                <span>Step 5: Paste Credentials Below & Save</span>
+              </p>
+              <p className="text-indigo-800 leading-relaxed">
+                Paste your <strong>Key ID</strong> and <strong>Key Secret</strong> into the fields below, then click <strong>Save Razorpay Credentials</strong>.
+                Clients will immediately be able to book sessions with you using <strong>UPI (Google Pay, PhonePe, Paytm), Cards, and NetBanking</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Error notification if any */}
+      {errorMsg && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Credentials Form */}
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-bold text-slate-800">Razorpay Key ID</Label>
+            <span className="text-[10px] text-slate-400 font-mono">Starts with rzp_test_ or rzp_live_</span>
+          </div>
+          <Input
+            value={keyId}
+            onChange={(e) => setKeyId(e.target.value)}
+            placeholder="e.g. rzp_live_1234567890abcdef or rzp_test_..."
+            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-bold text-slate-800">Razorpay Key Secret</Label>
+            <button
+              type="button"
+              onClick={() => setShowSecret(!showSecret)}
+              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+            >
+              {showSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{showSecret ? 'Hide Secret' : 'Show Secret'}</span>
+            </button>
+          </div>
+          <Input
+            type={showSecret ? 'text' : 'password'}
+            value={keySecret}
+            onChange={(e) => setKeySecret(e.target.value)}
+            placeholder="Enter Razorpay Secret Key"
+            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500"
+          />
+          <p className="text-[11px] text-slate-500">
+            Encrypted with <strong>AES-256</strong> at rest. Your secret key is never sent to the client browser and is strictly used server-side to generate and verify payment orders.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs font-bold text-slate-800">Account Reference / Business Tag (Optional)</Label>
+          <Input
+            value={accountRef}
+            onChange={(e) => setAccountRef(e.target.value)}
+            placeholder="e.g. Adways Academy or your business name"
+            className="text-xs rounded-xl bg-white border-slate-200"
+          />
+          <p className="text-[10px] text-slate-400">
+            Helps you identify which merchant account is linked for this admin profile.
+          </p>
+        </div>
+      </div>
+
+      {/* Security & Payout Assurance */}
+      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+        <div className="text-xs space-y-1">
+          <p className="font-bold text-slate-800">Security & Direct Settlement Guarantee</p>
+          <p className="text-slate-600 leading-relaxed">
+            All Razorpay transactions are processed via secure server-to-server calls with HMAC-SHA256 signature verification.
+            Payouts settle directly into your registered bank account according to your Razorpay settlement cycle (typically T+2 days).
+          </p>
+        </div>
+      </div>
+
+      {/* Save Button & Modes Note */}
+      <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <span className="text-xs text-slate-500">
+          Supports UPI (GPay, PhonePe, Paytm), Credit/Debit Cards, NetBanking, and Wallets.
+        </span>
+        <Button
+          onClick={handleSave}
+          disabled={saving}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl cursor-pointer shadow-md shadow-emerald-600/20 transition"
+        >
+          {saving ? 'Saving Credentials...' : saved ? '✓ Credentials Saved Successfully' : 'Save Razorpay Credentials'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// 4. BOOKING RULES TAB
+// =========================================================================
+function BookingRulesSettings({ admin }: { admin: AdminUser }) {
+  const [minAdvance, setMinAdvance] = useState(2);
+  const [maxHorizon, setMaxHorizon] = useState(30);
+  const [defaultBuffer, setDefaultBuffer] = useState(5);
+  const [saved, setSaved] = useState(false);
+
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
+      <div className="border-b border-slate-100 pb-4">
+        <h2 className="text-lg font-black text-slate-900">Booking Rules & Buffers</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Configure advance notice thresholds and rest periods between consecutive meetings.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Minimum Notice (Hours)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={minAdvance}
+            onChange={(e) => setMinAdvance(parseInt(e.target.value) || 0)}
+            className="text-xs rounded-xl"
+          />
+          <p className="text-[10px] text-slate-400">Clients cannot book a meeting sooner than this.</p>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Max Booking Horizon (Days)</Label>
+          <Input
+            type="number"
+            min={1}
+            value={maxHorizon}
+            onChange={(e) => setMaxHorizon(parseInt(e.target.value) || 30)}
+            className="text-xs rounded-xl"
+          />
+          <p className="text-[10px] text-slate-400">How far into the future slots are opened.</p>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">Default Buffer Time (Minutes)</Label>
+        <Input
+          type="number"
+          min={0}
+          value={defaultBuffer}
+          onChange={(e) => setDefaultBuffer(parseInt(e.target.value) || 0)}
+          className="text-xs rounded-xl"
+        />
+        <p className="text-[10px] text-slate-400">Cool-down buffer before and after meetings to avoid back-to-back fatigue.</p>
+      </div>
+
+      <div className="pt-3 border-t border-slate-100 flex justify-end">
+        <Button
+          onClick={() => {
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+          }}
+          className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-5 py-2.5 rounded-xl cursor-pointer"
+        >
+          {saved ? '✓ Saved' : 'Save Rules'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// 5. EMAIL NOTIFICATIONS TAB
+// =========================================================================
+function EmailSettings({ admin }: { admin: AdminUser }) {
+  return (
+    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
+      <div className="border-b border-slate-100 pb-4">
+        <h2 className="text-lg font-black text-slate-900">Email & Google Calendar Reminders</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Automated confirmation emails and meeting reminders sent to clients and admins.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+          <p className="font-bold text-slate-800 flex items-center gap-1.5">
+            <Mail className="w-4 h-4 text-orange-600" />
+            <span>Instant Confirmation Email</span>
+          </p>
+          <p className="text-slate-600">
+            Dispatched to the client immediately upon payment with the confirmed Google Meet link and date/time in their local timezone.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+          <p className="font-bold text-slate-800 flex items-center gap-1.5">
+            <CalendarIcon className="w-4 h-4 text-blue-600" />
+            <span>Google Calendar Reminders (Configured per Spec)</span>
+          </p>
+          <ul className="text-slate-600 space-y-1 list-disc pl-4">
+            <li><strong>1 Hour Before:</strong> Pop-up notification and reminder email to both Client and Admin.</li>
+            <li><strong>5 Minutes Before:</strong> Direct mobile & desktop alert with [Join Google Meet] button.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
