@@ -147,6 +147,8 @@ export function SettingsPage() {
             social_links: bp.social_links || {},
             razorpay_configured: bp.razorpay_configured,
             razorpay_key_id: bp.razorpay_key_id,
+            google_connected: bp.google_connected,
+            google_email: bp.google_email,
           };
 
           setLiveAdmin(synced);

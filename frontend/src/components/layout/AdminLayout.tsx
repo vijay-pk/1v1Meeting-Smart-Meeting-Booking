@@ -14,10 +14,11 @@ export function AdminLayout() {
   // long as an admin screen is on the page (see hooks/useAdminTheme.ts).
   const { preference, setPreference } = useAdminTheme();
 
+  const loggedToken = localStorage.getItem('bmm_auth_token');
   const loggedAdminId = localStorage.getItem('bmm_logged_admin_id');
   const loggedRole = localStorage.getItem('bmm_current_user_role');
 
-  const isAuthenticated = !!user || !!loggedAdminId || !!loggedRole;
+  const isAuthenticated = !!loggedToken && (!!user || !!loggedAdminId || !!loggedRole);
 
   const isSuperAdmin =
     profile?.role === 'super_admin' ||

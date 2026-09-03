@@ -287,7 +287,10 @@ export const api = {
 
   getGoogleStatus: async () => {
     const res = await fetch(`${API_BASE}/google/admin/status`, { headers: getAuthHeaders() });
-    if (!res.ok) return { connected: false };
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to fetch Google status');
+    }
     return res.json();
   },
 
