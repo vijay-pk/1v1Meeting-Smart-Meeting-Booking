@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
+import { ErrorNote } from '@/components/common/ErrorNote';
+import { Spinner } from '@/components/common/Skeleton';
 import {
   UserPlus,
   Mail,
@@ -13,17 +14,12 @@ import {
   User,
   AtSign,
   Phone,
-  AlertCircle,
-  Check,
   ShieldCheck,
   Calendar,
   CreditCard,
   Sparkles,
   ArrowRight,
-  Video,
-  Globe,
-  Eye,
-  EyeOff
+  Globe
 } from 'lucide-react';
 
 export function SignupPage() {
@@ -120,316 +116,205 @@ export function SignupPage() {
     }
   };
 
+  const host = typeof window !== 'undefined' ? window.location.host : '';
+
+  // The username helper line: one message, one colour, in the field's reserved slot. Taken
+  // names read red here and on the Google callback screen, which used to disagree (amber).
+  const usernameHelper = (() => {
+    if (username.length < 3) return { hint: 'At least 3 characters. Letters, numbers and dashes.' };
+    if (checkingUsername) return { hint: 'Checking availability…' };
+    if (usernameAvailability?.available) return { success: `${host}/${username} is available` };
+    if (usernameAvailability && !usernameAvailability.available) {
+      return { error: usernameAvailability.reason || 'That username is already taken' };
+    }
+    return { hint: `${host}/${username}` };
+  })();
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 font-sans relative overflow-x-hidden flex flex-col justify-between">
-      {/* Subtle background glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[900px] h-[450px] bg-gradient-to-b from-orange-500/15 via-amber-500/10 to-transparent blur-3xl pointer-events-none rounded-full" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-indigo-600/10 blur-3xl pointer-events-none rounded-full" />
-
-      {/* TOP NAVIGATION BAR */}
-      <header className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-4 flex items-center justify-between relative z-20 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 via-amber-500 to-indigo-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-orange-500/25">
-            A
+    <AuthShell
+      wide
+      title="Create your account"
+      subtitle="Your booking page is live the moment you finish."
+      footer={
+        <Link
+          to="/admin/login"
+          className="press inline-flex h-10 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-text-secondary transition hover:bg-surface-tertiary"
+        >
+          <span>Sign in</span>
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+      }
+      aside={
+        <div className="space-y-5">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Personal booking pages for 1:1 sessions</span>
           </div>
-          <div>
-            <span className="font-extrabold text-lg tracking-tight text-white">BookMyMeet</span>
-            <span className="ml-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30">
-              Platform
-            </span>
+
+          <h2 className="text-2xl font-black leading-tight tracking-tight text-text-primary sm:text-4xl">
+            Launch your 1:1 booking page in{' '}
+            <span className="text-primary-600">60 seconds</span>.
+          </h2>
+
+          <p className="max-w-xl text-sm leading-relaxed text-text-secondary sm:text-base">
+            Accept paid 1-to-1 appointments, drop the scheduling emails, connect your Google
+            Calendar, and collect payments straight through your own Razorpay account.
+          </p>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[
+              {
+                Icon: Globe,
+                tone: 'bg-primary-50 text-primary-600',
+                title: 'Your own URL',
+                body: <>Claim <code className="font-mono text-[11px] text-primary-700">{host}/username</code> with your own theme, video and bio.</>,
+              },
+              {
+                Icon: Calendar,
+                tone: 'bg-blue-50 text-blue-600',
+                title: 'Google Calendar & Meet',
+                body: 'Busy slots are subtracted automatically, and every confirmed booking gets a Meet link.',
+              },
+              {
+                Icon: CreditCard,
+                tone: 'bg-emerald-50 text-emerald-600',
+                title: 'Your own Razorpay',
+                body: 'Connect your own keys, encrypted at rest. Payments settle directly to you.',
+              },
+              {
+                Icon: ShieldCheck,
+                tone: 'bg-purple-50 text-purple-600',
+                title: 'No double bookings',
+                body: 'Slots are held while a client pays, so two people can never take the same time.',
+              },
+            ].map((feature) => (
+              <div
+                key={feature.title}
+                className="space-y-1.5 rounded-2xl border border-border bg-surface p-4"
+              >
+                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${feature.tone}`}>
+                  <feature.Icon className="h-4 w-4" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-bold text-text-primary">{feature.title}</h3>
+                <p className="text-xs leading-relaxed text-text-tertiary">{feature.body}</p>
+              </div>
+            ))}
           </div>
         </div>
+      }
+    >
+      <div className="space-y-3">
+        <GoogleAuthButton
+          label="Sign up with Google"
+          onError={setError}
+          onStart={() => {
+            if (username.trim()) {
+              localStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
+              sessionStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
+            }
+          }}
+        />
+        <AuthDivider text="or sign up with email" />
+      </div>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/admin/login"
-            className="text-xs font-bold px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1.5 border border-white/10"
-          >
-            <span>Sign In</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
+        {error && <ErrorNote message={error} />}
+
+        <AuthField
+          id="signup-name"
+          label="Full name"
+          type="text"
+          required
+          autoComplete="name"
+          icon={User}
+          placeholder="Your full name"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+        />
+
+        <AuthField
+          id="signup-username"
+          label="Username & personal URL"
+          type="text"
+          required
+          minLength={3}
+          maxLength={30}
+          autoComplete="off"
+          icon={AtSign}
+          placeholder="yourname"
+          value={username}
+          onChange={(e) => handleUsernameChange(e.target.value)}
+          reserveHelper
+          {...usernameHelper}
+        />
+
+        <AuthField
+          id="signup-email"
+          label="Email address"
+          type="email"
+          required
+          autoComplete="email"
+          icon={Mail}
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+
+        <AuthField
+          id="signup-phone"
+          label="Phone number"
+          type="tel"
+          autoComplete="tel"
+          icon={Phone}
+          placeholder="Optional"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          hint="Optional — used only for booking notifications."
+        />
+
+        <AuthField
+          id="signup-password"
+          label="Password"
+          type={showPassword ? 'text' : 'password'}
+          required
+          minLength={6}
+          autoComplete="new-password"
+          icon={Lock}
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          hint="Minimum 6 characters."
+          trailing={
+            <PasswordToggle
+              visible={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
+
+        <Button type="submit" size="touch" disabled={loading} className="mt-1 w-full">
+          {loading ? (
+            <>
+              <Spinner />
+              Creating your page…
+            </>
+          ) : (
+            <>
+              <UserPlus className="h-4 w-4" aria-hidden="true" />
+              Create my booking page
+            </>
+          )}
+        </Button>
+      </form>
+
+      <div className="mt-4 border-t border-border pt-3 text-center">
+        <p className="text-xs text-text-secondary">
+          Already registered?{' '}
+          <Link to="/admin/login" className="font-semibold text-primary-600 hover:underline">
+            Sign in
           </Link>
-        </div>
-      </header>
-
-      {/* MAIN HERO & SIGNUP SECTION */}
-      <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12 relative z-10 my-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-          
-          {/* Left Column: Product Value Proposition */}
-          <div className="lg:col-span-7 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-bold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>SuperProfile-Style Personal Booking Platform</span>
-            </div>
-
-            <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
-              Launch Your 1:1 Personal Booking Page in <span className="bg-gradient-to-r from-orange-400 via-amber-300 to-rose-400 bg-clip-text text-transparent">60 Seconds</span>.
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-              Accept paid 1-to-1 appointments, eliminate scheduling emails, connect your Google Calendar, and collect payments directly via Razorpay.
-            </p>
-
-            {/* Feature Highlights Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">
-                  <Globe className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold text-white">Personal URL</h2>
-                <p className="text-xs text-slate-400">
-                  Claim your link at <code className="text-orange-400 font-mono text-[11px]">{typeof window !== 'undefined' ? window.location.host : 'bookmymeet'}/:username</code> with custom themes, videos & bio.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold text-white">Google Calendar & Meet</h2>
-                <p className="text-xs text-slate-400">
-                  Automatic busy-slot subtraction and direct Google Meet video links generated on confirmation.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                  <CreditCard className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold text-white">Direct Razorpay Setup</h2>
-                <p className="text-xs text-slate-400">
-                  Connect your own Razorpay keys with AES-256 encryption. Keep 100% of your earnings.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold text-white">Zero Double Booking</h2>
-                <p className="text-xs text-slate-400">
-                  Atomic 10-minute temporary slot reservation prevents concurrent booking collisions.
-                </p>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Right Column: Registration Form */}
-          <div className="lg:col-span-5">
-            <Card className="bg-slate-900/90 border-slate-800 shadow-2xl backdrop-blur-md">
-              <CardHeader className="space-y-1 pb-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xl font-bold text-white">Create Admin Account</CardTitle>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    Free Instant Setup
-                  </span>
-                </div>
-                <CardDescription className="text-slate-400 text-xs">
-                  Enter your details to generate your personal booking portal
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent>
-                <div className="space-y-3 mb-5">
-                  <GoogleAuthButton
-                    label="Sign up with Google"
-                    onError={setError}
-                    onStart={() => {
-                      if (username.trim()) {
-                        localStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
-                        sessionStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
-                      }
-                    }}
-                  />
-                  <AuthDivider text="or sign up with email" />
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-3.5">
-                  {error && (
-                    <div className="flex items-center gap-2 p-3 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-xl">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                      <span>{error}</span>
-                    </div>
-                  )}
-
-                  <div className="space-y-1">
-                    <Label htmlFor="signup-name" className="text-xs text-slate-300 font-medium">
-                      Full Name
-                    </Label>
-                    <div className="relative">
-                      <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
-                      <Input
-                        id="signup-name"
-                        type="text"
-                        placeholder="Enter your full name"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="signup-username" className="text-xs text-slate-300 font-medium">
-                      Username & Personal URL
-                    </Label>
-                    <div className="relative">
-                      <AtSign className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
-                      <Input
-                        id="signup-username"
-                        type="text"
-                        placeholder="Enter unique username"
-                        value={username}
-                        onChange={(e) => handleUsernameChange(e.target.value)}
-                        className={`bg-slate-950 text-white pl-10 h-10 rounded-xl text-xs transition-colors ${
-                          usernameAvailability && !usernameAvailability.available
-                            ? 'border-red-500 focus:border-red-500'
-                            : usernameAvailability?.available
-                            ? 'border-emerald-500 focus:border-emerald-500'
-                            : 'border-slate-700'
-                        }`}
-                        required
-                        minLength={3}
-                        maxLength={30}
-                      />
-                    </div>
-                    {username.length >= 3 && (
-                      <div className="mt-1 text-[11px] font-mono">
-                        {checkingUsername ? (
-                          <p className="text-slate-400 flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                            <span>Checking username availability...</span>
-                          </p>
-                        ) : usernameAvailability?.available ? (
-                          <p className="text-emerald-400 flex items-center gap-1 font-semibold">
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>{window.location.host}/{username} (Available)</span>
-                          </p>
-                        ) : usernameAvailability && !usernameAvailability.available ? (
-                          <p className="text-red-400 flex items-center gap-1 font-semibold">
-                            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                            <span>{usernameAvailability.reason || 'Username is already taken'}</span>
-                          </p>
-                        ) : (
-                          <p className="text-slate-400">
-                            {window.location.host}/{username}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="signup-email" className="text-xs text-slate-300 font-medium">
-                      Email Address
-                    </Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
-                      <Input
-                        id="signup-email"
-                        type="email"
-                        placeholder="Enter Gmail or email address"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
-                        required
-                        autoComplete="email"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="signup-phone" className="text-xs text-slate-300 font-medium">
-                      Phone Number (Optional)
-                    </Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
-                      <Input
-                        id="signup-phone"
-                        type="tel"
-                        placeholder="Enter phone number (optional)"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="signup-password" className="text-xs text-slate-300 font-medium">
-                      Password
-                    </Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
-                      <Input
-                        id="signup-password"
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 pr-10 h-10 rounded-xl text-xs"
-                        required
-                        minLength={6}
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 transition cursor-pointer p-0.5 rounded"
-                        title={showPassword ? "Hide password" : "View password"}
-                        aria-label={showPassword ? "Hide password" : "View password"}
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-slate-400" />}
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-slate-500">Minimum 6 characters</p>
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-orange-600 via-amber-600 to-indigo-600 hover:from-orange-700 hover:to-indigo-700 text-white font-bold h-11 rounded-xl shadow-lg shadow-orange-500/20 mt-2 cursor-pointer transition-all"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <UserPlus className="w-4 h-4 mr-1.5" />
-                        <span>Launch My Booking Platform</span>
-                      </>
-                    )}
-                  </Button>
-                </form>
-
-                <div className="mt-4 pt-3 border-t border-slate-800 text-center">
-                  <p className="text-xs text-slate-400">
-                    Already registered?{' '}
-                    <Link
-                      to="/admin/login"
-                      className="text-orange-400 hover:underline font-bold"
-                    >
-                      Sign In
-                    </Link>
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-        </div>
-      </main>
-
-      {/* FOOTER */}
-      <footer className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 border-t border-white/10 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 relative z-20">
-        <p>© 2026 BookMyMeet. Multi-Admin 1:1 Mentorship Platform.</p>
-        <div className="flex items-center gap-4">
-          <Link to="/admin/login" className="hover:text-slate-300 transition">
-            Admin Portal
-          </Link>
-        </div>
-      </footer>
-    </div>
+        </p>
+      </div>
+    </AuthShell>
   );
 }

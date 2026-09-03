@@ -46,7 +46,7 @@ export function GoogleAuthButton({ label = 'Continue with Google', onError, onSt
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className="w-full flex items-center justify-center gap-3 rounded-lg border border-slate-600 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+      className="press inline-flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-border-strong bg-surface px-4 text-sm font-semibold text-text-primary transition hover:bg-surface-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
     >
       <GoogleMark />
       {loading ? 'Redirecting to Google...' : label}
@@ -82,9 +82,9 @@ function GoogleMark() {
 export function AuthDivider({ text = 'or' }: { text?: string }) {
   return (
     <div className="flex items-center gap-3 py-1">
-      <span className="h-px flex-1 bg-slate-700" />
-      <span className="text-[11px] uppercase tracking-wider text-slate-500">{text}</span>
-      <span className="h-px flex-1 bg-slate-700" />
+      <span className="h-px flex-1 bg-border" />
+      <span className="text-[11px] uppercase tracking-wider text-text-tertiary">{text}</span>
+      <span className="h-px flex-1 bg-border" />
     </div>
   );
 }

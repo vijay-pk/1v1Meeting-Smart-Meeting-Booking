@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Crown, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Crown, Lock, Mail, ArrowRight } from 'lucide-react';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
+import { ErrorNote } from '@/components/common/ErrorNote';
+import { Spinner } from '@/components/common/Skeleton';
 import { api } from '@/lib/api';
 import { useBookingStore } from '@/stores/bookingStore';
 
@@ -13,6 +14,7 @@ export const SuperAdminLoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   /**
@@ -69,90 +71,71 @@ export const SuperAdminLoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100">
-      <div className="w-full max-w-md space-y-6">
-        
-        {/* Branding */}
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center text-white font-bold mx-auto shadow-xl shadow-indigo-500/25">
-            <Crown className="w-7 h-7" />
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-white flex items-center justify-center gap-2">
-            <span>Main Super Admin</span>
-            <ShieldCheck className="w-5 h-5 text-indigo-400" />
-          </h1>
-          <p className="text-xs text-slate-400">
-            Platform owner portal
-          </p>
-        </div>
+    <AuthShell
+      title="Platform owner"
+      subtitle="Sign in to the master console."
+      icon={
+        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white">
+          <Crown className="h-6 w-6" aria-hidden="true" />
+        </span>
+      }
+    >
+      <form onSubmit={handleLogin} className="space-y-4">
+        {error && <ErrorNote message={error} />}
 
-        {error && (
-          <div className="bg-red-950/60 border border-red-800/60 rounded-2xl p-3.5 text-xs text-red-200 flex items-center justify-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+        <AuthField
+          id="super-admin-user"
+          label="Username or owner email"
+          type="text"
+          required
+          autoComplete="username"
+          icon={Mail}
+          placeholder="you@example.com"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
 
-        {/* Login Card */}
-        <Card className="bg-slate-900 border-slate-800 text-slate-100 shadow-2xl rounded-3xl overflow-hidden">
-          <CardContent className="p-6 sm:p-8 space-y-5">
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="super-admin-user" className="text-xs font-bold text-slate-300">
-                  Username or Owner Email
-                </Label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <Input
-                    id="super-admin-user"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white pl-10 h-11 rounded-xl text-sm"
-                  />
-                </div>
-              </div>
+        <AuthField
+          id="super-admin-pass"
+          label="Master password"
+          type={showPassword ? 'text' : 'password'}
+          required
+          autoComplete="current-password"
+          icon={Lock}
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          trailing={
+            <PasswordToggle
+              visible={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
 
-              <div className="space-y-1.5">
-                <Label htmlFor="super-admin-pass" className="text-xs font-bold text-slate-300">
-                  Master Password
-                </Label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <Input
-                    id="super-admin-pass"
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white pl-10 h-11 rounded-xl text-sm"
-                  />
-                </div>
-              </div>
+        <Button type="submit" size="touch" disabled={loading} className="w-full">
+          {loading ? (
+            <>
+              <Spinner />
+              Signing in…
+            </>
+          ) : (
+            <>
+              Enter master console
+              <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+            </>
+          )}
+        </Button>
+      </form>
 
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:to-pink-700 text-white font-bold h-11 rounded-xl shadow-lg shadow-indigo-500/25 mt-2 cursor-pointer"
-              >
-                {loading ? 'Entering Master Command...' : 'Enter Super Admin Dashboard'}
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Links */}
-        <div className="flex items-center justify-between text-xs text-slate-400 px-2">
-          <Link to="/" className="hover:text-slate-200 transition-colors">
-            ← Public Booking Page
-          </Link>
-          <Link to="/admin/login" className="text-slate-400 hover:text-slate-300 transition-colors">
-            Staff Admin Login →
-          </Link>
-        </div>
-
+      <div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs">
+        <Link to="/" className="text-text-tertiary transition hover:text-text-secondary">
+          ← Back to sign up
+        </Link>
+        <Link to="/admin/login" className="font-semibold text-primary-600 hover:underline">
+          Admin sign in →
+        </Link>
       </div>
-    </div>
+    </AuthShell>
   );
 };
