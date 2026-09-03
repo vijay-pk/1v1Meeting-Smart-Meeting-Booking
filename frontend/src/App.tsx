@@ -33,6 +33,8 @@ import { PaymentCheckoutPage } from '@/pages/public/PaymentCheckoutPage';
 import { BookingPage } from '@/pages/public/BookingPage';
 import { BookingConfirmationPage } from '@/pages/public/BookingConfirmationPage';
 import { BookingStatusPage } from '@/pages/public/BookingStatusPage';
+import { PrivacyPolicyPage } from '@/pages/public/PrivacyPolicyPage';
+import { TermsPage } from '@/pages/public/TermsPage';
 import { CancelBookingPage } from '@/pages/public/CancelBookingPage';
 import { RescheduleBookingPage } from '@/pages/public/RescheduleBookingPage';
 
@@ -58,6 +60,8 @@ export const App: React.FC = () => {
         <Route path="/booking/status/:token" element={<BookingStatusPage />} />
         <Route path="/booking/cancel/:token" element={<CancelBookingPage />} />
         <Route path="/booking/reschedule/:token" element={<RescheduleBookingPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
 
         {/* Dedicated Auth routes */}
         <Route path="/login" element={<Navigate to="/admin/login" replace />} />
