@@ -87,11 +87,13 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 shrink-0">
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-600 text-white font-bold text-sm shrink-0">
-          B
-        </div>
+        <img
+          src="/logo.png"
+          alt="BookMyMeet Logo"
+          className="w-9 h-9 object-contain rounded-xl shrink-0 shadow-xs"
+        />
         {!collapsed && (
-          <span className="text-sidebar-text-active font-semibold text-lg tracking-tight">
+          <span className="text-sidebar-text-active font-bold text-lg tracking-tight">
             {APP_NAME}
           </span>
         )}

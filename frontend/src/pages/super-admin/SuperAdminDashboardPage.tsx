@@ -500,9 +500,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
       <header className="bg-[#0B1E3B] text-white sticky top-0 z-30 shadow-md">
         <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center shadow-md">
-              <Crown className="w-5 h-5" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="BookMyMeet Logo"
+              className="w-10 h-10 object-contain rounded-xl shadow-md"
+            />
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-extrabold text-base tracking-tight text-white">

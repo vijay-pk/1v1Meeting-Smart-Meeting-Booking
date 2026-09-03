@@ -8,10 +8,12 @@ export function PublicLayout() {
       <header className="bg-surface border-b border-border">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-600 text-white font-bold text-xs">
-              B
-            </div>
-            <span className="font-semibold text-text-primary">{APP_NAME}</span>
+            <img
+              src="/logo.png"
+              alt="BookMyMeet Logo"
+              className="w-8 h-8 object-contain rounded-lg shrink-0 shadow-xs"
+            />
+            <span className="font-bold text-text-primary">{APP_NAME}</span>
           </a>
           <div className="flex items-center gap-4">
             <a

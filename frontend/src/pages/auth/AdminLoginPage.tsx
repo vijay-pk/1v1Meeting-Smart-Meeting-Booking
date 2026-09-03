@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight, UserPlus } from 'lucide-react';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
+import { ErrorNote } from '@/components/common/ErrorNote';
+import { Spinner } from '@/components/common/Skeleton';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
@@ -108,116 +109,90 @@ export const AdminLoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100 font-sans">
-      <div className="w-full max-w-md space-y-6">
-        
-        {/* Branding */}
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-orange-600 via-amber-500 to-indigo-600 flex items-center justify-center text-white font-bold mx-auto shadow-xl shadow-orange-500/25 text-2xl">
-            A
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center justify-center gap-2">
-            <span>Admin Portal</span>
-            <ShieldCheck className="w-6 h-6 text-blue-400" />
-          </h1>
-          <p className="text-xs text-slate-400 font-medium">
-            Single Unified Login • Auto-detects Super Admin vs Admin
-          </p>
-        </div>
-
-        {/* Login Card */}
-        <Card className="bg-slate-900/90 border-slate-800 shadow-2xl backdrop-blur-md">
-          <CardContent className="pt-6">
-            <div className="space-y-3 mb-5">
-              <GoogleAuthButton label="Continue with Google" onError={setError} />
-              <AuthDivider text="or sign in with password" />
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-4">
-              {error && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2 text-red-300 text-xs">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <Label htmlFor="login-id" className="text-xs text-slate-300 font-semibold">
-                  Gmail or Username
-                </Label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                  <Input
-                    id="login-id"
-                    type="text"
-                    required
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Enter Gmail or username"
-                    className="bg-slate-950 border-slate-700 text-white pl-10 h-11 rounded-xl text-sm placeholder:text-slate-500 focus:border-orange-500"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="login-pass" className="text-xs text-slate-300 font-semibold">
-                    Password
-                  </Label>
-                  <span className="text-[11px] text-slate-500">Contact your admin to reset</span>
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                  <Input
-                    id="login-pass"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white pl-10 pr-10 h-11 rounded-xl text-sm focus:border-orange-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="press absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:text-slate-300"
-                    title={showPassword ? "Hide password" : "View password"}
-                    aria-label={showPassword ? "Hide password" : "View password"}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-orange-600 via-amber-600 to-indigo-600 hover:from-orange-700 hover:to-indigo-700 text-white font-bold h-11 rounded-xl shadow-lg shadow-orange-500/20 mt-2 cursor-pointer transition-all"
-              >
-                {loading ? 'Authenticating...' : 'Sign In to Portal'}
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </form>
-
-            <div className="mt-5 pt-4 border-t border-slate-800 text-center">
-              <p className="text-xs text-slate-400">
-                Want to become a mentor?{' '}
-                <Link to="/signup" className="text-orange-400 font-bold hover:underline inline-flex items-center gap-1">
-                  <span>Register as Admin</span>
-                  <UserPlus className="w-3.5 h-3.5" />
-                </Link>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Back Link */}
-        <div className="text-center text-xs text-slate-400">
-          <Link to="/" className="hover:text-slate-200 transition-colors inline-flex items-center gap-1">
-            ← Back to Public Booking Page
-          </Link>
-        </div>
-
+    <AuthShell
+      title="Sign in"
+      subtitle="One login for admins and the platform owner."
+      icon={
+        <img
+          src="/logo.png"
+          alt="BookMyMeet Logo"
+          className="h-12 w-12 object-contain rounded-2xl shadow-sm"
+        />
+      }
+      footer={
+        <Link
+          to="/signup"
+          className="press inline-flex h-10 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-text-secondary transition hover:bg-surface-tertiary"
+        >
+          <span>Create account</span>
+          <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+      }
+    >
+      <div className="space-y-3">
+        <GoogleAuthButton label="Continue with Google" onError={setError} />
+        <AuthDivider text="or sign in with password" />
       </div>
-    </div>
+
+      <form onSubmit={handleLogin} className="mt-4 space-y-4">
+        {error && <ErrorNote message={error} />}
+
+        <AuthField
+          id="login-id"
+          label="Email or username"
+          type="text"
+          required
+          autoComplete="username"
+          icon={Mail}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="you@example.com"
+        />
+
+        <AuthField
+          id="login-pass"
+          label="Password"
+          type={showPassword ? 'text' : 'password'}
+          required
+          autoComplete="current-password"
+          icon={Lock}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="••••••••"
+          labelAction={
+            <span className="text-[11px] text-text-tertiary">Contact your admin to reset</span>
+          }
+          trailing={
+            <PasswordToggle
+              visible={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+            />
+          }
+        />
+
+        <Button type="submit" size="touch" disabled={loading} className="w-full">
+          {loading ? (
+            <>
+              <Spinner />
+              Signing in…
+            </>
+          ) : (
+            <>
+              Sign in
+              <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+            </>
+          )}
+        </Button>
+      </form>
+
+      <div className="mt-5 border-t border-border pt-4 text-center">
+        <p className="text-xs text-text-secondary">
+          Want to take bookings of your own?{' '}
+          <Link to="/signup" className="font-semibold text-primary-600 hover:underline">
+            Create an admin account
+          </Link>
+        </p>
+      </div>
+    </AuthShell>
   );
 };

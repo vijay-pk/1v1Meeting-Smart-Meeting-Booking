@@ -112,10 +112,12 @@ export function TopBar({
           {/* The sidebar carries the brand from lg up; below that it is hidden, so the
               top bar shows it instead and the app never looks unbranded on a phone. */}
           <div className="flex items-center gap-2 lg:hidden">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-sm font-bold text-white">
-              B
-            </div>
-            <span className="truncate text-base font-semibold tracking-tight text-text-primary">
+            <img
+              src="/logo.png"
+              alt="BookMyMeet Logo"
+              className="h-8 w-8 object-contain rounded-lg shrink-0 shadow-xs"
+            />
+            <span className="truncate text-base font-bold tracking-tight text-text-primary">
               {APP_NAME}
             </span>
           </div>

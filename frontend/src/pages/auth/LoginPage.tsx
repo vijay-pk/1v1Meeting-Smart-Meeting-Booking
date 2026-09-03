@@ -40,9 +40,11 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-600 text-white font-bold text-lg mb-4">
-            B
-          </div>
+          <img
+            src="/logo.png"
+            alt="BookMyMeet Logo"
+            className="w-16 h-16 object-contain rounded-2xl mb-4 shadow-sm"
+          />
           <h1 className="text-2xl font-bold text-text-primary">{APP_NAME}</h1>
           <p className="text-text-secondary text-sm mt-1">
             Sign in to manage your bookings
