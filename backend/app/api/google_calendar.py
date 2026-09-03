@@ -120,10 +120,10 @@ def get_auth_url(current_admin: User = Depends(get_current_admin)):
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
         "scope": " ".join(GOOGLE_SCOPES),
-        # offline + consent is what makes Google return a refresh token, which is the only
-        # credential that survives past one hour.
+        # offline + consent is what makes Google return a refresh token.
+        # select_account prompts the user to pick which Google/Gmail account to connect.
         "access_type": "offline",
-        "prompt": "consent",
+        "prompt": "select_account consent",
         "include_granted_scopes": "true",
         "state": build_oauth_state(current_admin.id)
     }
