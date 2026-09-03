@@ -48,6 +48,24 @@ import { Textarea } from '@/components/ui/textarea';
 
 type SettingsTab = 'profile' | 'pricing' | 'payment' | 'booking' | 'calendar' | 'email';
 
+function getVideoEmbedUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const clean = url.trim();
+  if (clean.includes('vimeo.com')) {
+    const match = clean.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+    if (match && match[1]) {
+      return `https://player.vimeo.com/video/${match[1]}?title=0&byline=0&portrait=0&badge=0&autopause=0`;
+    }
+  }
+  if (clean.includes('youtube.com') || clean.includes('youtu.be')) {
+    const match = clean.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    if (match && match[1]) {
+      return `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0`;
+    }
+  }
+  return null;
+}
+
 const THEME_PRESETS = [
   {
     id: 'amber',
@@ -122,6 +140,16 @@ export function SettingsPage() {
           localStorage.setItem('bmm_logged_username', bp.username);
           localStorage.setItem('bmm_logged_admin_id', bp.user_id);
           localStorage.setItem('bmm_logged_admin_name', bp.name);
+          if (bp.profile_photo) {
+            localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+          } else {
+            localStorage.removeItem('bmm_logged_admin_photo');
+          }
+          if (bp.intro_video) {
+            localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+          } else {
+            localStorage.removeItem('bmm_logged_admin_video');
+          }
 
           const synced: AdminUser = {
             id: bp.user_id,
@@ -180,6 +208,9 @@ export function SettingsPage() {
 
   // Strict resolution of currently logged-in admin — never leak or show other admins
   const currentAdmin: AdminUser = useMemo(() => {
+    const storedPhoto = localStorage.getItem('bmm_logged_admin_photo') || '';
+    const storedVideo = localStorage.getItem('bmm_logged_admin_video') || '';
+
     // 1. In Super Admin mode, always resolve to the signed-in super admin
     if (isSuperAdmin) {
       if (liveAdmin && liveAdmin.role === 'super_admin') {
@@ -188,7 +219,13 @@ export function SettingsPage() {
       const superAdminInStore =
         admins.find((a) => a.role === 'super_admin') ||
         currentSuperAdmin;
-      return superAdminInStore;
+      if (superAdminInStore) {
+        return {
+          ...superAdminInStore,
+          photo_url: superAdminInStore.photo_url || storedPhoto || '',
+          intro_video: superAdminInStore.intro_video || storedVideo || '',
+        };
+      }
     }
 
     // 2. Staff admin with live backend profile matching their non-super identity
@@ -204,7 +241,13 @@ export function SettingsPage() {
           (storedAdminId && a.id === storedAdminId) ||
           (activeUsername && a.username?.toLowerCase() === activeUsername.toLowerCase())
       );
-      if (match && match.role !== 'super_admin') return match;
+      if (match && match.role !== 'super_admin') {
+        return {
+          ...match,
+          photo_url: match.photo_url || storedPhoto || '',
+          intro_video: match.intro_video || storedVideo || '',
+        };
+      }
     }
 
     // 4. Construct strictly for this logged-in staff admin — NEVER another admin
@@ -220,6 +263,8 @@ export function SettingsPage() {
       status: 'ACTIVE',
       avatar_color: 'bg-indigo-600',
       avatar_letter: safeName.charAt(0).toUpperCase(),
+      photo_url: storedPhoto || '',
+      intro_video: storedVideo || '',
       theme_settings: {
         theme: 'amber',
         bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
@@ -410,19 +455,13 @@ function ProfileCustomizer({
   const [telegram, setTelegram] = useState(admin.social_links?.telegram || '');
   const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
 
-  // Media Upload & Selection States (Picture & Video from Device)
+  // Media Upload & Selection States (Profile Photo only keeps device upload)
   const [photoTab, setPhotoTab] = useState<'device' | 'url'>('device');
-  const [videoTab, setVideoTab] = useState<'device' | 'url'>('device');
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
-  const [videoUploadError, setVideoUploadError] = useState('');
   const [photoUploadSuccess, setPhotoUploadSuccess] = useState('');
-  const [videoUploadSuccess, setVideoUploadSuccess] = useState('');
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
-  const [isDraggingVideo, setIsDraggingVideo] = useState(false);
 
   const processPhotoFile = async (file: File) => {
     if (!file) return;
@@ -470,52 +509,10 @@ function ProfileCustomizer({
     }
   };
 
-  const processVideoFile = async (file: File) => {
-    if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      setVideoUploadError('Please select a valid video file (MP4, WebM, MOV, MKV).');
-      setTimeout(() => setVideoUploadError(''), 5000);
-      return;
-    }
-    if (file.size > 150 * 1024 * 1024) {
-      setVideoUploadError('Video file size exceeds 150MB limit.');
-      setTimeout(() => setVideoUploadError(''), 5000);
-      return;
-    }
-
-    setIsUploadingVideo(true);
-    setVideoUploadError('');
-    setVideoUploadSuccess('');
-
-    try {
-      const res = await api.uploadMedia(file, 'video');
-      if (res && res.url) {
-        setIntroVideo(res.url);
-        setVideoUploadSuccess('✓ Video uploaded successfully from device!');
-        setTimeout(() => setVideoUploadSuccess(''), 4000);
-      } else {
-        throw new Error('Upload returned no URL');
-      }
-    } catch (err: any) {
-      console.warn('Backend video upload failed, fallback to local object URL:', err);
-      try {
-        const localUrl = URL.createObjectURL(file);
-        setIntroVideo(localUrl);
-        setVideoUploadSuccess('✓ Video selected from device!');
-        setTimeout(() => setVideoUploadSuccess(''), 4000);
-      } catch {
-        setVideoUploadError(err?.message || 'Could not load video file.');
-        setTimeout(() => setVideoUploadError(''), 5000);
-      }
-    } finally {
-      setIsUploadingVideo(false);
-    }
-  };
-
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Synchronize when switching between admins
+  // Synchronize when switching between admins or when live backend profile arrives
   useEffect(() => {
     setUsername(admin.username || '');
     setName(admin.full_name || '');
@@ -524,8 +521,12 @@ function ProfileCustomizer({
     setWelcomeMessage(admin.welcome_message || '');
     setBio(admin.bio || '');
     setAboutMe(admin.about_me_text || '');
-    setPhotoUrl(admin.photo_url || '');
-    setIntroVideo(admin.intro_video || '');
+    if (admin.photo_url !== undefined) {
+      setPhotoUrl(admin.photo_url || '');
+    }
+    if (admin.intro_video !== undefined) {
+      setIntroVideo(admin.intro_video || '');
+    }
     setButtonColor(admin.theme_settings?.button_color || '#D32F2F');
     setBgGradient(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
     setWhatsapp(admin.social_links?.whatsapp || '');
@@ -536,7 +537,7 @@ function ProfileCustomizer({
     setSuperChat(admin.social_links?.super_chat || admin.super_chat_url || '');
     setTelegram(admin.social_links?.telegram || '');
     setCustomSections(admin.custom_sections || []);
-  }, [admin.id, admin.username]);
+  }, [admin.id, admin.username, admin.photo_url, admin.intro_video]);
 
   // === SuperProfile Import ===
   // The whole flow (URL -> preview -> field/session selection -> apply) lives in
@@ -606,6 +607,16 @@ function ProfileCustomizer({
     updateAdminProfile(admin.id, updates);
     localStorage.setItem('bmm_logged_username', cleanUsername);
     localStorage.setItem('bmm_logged_admin_name', name);
+    if (photoUrl) {
+      localStorage.setItem('bmm_logged_admin_photo', photoUrl);
+    } else {
+      localStorage.removeItem('bmm_logged_admin_photo');
+    }
+    if (introVideo) {
+      localStorage.setItem('bmm_logged_admin_video', introVideo);
+    } else {
+      localStorage.removeItem('bmm_logged_admin_video');
+    }
 
     const updatedAdmin = { ...admin, ...updates } as AdminUser;
     if (onUpdate) {
@@ -1034,179 +1045,84 @@ function ProfileCustomizer({
                   <Film className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-slate-800">Intro Video</h4>
-                  <p className="text-[10px] text-text-tertiary">Featured greeting video on your page</p>
+                  <h4 className="text-xs font-bold text-text-primary">Intro Video</h4>
+                  <p className="text-[10px] text-text-tertiary">Featured greeting video on your booking page (YouTube or Vimeo)</p>
                 </div>
               </div>
-
-              {/* Toggle Source */}
-              <div className="flex items-center p-0.5 rounded-lg bg-surface-tertiary text-[10px] font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setVideoTab('device')}
-                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
-                    videoTab === 'device'
-                      ? 'bg-surface text-text-primary shadow-sm'
-                      : 'text-text-tertiary hover:text-slate-800'
-                  }`}
-                >
-                  <Upload className="w-3 h-3" />
-                  <span>From Device</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVideoTab('url')}
-                  className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
-                    videoTab === 'url'
-                      ? 'bg-surface text-text-primary shadow-sm'
-                      : 'text-text-tertiary hover:text-slate-800'
-                  }`}
-                >
-                  <Globe className="w-3 h-3" />
-                  <span>Video Link</span>
-                </button>
-              </div>
+              {introVideo && (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-bold uppercase tracking-wider">
+                  Active Video
+                </span>
+              )}
             </div>
 
-            {/* Hidden Video File Input */}
-            <input
-              type="file"
-              ref={videoInputRef}
-              accept="video/mp4,video/webm,video/quicktime,video/ogg,video/x-matroska"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) processVideoFile(f);
-                if (e.target) e.target.value = '';
-              }}
-            />
-
-            {/* Notification messages */}
-            {videoUploadSuccess && (
-              <div className="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>{videoUploadSuccess}</span>
-              </div>
-            )}
-            {videoUploadError && (
-              <div className="text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{videoUploadError}</span>
-              </div>
-            )}
-
-            {videoTab === 'device' ? (
-              <div className="space-y-3">
-                {introVideo ? (
-                  <div className="p-3 rounded-xl border border-border bg-surface-secondary/70 space-y-2.5">
-                    {/* If it's a direct uploaded video or blob, render HTML5 video preview */}
-                    {!introVideo.includes('youtube.com') && !introVideo.includes('youtu.be') && !introVideo.includes('vimeo.com') ? (
+            {/* Saved Video Preview & URL Configuration */}
+            {introVideo ? (
+              <div className="p-3 rounded-xl border border-border bg-surface-secondary/70 space-y-3">
+                {/* Embed Preview if Vimeo/YouTube, or HTML5 video */}
+                {(() => {
+                  const embedUrl = getVideoEmbedUrl(introVideo);
+                  if (embedUrl) {
+                    return (
                       <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
-                        <video
-                          src={introVideo}
-                          controls
-                          className="w-full h-full object-cover"
+                        <iframe
+                          src={embedUrl}
+                          title="Intro Video Preview"
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
                         />
                       </div>
-                    ) : (
-                      <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
-                        <Video className="w-4 h-4 text-indigo-600 shrink-0" />
-                        <span className="truncate flex-1 font-mono text-[11px]">{introVideo}</span>
+                    );
+                  }
+                  if (introVideo.endsWith('.mp4') || introVideo.endsWith('.webm') || introVideo.includes('/uploads/')) {
+                    return (
+                      <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
+                        <video src={introVideo} controls className="w-full h-full object-cover" />
                       </div>
-                    )}
+                    );
+                  }
+                  return (
+                    <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
+                      <Video className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="truncate flex-1 font-mono text-[11px]">{introVideo}</span>
+                    </div>
+                  );
+                })()}
 
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold uppercase tracking-wider">
-                        Active Intro Video
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isUploadingVideo}
-                          onClick={() => videoInputRef.current?.click()}
-                          className="h-6 text-[10px] px-2 rounded-md font-semibold cursor-pointer"
-                        >
-                          {isUploadingVideo ? (
-                            <>
-                              <Loader2 className="w-2.5 h-2.5 animate-spin mr-1" />
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="w-2.5 h-2.5 mr-1" />
-                              Change Video
-                            </>
-                          )}
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => setIntroVideo('')}
-                          className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Trash2 className="w-2.5 h-2.5" />
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDraggingVideo(true);
-                    }}
-                    onDragLeave={() => setIsDraggingVideo(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsDraggingVideo(false);
-                      const f = e.dataTransfer.files?.[0];
-                      if (f) processVideoFile(f);
-                    }}
-                    onClick={() => videoInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
-                      isDraggingVideo
-                        ? 'border-indigo-500 bg-indigo-50/50'
-                        : 'border-border hover:border-indigo-400 hover:bg-indigo-50/20 bg-surface-secondary/40'
-                    }`}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                      {isUploadingVideo ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <Film className="w-5 h-5" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-text-secondary">
-                        {isUploadingVideo ? 'Uploading video from device...' : 'Click to add video from device'}
-                      </p>
-                      <p className="text-[10px] text-text-tertiary mt-0.5">
-                        MP4, WebM, MOV, MKV (up to 150MB)
-                      </p>
-                    </div>
-                    <Button
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <Label className="text-[11px] font-semibold text-text-secondary">Video URL</Label>
+                    <button
                       type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={isUploadingVideo}
-                      className="h-9 text-xs font-semibold px-3 rounded-lg mt-1 bg-surface border border-border shadow-sm cursor-pointer"
+                      onClick={() => setIntroVideo('')}
+                      className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-1"
                     >
-                      Browse Video Files
-                    </Button>
+                      <Trash2 className="w-3 h-3" />
+                      <span>Remove Video</span>
+                    </button>
                   </div>
-                )}
+                  <div className="flex gap-2">
+                    <Input
+                      value={introVideo}
+                      onChange={(e) => setIntroVideo(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=... or https://vimeo.com/..."
+                      className="text-xs rounded-xl"
+                    />
+                  </div>
+                  <p className="text-[10px] text-text-tertiary">
+                    To change this video, simply paste a new YouTube or Vimeo link above.
+                  </p>
+                </div>
               </div>
             ) : (
-              /* URL Mode for Video */
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-text-secondary">Enter Video Link (Vimeo or YouTube)</Label>
+                <Label className="text-xs font-semibold text-text-secondary">Enter Video Link (YouTube or Vimeo)</Label>
                 <div className="flex gap-2">
                   <Input
                     value={introVideo}
                     onChange={(e) => setIntroVideo(e.target.value)}
-                    placeholder="https://vimeo.com/1130419767 or https://youtube.com/..."
+                    placeholder="https://youtube.com/watch?v=... or https://vimeo.com/..."
                     className="text-xs rounded-xl"
                   />
                   {introVideo && (
@@ -1222,7 +1138,7 @@ function ProfileCustomizer({
                   )}
                 </div>
                 <p className="text-[10px] text-text-tertiary">
-                  Tip: Paste a Vimeo link (e.g. vimeo.com/1130419767) or a YouTube video link.
+                  Paste a link to your introduction video from YouTube (e.g. <code>youtube.com/watch?v=...</code>) or Vimeo (e.g. <code>vimeo.com/...</code>).
                 </p>
               </div>
             )}

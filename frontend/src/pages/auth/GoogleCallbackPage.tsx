@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { AuthShell } from '@/components/auth/AuthShell';
+import { ErrorNote } from '@/components/common/ErrorNote';
+import { Spinner } from '@/components/common/Skeleton';
 import { useBookingStore } from '@/stores/bookingStore';
 
 type Phase = 'verifying' | 'choose-username' | 'creating' | 'error';
@@ -124,6 +129,13 @@ export function GoogleCallbackPage() {
           social_links: bp.social_links || {},
         };
 
+        if (bp.profile_photo) {
+          localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+        }
+        if (bp.intro_video) {
+          localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+        }
+
         // Merge onto the existing record instead of replacing it: this payload carries no
         // google_connected / google_email, and a wholesale replace is what used to make a
         // connected Google Calendar look disconnected after a sign-in.
@@ -183,76 +195,93 @@ export function GoogleCallbackPage() {
   const canSubmit = !!availability?.available && !checking && phase === 'choose-username';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
-      <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-800/60 p-7 shadow-xl">
-        {phase === 'verifying' && (
-          <div className="text-center py-6">
-            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-white" />
-            <p className="text-sm text-slate-300">Signing you in with Google...</p>
-          </div>
-        )}
+    <AuthShell
+      title={phase === 'error' ? 'Sign-in failed' : 'Choose your page address'}
+      subtitle={
+        phase === 'error'
+          ? undefined
+          : phase === 'verifying'
+          ? undefined
+          : `Signed in as ${email}. This is the link you will share with people booking time with you.`
+      }
+    >
+      {phase === 'verifying' && (
+        <div className="py-6 text-center" role="status" aria-live="polite">
+          <Spinner className="mx-auto mb-4 h-8 w-8 border-[3px] text-primary-600" />
+          <p className="text-sm text-text-secondary">Signing you in with Google…</p>
+        </div>
+      )}
 
-        {phase === 'error' && (
-          <div className="text-center">
-            <h1 className="text-lg font-semibold text-white">Sign-in failed</h1>
-            <p className="mt-2 text-sm text-red-400">{error}</p>
-            <button
-              onClick={() => navigate('/admin/login', { replace: true })}
-              className="mt-5 w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-            >
-              Back to sign in
-            </button>
-          </div>
-        )}
+      {phase === 'error' && (
+        <div className="space-y-4 text-center">
+          <ErrorNote message={error || 'Google sign-in could not be completed.'} />
+          <Button
+            size="touch"
+            variant="outline"
+            className="w-full"
+            onClick={() => navigate('/admin/login', { replace: true })}
+          >
+            Back to sign in
+          </Button>
+        </div>
+      )}
 
-        {(phase === 'choose-username' || phase === 'creating') && (
-          <form onSubmit={handleCreate}>
-            <h1 className="text-lg font-semibold text-white">Choose your page address</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Signed in as <span className="text-slate-200">{email}</span>. This is the link you
-              will share with people booking time with you.
-            </p>
-
-            <label htmlFor="google-username" className="mt-5 block text-xs font-medium text-slate-300">
+      {(phase === 'choose-username' || phase === 'creating') && (
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="google-username" className="text-xs font-semibold text-text-secondary">
               Username
-            </label>
-            <div className="mt-1.5 flex items-center rounded-lg border border-slate-600 bg-slate-900 focus-within:border-slate-400">
-              <span className="pl-3 text-sm text-slate-500">{previewHost}/</span>
+            </Label>
+
+            {/* The host prefix stays inside the field, so it is clear the username is the
+                tail of a URL rather than a display name. */}
+            <div className="flex h-11 items-center rounded-xl border border-border-strong bg-surface focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-2 focus-within:ring-offset-surface">
+              <span className="shrink-0 pl-3 text-sm text-text-tertiary">{previewHost}/</span>
               <input
                 id="google-username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value.toLowerCase())}
                 autoFocus
                 disabled={phase === 'creating'}
-                className="min-w-0 flex-1 bg-transparent px-1 py-3 text-base text-white outline-none disabled:opacity-60 sm:text-sm"
+                aria-describedby="google-username-helper"
+                className="min-w-0 flex-1 bg-transparent px-1 text-base text-text-primary outline-none disabled:opacity-60 sm:text-sm"
                 placeholder="yourname"
               />
             </div>
 
-            <div className="mt-2 min-h-[20px] text-xs">
-              {checking && <span className="text-slate-500">Checking availability...</span>}
+            {/* Reserved height so the message appearing never shifts the button under the
+                user's thumb. Taken names read red here, matching the sign-up form. */}
+            <p
+              id="google-username-helper"
+              className="min-h-[16px] text-[11px] leading-tight"
+              aria-live="polite"
+            >
+              {checking && <span className="text-text-tertiary">Checking availability…</span>}
               {!checking && availability?.available && (
-                <span className="text-emerald-400">
+                <span className="font-medium text-emerald-600">
                   {previewHost}/{username} is available
                 </span>
               )}
               {!checking && availability && !availability.available && (
-                <span className="text-amber-400">{availability.reason}</span>
+                <span className="font-medium text-red-600">{availability.reason}</span>
               )}
-            </div>
+            </p>
+          </div>
 
-            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+          {error && <ErrorNote message={error} />}
 
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="mt-4 w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {phase === 'creating' ? 'Creating your account...' : 'Create my page'}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
+          <Button type="submit" size="touch" disabled={!canSubmit} className="w-full">
+            {phase === 'creating' ? (
+              <>
+                <Spinner />
+                Creating your account…
+              </>
+            ) : (
+              'Create my page'
+            )}
+          </Button>
+        </form>
+      )}
+    </AuthShell>
   );
 }

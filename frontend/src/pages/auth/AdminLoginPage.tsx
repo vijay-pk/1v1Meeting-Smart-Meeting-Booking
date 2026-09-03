@@ -65,6 +65,13 @@ export const AdminLoginPage: React.FC = () => {
             social_links: bp.social_links || {},
           };
 
+          if (bp.profile_photo) {
+            localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+          }
+          if (bp.intro_video) {
+            localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+          }
+
           // Merge onto the existing record instead of replacing it: this payload carries no
           // google_connected / google_email, and a wholesale replace is what used to make a
           // connected Google Calendar look disconnected after a profile sync or re-login.
