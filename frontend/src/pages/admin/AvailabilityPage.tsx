@@ -5,10 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Spinner } from '@/components/common/Skeleton';
+import { ErrorNote } from '@/components/common/ErrorNote';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuthStore } from '@/stores/authStore';
-import { useBookingStore } from '@/stores/bookingStore';
-import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { TIMEZONES } from '@/lib/constants';
 import type { AvailabilityException } from '@/types';
@@ -24,19 +23,28 @@ const DAYS_ORDER = [
   { index: 0, name: 'Sun', fullName: 'Sunday' },
 ];
 
-const TIME_OPTIONS = [
-  '06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '09:30',
-  '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
-  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
-  '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00'
-];
+
+/** A working-hours window as the page holds it in memory. */
+interface DayBlock {
+  id: string;
+  day_of_week: number;
+  start_time: string; // HH:MM
+  end_time: string;   // HH:MM
+}
 
 export function AvailabilityPage() {
   const { profile, updateProfile } = useAuthStore();
-  const { scheduleBlocks, addScheduleBlock, removeScheduleBlock } = useBookingStore();
 
-  const adminId = profile?.id || localStorage.getItem('bmm_logged_admin_id') || 'admin';
   const adminName = profile?.full_name || localStorage.getItem('bmm_logged_admin_name') || 'Your';
+
+  // Working hours live here, loaded from and saved to the backend. They used to live in the
+  // persisted zustand store keyed by a client-derived admin id: when that id changed between
+  // renders (the auth store falls back to `admin-<username>` before the profile hydrates),
+  // the filter matched nothing and the page reported "No hours set" while the database held
+  // the rows all along.
+  const [blocks, setBlocks] = useState<DayBlock[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   const [timezone, setTimezone] = useState(profile?.timezone || 'Asia/Kolkata');
   const [exceptions, setExceptions] = useState<AvailabilityException[]>([]);
@@ -56,44 +64,38 @@ export function AvailabilityPage() {
     0: { start: '10:00', end: '14:00' },
   });
 
-  // Load initial availability from store and backend
-  useEffect(() => {
-    const loadAvailability = async () => {
-      try {
-        // 1. Fetch from FastAPI backend
-        const rules = await api.getMyAvailabilityRules();
-        if (Array.isArray(rules) && rules.length > 0) {
-          // Sync with local booking store
-          const currentStoreBlocks = useBookingStore.getState().scheduleBlocks.filter(b => b.admin_id !== adminId);
-          const newBlocks = rules.map((r: any, idx: number) => ({
-            id: `rule-${adminId}-${r.day_of_week}-${idx}`,
-            admin_id: adminId,
+  // Load everything from the backend on mount. No localStorage, no seeded defaults: an
+  // empty result means the admin genuinely has no hours yet, and a failure says so.
+  const loadAvailability = React.useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [rules, excs] = await Promise.all([
+        api.getMyAvailabilityRules(),
+        api.getMyAvailabilityExceptions(),
+      ]);
+
+      setBlocks(
+        (Array.isArray(rules) ? rules : [])
+          .filter((r: any) => r.is_active !== false)
+          .map((r: any, index: number) => ({
+            id: `rule-${r.day_of_week}-${r.start_time}-${index}`,
             day_of_week: r.day_of_week,
-            start_time: r.start_time.slice(0, 5),
-            end_time: r.end_time.slice(0, 5),
-            is_active: r.is_active ?? true,
-          }));
-          useBookingStore.setState({ scheduleBlocks: [...currentStoreBlocks, ...newBlocks] });
-        }
+            start_time: String(r.start_time).slice(0, 5),
+            end_time: String(r.end_time).slice(0, 5),
+          }))
+      );
+      setExceptions(Array.isArray(excs) ? (excs as AvailabilityException[]) : []);
+    } catch (err: any) {
+      setLoadError(err?.message || 'Could not load your availability. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-        // 2. Fetch exceptions from Supabase
-        if (adminId) {
-          const { data: excs } = await supabase
-            .from('availability_exceptions')
-            .select('*')
-            .eq('admin_id', adminId)
-            .order('exception_date', { ascending: true });
-          if (excs) setExceptions(excs as AvailabilityException[]);
-        }
-      } catch (err) {
-        console.warn('Could not load backend rules, using store defaults:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
+  useEffect(() => {
     loadAvailability();
-  }, [adminId]);
+  }, [loadAvailability]);
 
   const handleTimeChange = (dayIndex: number, field: 'start' | 'end', val: string) => {
     setDayNewBlocks(prev => ({
@@ -107,112 +109,115 @@ export function AvailabilityPage() {
 
   const handleAddBlock = (dayIndex: number) => {
     const current = dayNewBlocks[dayIndex] || { start: '09:00', end: '17:00' };
-    if (current.start >= current.end) {
-      alert('End time must be after start time.');
+    if (!current.start || !current.end) {
+      setSaveError('Enter both a start and an end time.');
       return;
     }
+    if (current.start >= current.end) {
+      setSaveError('End time must be after start time.');
+      return;
+    }
+    setSaveError('');
 
-    addScheduleBlock(adminId, dayIndex, current.start, current.end);
+    const duplicate = blocks.some(
+      (b) =>
+        b.day_of_week === dayIndex &&
+        b.start_time === current.start &&
+        b.end_time === current.end
+    );
+    if (duplicate) return;
+
+    setBlocks((prev) => [
+      ...prev,
+      {
+        id: `new-${dayIndex}-${current.start}-${Date.now()}`,
+        day_of_week: dayIndex,
+        start_time: current.start,
+        end_time: current.end,
+      },
+    ]);
+  };
+
+  const removeBlock = (id: string) => {
+    setBlocks((prev) => prev.filter((b) => b.id !== id));
   };
 
   const handleApplyPreset = (preset: 'standard' | 'extended' | 'clear') => {
-    const remaining = scheduleBlocks.filter(b => b.admin_id !== adminId);
-
     if (preset === 'clear') {
-      useBookingStore.setState({ scheduleBlocks: remaining });
+      setBlocks([]);
       return;
     }
 
     const start = preset === 'standard' ? '09:00' : '10:00';
     const end = preset === 'standard' ? '17:00' : '18:00';
 
-    const newBlocks = [1, 2, 3, 4, 5].map((dayIndex, idx) => ({
-      id: `preset-${adminId}-${dayIndex}-${Date.now()}-${idx}`,
-      admin_id: adminId,
-      day_of_week: dayIndex,
-      start_time: start,
-      end_time: end,
-      is_active: true
-    }));
-
-    useBookingStore.setState({ scheduleBlocks: [...remaining, ...newBlocks] });
+    setBlocks(
+      [1, 2, 3, 4, 5].map((dayIndex, idx) => ({
+        id: `preset-${dayIndex}-${Date.now()}-${idx}`,
+        day_of_week: dayIndex,
+        start_time: start,
+        end_time: end,
+      }))
+    );
   };
 
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError('');
 
     try {
-      const myBlocks = scheduleBlocks.filter(b => b.admin_id === adminId && b.is_active);
-
-      // 1. Persist to FastAPI backend rules table
-      const ruleItems = myBlocks.map(b => ({
+      const ruleItems = blocks.map((b) => ({
         day_of_week: b.day_of_week,
-        start_time: b.start_time.length === 5 ? `${b.start_time}:00` : b.start_time,
-        end_time: b.end_time.length === 5 ? `${b.end_time}:00` : b.end_time,
-        is_active: true
+        // Canonical HH:MM. The page previously appended ":00", and the slot engine parses
+        // "%H:%M", so those rows could not be read back into bookable hours.
+        start_time: b.start_time.slice(0, 5),
+        end_time: b.end_time.slice(0, 5),
+        is_active: true,
       }));
 
-      try {
-        await api.saveMyAvailabilityRules(ruleItems);
-      } catch (err) {
-        console.warn('FastAPI availability save error:', err);
-      }
+      // No try/catch swallow here: if this throws, the admin sees the failure instead of a
+      // "Saved" badge over data that never reached the database.
+      await api.saveMyAvailabilityRules(ruleItems);
 
-      // 2. Also save to Supabase if connected
-      if (adminId) {
-        try {
-          await supabase.from('availability_rules').delete().eq('admin_id', adminId);
-          if (ruleItems.length > 0) {
-            await supabase.from('availability_rules').insert(
-              ruleItems.map(r => ({ admin_id: adminId, ...r }))
-            );
-          }
-        } catch (sbErr) {
-          console.warn('Supabase availability save error:', sbErr);
-        }
-      }
-
-      // 3. Update profile timezone
       if (timezone !== profile?.timezone) {
         await updateProfile({ timezone });
       }
 
+      // Adopt what the server actually stored, so the UI can never drift from it.
+      await loadAvailability();
+
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (error) {
-      console.error('Error saving availability:', error);
+    } catch (error: any) {
+      setSaveError(error?.message || 'Could not save your availability. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
   const addException = async () => {
-    if (!adminId || !newException.date) return;
-
+    if (!newException.date) return;
+    setSaveError('');
     try {
-      const { data, error } = await supabase.from('availability_exceptions').insert({
-        admin_id: adminId,
+      const created = await api.addMyAvailabilityException({
         exception_date: newException.date,
-        is_available: false,
         reason: newException.reason || null,
-      }).select();
-
-      if (!error && data) {
-        setExceptions(prev => [...prev, ...data]);
-        setNewException({ date: '', reason: '' });
-      }
-    } catch (e) {
-      console.warn('Exception add error:', e);
+      });
+      setExceptions((prev) => [...prev, created as AvailabilityException]);
+      setNewException({ date: '', reason: '' });
+    } catch (e: any) {
+      setSaveError(e?.message || 'Could not block that date.');
     }
   };
 
   const removeException = async (id: string) => {
+    setSaveError('');
     try {
-      await supabase.from('availability_exceptions').delete().eq('id', id);
-      setExceptions(prev => prev.filter(e => e.id !== id));
-    } catch (e) {
-      console.warn('Exception delete error:', e);
+      await api.deleteMyAvailabilityException(id);
+      setExceptions((prev) => prev.filter((e) => e.id !== id));
+    } catch (e: any) {
+      setSaveError(e?.message || 'Could not remove that blocked date.');
     }
   };
 
@@ -249,6 +254,9 @@ export function AvailabilityPage() {
           </Button>
         }
       />
+
+      {loadError && <ErrorNote message={loadError} onRetry={loadAvailability} />}
+      {saveError && <ErrorNote message={saveError} />}
 
       {/* Quick Schedule Presets */}
       <div className="flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-border text-xs">
@@ -292,9 +300,7 @@ export function AvailabilityPage() {
         </CardHeader>
         <CardContent className="p-6 divide-y divide-border">
           {DAYS_ORDER.map((day) => {
-            const blocksForDay = scheduleBlocks.filter(
-              (b) => b.admin_id === adminId && b.day_of_week === day.index && b.is_active
-            );
+            const blocksForDay = blocks.filter((b) => b.day_of_week === day.index);
             const currentNew = dayNewBlocks[day.index] || { start: '09:00', end: '17:00' };
 
             return (
@@ -308,7 +314,7 @@ export function AvailabilityPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   {blocksForDay.length === 0 ? (
                     <span className="text-xs text-text-tertiary italic py-1 mr-2">
-                      No hours set
+                      {loadError ? 'Could not load' : 'No hours set'}
                     </span>
                   ) : (
                     blocksForDay.map((block) => (
@@ -319,7 +325,7 @@ export function AvailabilityPage() {
                         <span>{block.start_time} - {block.end_time}</span>
                         <button
                           type="button"
-                          onClick={() => removeScheduleBlock(block.id)}
+                          onClick={() => removeBlock(block.id)}
                           className="text-red-500 hover:text-red-700 ml-1 font-bold text-xs cursor-pointer"
                           title="Remove time block"
                         >
@@ -329,37 +335,27 @@ export function AvailabilityPage() {
                     ))
                   )}
 
-                  {/* Add Block Form */}
+                  {/* Add Block Form.
+                      Free time entry rather than a fixed 30-minute dropdown, so any start
+                      and end can be typed (or picked from the browser's own time control). */}
                   <div className="flex items-center gap-2 mt-1 sm:mt-0">
-                    <Select
+                    <Input
+                      type="time"
+                      aria-label={`${day.fullName} start time`}
                       value={currentNew.start}
-                      onValueChange={(val) => handleTimeChange(day.index, 'start', val)}
-                    >
-                      <SelectTrigger className="w-24 h-9 text-xs rounded-lg bg-surface border-border">
-                        <SelectValue placeholder="Start" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-56">
-                        {TIME_OPTIONS.map((t) => (
-                          <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onChange={(e) => handleTimeChange(day.index, 'start', e.target.value)}
+                      className="w-28 h-9 text-xs rounded-lg bg-surface border-border"
+                    />
 
                     <span className="text-xs text-text-tertiary font-medium">to</span>
 
-                    <Select
+                    <Input
+                      type="time"
+                      aria-label={`${day.fullName} end time`}
                       value={currentNew.end}
-                      onValueChange={(val) => handleTimeChange(day.index, 'end', val)}
-                    >
-                      <SelectTrigger className="w-24 h-9 text-xs rounded-lg bg-surface border-border">
-                        <SelectValue placeholder="End" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-56">
-                        {TIME_OPTIONS.map((t) => (
-                          <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onChange={(e) => handleTimeChange(day.index, 'end', e.target.value)}
+                      className="w-28 h-9 text-xs rounded-lg bg-surface border-border"
+                    />
 
                     <Button
                       type="button"

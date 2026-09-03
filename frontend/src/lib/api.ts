@@ -211,9 +211,54 @@ export const api = {
     }
   },
 
+  // Availability is server state. These throw rather than returning [] on failure, so the
+  // page can tell "you have not set hours yet" apart from "we could not load your hours" --
+  // the two used to look identical, which is why a load failure read as "No hours set".
   getMyAvailabilityRules: async () => {
     const res = await fetch(`${API_BASE}/availability/rules`, { headers: getAuthHeaders() });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not load your availability.');
+    }
+    return res.json();
+  },
+
+  getMyAvailabilityExceptions: async () => {
+    const res = await fetch(`${API_BASE}/availability/exceptions`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not load your blocked dates.');
+    }
+    return res.json();
+  },
+
+  addMyAvailabilityException: async (payload: {
+    exception_date: string;
+    start_time?: string | null;
+    end_time?: string | null;
+    reason?: string | null;
+  }) => {
+    const res = await fetch(`${API_BASE}/availability/exceptions`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_available: false, ...payload }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not block that date.');
+    }
+    return res.json();
+  },
+
+  deleteMyAvailabilityException: async (exceptionId: string) => {
+    const res = await fetch(`${API_BASE}/availability/exceptions/${exceptionId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not remove that blocked date.');
+    }
     return res.json();
   },
 

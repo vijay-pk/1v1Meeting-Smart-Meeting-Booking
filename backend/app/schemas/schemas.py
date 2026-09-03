@@ -173,6 +173,28 @@ class AvailabilityRuleItem(BaseModel):
 class AvailabilitySaveRequest(BaseModel):
     rules: List[AvailabilityRuleItem]
 
+class AvailabilityExceptionItem(BaseModel):
+    """
+    A date the admin is not working, optionally only for part of that day.
+
+    start_time/end_time are None for a whole-day block. When both are set, only that
+    window is removed from the day's working hours -- e.g. a 12:00-13:00 lunch inside
+    09:00-17:00.
+    """
+    id: Optional[str] = None
+    exception_date: str            # YYYY-MM-DD
+    is_available: bool = False
+    start_time: Optional[str] = None   # HH:MM
+    end_time: Optional[str] = None     # HH:MM
+    reason: Optional[str] = None
+
+class AvailabilityExceptionCreate(BaseModel):
+    exception_date: str
+    is_available: bool = False
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    reason: Optional[str] = None
+
 # Public Profile & Booking schemas
 class PublicAdminProfile(BaseModel):
     id: str
