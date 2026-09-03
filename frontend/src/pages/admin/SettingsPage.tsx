@@ -1568,8 +1568,21 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
-          {error}
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs font-semibold text-red-700 dark:text-red-400 space-y-2">
+          <p>{error}</p>
+          {error.toLowerCase().includes('session') && (
+            <Button
+              size="sm"
+              onClick={() => {
+                localStorage.removeItem('bmm_auth_token');
+                localStorage.removeItem('bmm_logged_admin_id');
+                window.location.href = '/admin/login';
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white text-xs h-8 px-3 rounded-lg cursor-pointer"
+            >
+              Sign In Again
+            </Button>
+          )}
         </div>
       )}
 
