@@ -71,13 +71,16 @@ export const AdminLoginPage: React.FC = () => {
             const previous = state.admins.find(
               (a) => a.id === synced.id || a.username.toLowerCase() === synced.username.toLowerCase()
             );
+            const merged = { ...previous, ...synced } as any;
             return {
               admins: [
-                { ...previous, ...synced } as any,
+                merged,
                 ...state.admins.filter(
                   (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
                 ),
               ],
+              // Populate currentSuperAdmin so the /super-admin dashboard renders correctly
+              ...(synced.role === 'super_admin' ? { currentSuperAdmin: merged } : {}),
             };
           });
         }

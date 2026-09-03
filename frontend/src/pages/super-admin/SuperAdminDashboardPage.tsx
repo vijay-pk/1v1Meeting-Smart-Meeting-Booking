@@ -102,6 +102,20 @@ export const SuperAdminDashboardPage: React.FC = () => {
     disconnectGoogleCalendar,
   } = useBookingStore();
 
+  // Auth guard: redirect to login if not authenticated as super_admin
+  const loggedRole = localStorage.getItem('bmm_current_user_role');
+  const authToken = localStorage.getItem('bmm_auth_token');
+  useEffect(() => {
+    if (!authToken || loggedRole !== 'super_admin') {
+      navigate('/admin/login', { replace: true });
+    }
+  }, [authToken, loggedRole, navigate]);
+
+  // Prevent crash while redirecting or if store is not yet hydrated
+  if (!authToken || loggedRole !== 'super_admin' || !currentSuperAdmin) {
+    return null;
+  }
+
   // Search and status filter for admins
   const [adminSearch, setAdminSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'TEMPORARILY_DISABLED'>('all');
