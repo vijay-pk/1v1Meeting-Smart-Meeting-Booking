@@ -232,7 +232,16 @@ export function SignupPage() {
 
               <CardContent>
                 <div className="space-y-3 mb-5">
-                  <GoogleAuthButton label="Sign up with Google" onError={setError} />
+                  <GoogleAuthButton
+                    label="Sign up with Google"
+                    onError={setError}
+                    onStart={() => {
+                      if (username.trim()) {
+                        localStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
+                        sessionStorage.setItem('bmm_pending_username', username.trim().toLowerCase());
+                      }
+                    }}
+                  />
                   <AuthDivider text="or sign up with email" />
                 </div>
 

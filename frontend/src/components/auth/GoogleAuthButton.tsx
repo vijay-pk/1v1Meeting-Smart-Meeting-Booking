@@ -6,6 +6,8 @@ interface GoogleAuthButtonProps {
   label?: string;
   /** Surfaced to the parent page so the error sits with the form's other errors. */
   onError?: (message: string) => void;
+  /** Called immediately before starting OAuth redirect (e.g. to save pre-filled username) */
+  onStart?: () => void;
 }
 
 /**
@@ -19,10 +21,11 @@ interface GoogleAuthButtonProps {
  * is decided by whether the Google address already has an account, not by where the
  * user clicked.
  */
-export function GoogleAuthButton({ label = 'Continue with Google', onError }: GoogleAuthButtonProps) {
+export function GoogleAuthButton({ label = 'Continue with Google', onError, onStart }: GoogleAuthButtonProps) {
   const [loading, setLoading] = useState(false);
 
   const handleClick = async () => {
+    onStart?.();
     setLoading(true);
     try {
       const origin = import.meta.env.VITE_APP_URL || window.location.origin;

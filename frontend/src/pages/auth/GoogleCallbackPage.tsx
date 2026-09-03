@@ -61,6 +61,28 @@ export function GoogleCallbackPage() {
           return;
         }
 
+        // New Google user: auto-create account with chosen username (from signup) or suggested username
+        const chosenUsername = (
+          sessionStorage.getItem('bmm_pending_username') ||
+          localStorage.getItem('bmm_pending_username') ||
+          result.suggested_username ||
+          ''
+        ).trim().toLowerCase();
+
+        if (chosenUsername) {
+          try {
+            setPhase('creating');
+            const created = await api.googleAuthComplete(token, chosenUsername);
+            sessionStorage.removeItem('bmm_pending_username');
+            localStorage.removeItem('bmm_pending_username');
+            await finishSignIn(created.role);
+            return;
+          } catch (autoErr: any) {
+            // If the preferred handle had a validation collision, fallback to manual selection
+            console.warn('Auto-create failed, prompting user:', autoErr);
+          }
+        }
+
         setEmail(result.email || '');
         setUsername(result.suggested_username || '');
         setPhase('choose-username');
