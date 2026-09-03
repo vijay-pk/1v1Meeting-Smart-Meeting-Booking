@@ -211,6 +211,25 @@ export const api = {
     }
   },
 
+  getMyAvailabilityRules: async () => {
+    const res = await fetch(`${API_BASE}/availability/rules`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  saveMyAvailabilityRules: async (rules: { day_of_week: number; start_time: string; end_time: string; is_active: boolean }[]) => {
+    const res = await fetch(`${API_BASE}/availability/rules`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ rules })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not save availability');
+    }
+    return res.json();
+  },
+
   // Slot Lock
   holdSlot: async (data: { admin_id: string; session_id: string; start_time: string; end_time: string; session_fingerprint: string }) => {
     const res = await fetch(`${API_BASE}/bookings/hold-slot`, {

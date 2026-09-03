@@ -37,6 +37,7 @@ import {
   Download,
   CreditCard,
   MessageSquare,
+  Phone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
@@ -615,346 +616,218 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         </div>
 
         {/* =========================================================================
-            SECTION 1: ADMINS & WEEKLY HOURS CONFIGURATION
+            SECTION 1: ADMINS & CONSULTANTS MANAGEMENT
            ========================================================================= */}
-        <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-200">
-            
-            {/* Left Sidebar: Admins List + Add Admin */}
-            <div className="md:col-span-4 lg:col-span-4 p-5 bg-surface-secondary/70 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-bold text-text-primary text-sm tracking-tight">
-                    Admins & Staff ({admins.length})
-                  </h2>
-                  <p className="text-[11px] text-text-tertiary">
-                    Search, toggle status & manage consultants
-                  </p>
-                </div>
-
-                <Button
-                  size="sm"
-                  onClick={() => setIsAddAdminOpen(true)}
-                  className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs h-8 px-2.5 rounded-lg flex items-center gap-1 cursor-pointer font-semibold shadow-xs"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>+ Add Admin</span>
-                </Button>
-              </div>
-
-              {notice && (
-                <div className="px-3 py-2 rounded-lg bg-slate-900 text-white text-[11px] font-semibold">
-                  {notice}
-                </div>
-              )}
-              {adminsLoading && (
-                <div className="px-3 py-2 rounded-lg bg-surface-tertiary text-text-tertiary text-[11px] font-semibold">
-                  Loading admins from the server…
-                </div>
-              )}
-
-              {/* Search & Filter Bar */}
-              <div className="space-y-2">
-                <Input
-                  placeholder="Search admin by name, email, or @user..."
-                  value={adminSearch}
-                  onChange={(e) => setAdminSearch(e.target.value)}
-                  className="h-11 sm:h-9 text-xs bg-surface rounded-lg border-border"
-                />
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('all')}
-                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'all' ? 'bg-[#0B1E3B] text-white' : 'bg-slate-200/70 text-text-secondary'
-                    }`}
-                  >
-                    All ({admins.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('ACTIVE')}
-                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'ACTIVE' ? 'bg-emerald-600 text-white' : 'bg-slate-200/70 text-text-secondary'
-                    }`}
-                  >
-                    Active ({admins.filter(a => (a.status || 'ACTIVE') === 'ACTIVE').length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('TEMPORARILY_DISABLED')}
-                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'TEMPORARILY_DISABLED' ? 'bg-amber-600 text-white' : 'bg-slate-200/70 text-text-secondary'
-                    }`}
-                  >
-                    Disabled ({admins.filter(a => a.status === 'TEMPORARILY_DISABLED').length})
-                  </button>
-                </div>
-              </div>
-
-              {/* Admin Cards List */}
-              <div className="space-y-2.5 max-h-[60dvh] overflow-y-auto pr-1">
-                {admins
-                  .filter((adm) => {
-                    const matchSearch =
-                      adminSearch === '' ||
-                      adm.full_name.toLowerCase().includes(adminSearch.toLowerCase()) ||
-                      adm.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
-                      adm.username.toLowerCase().includes(adminSearch.toLowerCase());
-                    const matchStatus =
-                      statusFilter === 'all' || (adm.status || 'ACTIVE') === statusFilter;
-                    return matchSearch && matchStatus;
-                  })
-                  .map((adm) => {
-                    const isSelected = selectedAdminId === adm.id;
-                    const isSuper = adm.role === 'super_admin';
-                    const isActive = (adm.status || 'ACTIVE') === 'ACTIVE';
-
-                    return (
-                      <div
-                        key={adm.id}
-                        onClick={() => setSelectedAdminId(adm.id)}
-                        className={`p-3 rounded-xl transition-all duration-150 border cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#EBF3FF] border-blue-400 text-blue-900 shadow-xs'
-                            : 'bg-surface hover:bg-surface-tertiary/80 border-border text-text-secondary'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={adm.photo_url || DEFAULT_AVATAR}
-                              alt={adm.full_name}
-                              className="w-8 h-8 rounded-full object-cover object-top border shrink-0"
-                            />
-                            <div className="truncate">
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold text-text-primary truncate">{adm.full_name}</p>
-                                {isSuper && (
-                                  <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                )}
-                              </div>
-                              <p className="text-[10px] text-text-tertiary font-mono truncate">/{adm.username}</p>
-                            </div>
-                          </div>
-
-                          {/* Status Badge */}
-                          <span
-                            className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md shrink-0 ${
-                              isActive
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}
-                          >
-                            {isActive ? 'ACTIVE' : 'PAUSED'}
-                          </span>
-                        </div>
-
-                        {/* Integration Badges */}
-                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-[10px]">
-                          <span className={`inline-flex items-center gap-1 font-medium ${adm.google_connected ? 'text-emerald-600' : 'text-text-tertiary'}`}>
-                            <span>GCal</span>
-                            <span>{adm.google_connected ? '✓' : '—'}</span>
-                          </span>
-                          <span className="text-slate-300">•</span>
-                          <span className={`inline-flex items-center gap-1 font-medium ${adm.razorpay_configured ? 'text-blue-600' : 'text-text-tertiary'}`}>
-                            <span>Razorpay</span>
-                            <span>{adm.razorpay_configured ? '✓' : '—'}</span>
-                          </span>
-
-                          {/* Public Profile Link */}
-                          <Link
-                            to={`/${adm.username}`}
-                            target="_blank"
-                            onClick={(e) => e.stopPropagation()}
-                            className="ml-auto text-indigo-600 hover:underline flex items-center gap-0.5 text-[10px] font-bold"
-                          >
-                            <span>Profile</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </Link>
-                        </div>
-
-                        {/* Actions Row */}
-                        {!isSuper && (
-                          <div className="flex items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-border" onClick={(e) => e.stopPropagation()}>
-                            {/* Toggle Status */}
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const newStatus = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE';
-                                try {
-                                  // Server first: the local list follows what actually
-                                  // changed, instead of showing a state the API refused.
-                                  await api.superAdminUpdateStatus(adm.id, newStatus);
-                                  setAdminStatus(adm.id, newStatus);
-                                } catch (e: any) {
-                                  setNotice(e?.message || 'Could not update that admin.');
-                                  setTimeout(() => setNotice(''), 6000);
-                                }
-                              }}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
-                                isActive
-                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
-                              }`}
-                            >
-                              {isActive ? 'Pause' : 'Activate'}
-                            </button>
-
-                            {/* Gmail Credentials */}
-                            <button
-                              type="button"
-                              title="Send Login Credentials via Gmail"
-                              onClick={() => {
-                                setTargetAdminForEmail(adm);
-                                setIsEmailCredsOpen(true);
-                              }}
-                              className="press inline-flex h-10 w-10 items-center justify-center rounded-md text-text-tertiary hover:text-indigo-600 hover:bg-surface-tertiary cursor-pointer"
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Permanent Delete with Modal Confirmation */}
-                            <button
-                              type="button"
-                              title="Permanently Delete Admin"
-                              onClick={() => {
-                                setAdminToDelete(adm);
-                                setIsDeleteModalOpen(true);
-                              }}
-                              className="press inline-flex h-10 w-10 items-center justify-center rounded-md text-text-tertiary hover:text-red-600 hover:bg-red-50 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
+        <div className="bg-surface rounded-2xl border border-border shadow-sm p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+            <div>
+              <h2 className="font-bold text-text-primary text-lg tracking-tight flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                <span>Admins & Consultants ({admins.length})</span>
+              </h2>
+              <p className="text-xs text-text-tertiary mt-0.5">
+                View consultants, monitor active status, and manage platform staff accounts.
+              </p>
             </div>
 
-            {/* Right: Selected Admin Weekly Hours */}
-            <div className="md:col-span-8 lg:col-span-8 p-6 sm:p-8 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-bold text-text-primary">
-                      {selectedAdmin.full_name} — weekly hours
-                    </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-text-secondary font-semibold">
-                      {selectedAdmin.role === 'super_admin' ? 'Super Admin' : 'Staff Consultant'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-tertiary mt-0.5">
-                    Set daily availability time blocks for {selectedAdmin.full_name.split(' ')[0]}.
-                  </p>
-                </div>
+            <Button
+              size="sm"
+              onClick={() => setIsAddAdminOpen(true)}
+              className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs h-9 px-4 rounded-lg flex items-center gap-1.5 cursor-pointer font-semibold shadow-xs"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>+ Add Consultant</span>
+            </Button>
+          </div>
 
-                {selectedAdmin.role !== 'super_admin' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setTargetAdminForEmail(selectedAdmin);
-                      setIsEmailCredsOpen(true);
-                    }}
-                    className="text-xs h-8 px-3 rounded-lg border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 flex items-center gap-1.5 cursor-pointer font-semibold"
+          {notice && (
+            <div className="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">
+              {notice}
+            </div>
+          )}
+          {adminsLoading && (
+            <div className="px-3 py-2 rounded-lg bg-surface-tertiary text-text-tertiary text-xs font-semibold">
+              Loading admins from the server…
+            </div>
+          )}
+
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <Input
+              placeholder="Search by name, email, or @username..."
+              value={adminSearch}
+              onChange={(e) => setAdminSearch(e.target.value)}
+              className="h-10 text-xs bg-surface rounded-lg border-border max-w-md w-full"
+            />
+            <div className="flex gap-1.5 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  statusFilter === 'all' ? 'bg-[#0B1E3B] text-white' : 'bg-surface-tertiary text-text-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                All ({admins.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ACTIVE')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  statusFilter === 'ACTIVE' ? 'bg-emerald-600 text-white' : 'bg-surface-tertiary text-text-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                Active ({admins.filter(a => (a.status || 'ACTIVE') === 'ACTIVE').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('TEMPORARILY_DISABLED')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  statusFilter === 'TEMPORARILY_DISABLED' ? 'bg-amber-600 text-white' : 'bg-surface-tertiary text-text-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                Paused ({admins.filter(a => a.status === 'TEMPORARILY_DISABLED').length})
+              </button>
+            </div>
+          </div>
+
+          {/* Admin Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {admins
+              .filter((adm) => {
+                const matchSearch =
+                  adminSearch === '' ||
+                  adm.full_name.toLowerCase().includes(adminSearch.toLowerCase()) ||
+                  adm.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
+                  adm.username.toLowerCase().includes(adminSearch.toLowerCase());
+                const matchStatus =
+                  statusFilter === 'all' || (adm.status || 'ACTIVE') === statusFilter;
+                return matchSearch && matchStatus;
+              })
+              .map((adm) => {
+                const isSuper = adm.role === 'super_admin';
+                const isActive = (adm.status || 'ACTIVE') === 'ACTIVE';
+
+                return (
+                  <div
+                    key={adm.id}
+                    className="p-4 rounded-xl border border-border bg-surface hover:shadow-md transition space-y-3 flex flex-col justify-between"
                   >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Send Login Credentials</span>
-                  </Button>
-                )}
-              </div>
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={adm.photo_url || DEFAULT_AVATAR}
+                            alt={adm.full_name}
+                            className="w-10 h-10 rounded-full object-cover object-top border shrink-0"
+                          />
+                          <div className="truncate">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-bold text-text-primary truncate">{adm.full_name}</p>
+                              {isSuper && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                            </div>
+                            <a
+                              href={`/${adm.username}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-mono truncate block"
+                            >
+                              /{adm.username}
+                            </a>
+                          </div>
+                        </div>
 
-              {/* Day By Day Blocks */}
-              <div className="space-y-6">
-                {DAYS_OF_WEEK.map((day) => {
-                  const blocksForDay = scheduleBlocks.filter(
-                    (b) => b.admin_id === selectedAdminId && b.day_of_week === day.index && b.is_active
-                  );
-                  const currentNew = dayNewBlocks[day.index] || { start: '07:00', end: '07:00' };
-
-                  return (
-                    <div key={day.index} className="space-y-2 pb-4 border-b border-border last:border-0 last:pb-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-slate-800 w-16">
-                          {day.name}
+                        <span
+                          className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
+                          }`}
+                        >
+                          {isActive ? 'ACTIVE' : 'PAUSED'}
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {blocksForDay.length === 0 ? (
-                          <span className="text-xs text-text-tertiary italic py-1 mr-2">
-                            No hours set
-                          </span>
-                        ) : (
-                          blocksForDay.map((block) => (
-                            <div
-                              key={block.id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-tertiary text-slate-800 text-xs font-semibold border border-border"
-                            >
-                              <span>{block.start_time}-{block.end_time}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeScheduleBlock(block.id)}
-                                className="text-red-500 hover:text-red-700 ml-1 font-bold text-xs cursor-pointer"
-                                title="Remove time block"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ))
+                      <div className="mt-3 space-y-1 text-xs text-text-secondary">
+                        <p className="truncate flex items-center gap-1.5">
+                          <Mail className="w-3 h-3 text-text-tertiary shrink-0" />
+                          <span>{adm.email}</span>
+                        </p>
+                        {adm.phone && (
+                          <p className="truncate flex items-center gap-1.5">
+                            <Phone className="w-3 h-3 text-text-tertiary shrink-0" />
+                            <span>{adm.phone}</span>
+                          </p>
                         )}
+                      </div>
 
-                        {/* Add Block Form */}
-                        <div className="flex items-center gap-2 mt-1 sm:mt-0">
-                          <Select
-                            value={currentNew.start}
-                            onValueChange={(val) => handleTimeChange(day.index, 'start', val)}
+                      {/* Integration Badges */}
+                      <div className="flex items-center gap-3 mt-3 pt-2.5 border-t border-border text-[11px]">
+                        <span className={`inline-flex items-center gap-1 font-medium ${adm.google_connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-tertiary'}`}>
+                          <span>GCal:</span>
+                          <span>{adm.google_connected ? 'Connected ✓' : 'Not linked'}</span>
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className={`inline-flex items-center gap-1 font-medium ${adm.razorpay_configured ? 'text-blue-600 dark:text-blue-400' : 'text-text-tertiary'}`}>
+                          <span>Razorpay:</span>
+                          <span>{adm.razorpay_configured ? 'Live ✓' : 'Not set'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    {!isSuper && (
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            const newStatus = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE';
+                            try {
+                              await api.superAdminUpdateStatus(adm.id, newStatus);
+                              setAdminStatus(adm.id, newStatus);
+                            } catch (e: any) {
+                              setNotice(e?.message || 'Could not update that admin.');
+                              setTimeout(() => setNotice(''), 6000);
+                            }
+                          }}
+                          className="text-xs h-8 px-2 text-text-secondary hover:text-text-primary"
+                        >
+                          {isActive ? 'Pause Account' : 'Activate Account'}
+                        </Button>
+
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Send Login Credentials"
+                            onClick={() => {
+                              setTargetAdminForEmail(adm);
+                              setIsEmailCredsOpen(true);
+                            }}
+                            className="h-8 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                           >
-                            <SelectTrigger className="w-full sm:w-24 h-9 text-xs rounded-lg bg-surface border-border">
-                              <SelectValue placeholder="Start" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-56">
-                              {TIME_OPTIONS.map((t) => (
-                                <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          <span className="text-xs text-text-tertiary font-medium">to</span>
-
-                          <Select
-                            value={currentNew.end}
-                            onValueChange={(val) => handleTimeChange(day.index, 'end', val)}
-                          >
-                            <SelectTrigger className="w-full sm:w-24 h-9 text-xs rounded-lg bg-surface border-border">
-                              <SelectValue placeholder="End" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-56">
-                              {TIME_OPTIONS.map((t) => (
-                                <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            <Mail className="w-3.5 h-3.5 mr-1" />
+                            <span className="text-xs">Email</span>
+                          </Button>
 
                           <Button
-                            type="button"
+                            variant="ghost"
                             size="sm"
-                            onClick={() => handleAddBlock(day.index)}
-                            className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs h-9 px-3.5 rounded-lg font-semibold cursor-pointer"
+                            title="Permanently Delete Admin"
+                            onClick={() => {
+                              setAdminToDelete(adm);
+                              setIsDeleteModalOpen(true);
+                            }}
+                            className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
                           >
-                            + Add block
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
 
