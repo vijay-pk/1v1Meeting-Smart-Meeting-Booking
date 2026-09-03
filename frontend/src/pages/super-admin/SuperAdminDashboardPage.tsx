@@ -1279,7 +1279,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <div className="flex items-center justify-between">
                     <Label className="text-[11px] font-semibold text-slate-700">Razorpay Key ID</Label>
                     <a
-                      href="https://dashboard.razorpay.com/#/access/api_keys"
+                      href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
                       target="_blank"
                       rel="noreferrer"
                       className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"

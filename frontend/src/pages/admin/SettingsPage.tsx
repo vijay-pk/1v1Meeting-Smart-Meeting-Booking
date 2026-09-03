@@ -2212,36 +2212,25 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-          <a
-            href="https://dashboard.razorpay.com/#/access/api_keys"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-          >
-            <span>Log In to Razorpay</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-          <a
-            href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer"
-          >
-            <span>Sign Up (Free)</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-          </a>
-        </div>
+        <a
+          href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
+        >
+          <span>Sign Up for Razorpay (Free)</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
       </div>
 
-      {/* Educational Callout explaining Razorpay Login requirement */}
+      {/* Educational Callout explaining Razorpay Sign-up requirement */}
       <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
         <div className="space-y-0.5 leading-relaxed">
-          <p className="font-bold">Why does Razorpay ask you to Log In or Sign Up?</p>
+          <p className="font-bold">Why create a Razorpay Account?</p>
           <p className="text-[11px] text-blue-800">
-            BookMyMeet routes <strong>100% of your client payments directly into your own bank account</strong>. 
-            Because Razorpay is a licensed financial gateway, each consultant must log into their own Razorpay dashboard to retrieve their private API keys. If you don't have a Razorpay account yet, click <strong>"Sign Up (Free)"</strong> to register with your PAN and bank account.
+            BookMyMeet routes <strong>100% of client booking payments directly into your own bank account</strong> with 0% platform fee.
+            Click <strong>"Sign Up for Razorpay (Free)"</strong> above to register your merchant profile with your PAN and bank account. Once signed up, copy your <strong>Live Key ID</strong> (<code className="font-mono bg-blue-100 px-1 rounded">rzp_live_...</code>) and <strong>Key Secret</strong>, and paste them below.
           </p>
         </div>
       </div>
@@ -2280,7 +2269,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
                   </p>
                 </div>
                 <a
-                  href="https://dashboard.razorpay.com/#/access/api_keys"
+                  href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
                   target="_blank"
                   rel="noreferrer"
                   className="mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-[11px] border border-indigo-200 transition"
