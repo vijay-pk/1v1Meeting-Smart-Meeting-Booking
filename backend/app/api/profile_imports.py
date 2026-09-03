@@ -59,14 +59,23 @@ IMPORTABLE_PROFILE_FIELDS = {
 
 IMPORT_MODES = {"add", "replace", "sessions_only", "profile_only"}
 
-# AdminProfile ships column defaults for a few fields (models.py:39,45,48). In "add" mode a
-# value the admin never chose should not count as "already filled in" and block an import.
+# Text the admin never wrote: AdminProfile column defaults (models.py:39,45,48) plus the
+# bio/heading auth.provision_admin() generates at signup. In "add" mode these must not count
+# as "already filled in" -- otherwise an import would silently skip the bio and headline of
+# every admin who signed up normally, which is all of them.
 PLACEHOLDER_PROFILE_VALUES = {
     "mentor & consultant",
+    "mentor & growth consultant",
     "book a 1:1 mentorship session",
     "welcome to my booking portal",
     "choose your session and pick a convenient time.",
 }
+
+# Templates from auth.provision_admin(), matched with the admin's own name substituted.
+GENERATED_PROFILE_TEMPLATES = (
+    "hey! i am {name}. book a 1:1 session with me to accelerate your growth.",
+    "book a 1:1 session with {name}",
+)
 
 DUPLICATE_SIMILARITY_THRESHOLD = 0.85
 
@@ -362,9 +371,14 @@ async def apply_import(
             selected = [f for f in req.profile_fields if f in IMPORTABLE_PROFILE_FIELDS]
             replace = req.mode == "replace"
 
+            generated = {
+                template.format(name=(current_admin.name or "").casefold())
+                for template in GENERATED_PROFILE_TEMPLATES
+            }
+
             def _is_blank(current: Optional[str]) -> bool:
-                text = (current or "").strip()
-                return not text or text.casefold() in PLACEHOLDER_PROFILE_VALUES
+                text = (current or "").strip().casefold()
+                return not text or text in PLACEHOLDER_PROFILE_VALUES or text in generated
 
             def _set(attribute: str, value: Optional[str], field_name: str) -> None:
                 """In "add" mode an imported value only fills a gap; it never overwrites."""

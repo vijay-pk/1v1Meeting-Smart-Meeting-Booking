@@ -33,10 +33,13 @@ class Settings(BaseSettings):
         return v
 
     # Super Admin initial seed credentials
-    SUPER_ADMIN_USERNAME: str = os.getenv("SUPER_ADMIN_USERNAME", "ameen")
-    SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "mahir@adwaysacademy.com")
+    # No real person's name or address as a default. The email is required for the same
+    # reason the password is: a shipped default identity is a fake account waiting to be
+    # created on someone's first boot.
+    SUPER_ADMIN_USERNAME: str = os.getenv("SUPER_ADMIN_USERNAME", "owner")
+    SUPER_ADMIN_EMAIL: str
     SUPER_ADMIN_PASSWORD: str
-    SUPER_ADMIN_NAME: str = os.getenv("SUPER_ADMIN_NAME", "Ameen Ahsan")
+    SUPER_ADMIN_NAME: str = os.getenv("SUPER_ADMIN_NAME", "Platform Owner")
 
     # NOTE: demo/staff admin seeding has been removed entirely. The application never
     # creates sample admin accounts -- see main.seed_initial_data(), which bootstraps only

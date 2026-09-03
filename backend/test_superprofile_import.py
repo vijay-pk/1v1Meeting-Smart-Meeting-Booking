@@ -567,6 +567,45 @@ def test_add_mode_fills_empty_fields_and_creates_sessions(stub_page, admin, db):
     assert session.is_active is True
 
 
+def test_add_mode_fills_over_the_bio_generated_at_signup(stub_page, tracked, monkeypatch):
+    """
+    Signup writes a generated bio and heading ("Hey! I am X..."). Those are not text the
+    admin chose, so an "add" import must be allowed to replace them -- otherwise the bio
+    could never be imported by anyone who registered normally.
+    """
+    uid = uuid.uuid4().hex[:8]
+    email, username = f"imp_{uid}@testdomain.com", f"imp{uid}"
+    signup = client.post("/api/auth/signup", json={
+        "name": "Generated Admin", "email": email, "password": PASSWORD, "username": username,
+    })
+    assert signup.status_code == 200
+    tracked.append(signup.json()["user_id"])
+    headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+
+    session = SessionLocal()
+    try:
+        profile = session.query(AdminProfile).filter(AdminProfile.username == username).first()
+        assert profile.bio.startswith("Hey! I am"), "signup should have generated a bio"
+    finally:
+        session.close()
+
+    stub_page["html"] = _page(ONE_SESSION)
+    preview = client.post("/api/profile-import/preview", headers=headers,
+                          json={"source_url": "https://superprofile.bio/testhandle"})
+    client.post("/api/profile-import/apply", headers=headers, json={
+        "import_id": preview.json()["import_id"], "mode": "add",
+        "profile_fields": ["bio", "headline"], "sessions": [],
+    })
+
+    session = SessionLocal()
+    try:
+        profile = session.query(AdminProfile).filter(AdminProfile.username == username).first()
+        assert profile.bio == "Public bio text."
+        assert profile.title == "Growth consultant"
+    finally:
+        session.close()
+
+
 def test_add_mode_never_overwrites_existing_profile_text(stub_page, admin, db):
     profile = db.query(AdminProfile).filter(AdminProfile.user_id == admin["id"]).first()
     profile.bio = "My own carefully written bio"

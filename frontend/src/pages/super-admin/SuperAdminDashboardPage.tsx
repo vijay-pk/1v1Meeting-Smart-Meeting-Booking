@@ -189,7 +189,8 @@ export const SuperAdminDashboardPage: React.FC = () => {
   // Super Admin Credentials Edit State
   const [masterUsername, setMasterUsername] = useState(currentSuperAdmin.username);
   const [masterEmail, setMasterEmail] = useState(currentSuperAdmin.email);
-  const [masterPassword, setMasterPassword] = useState(currentSuperAdmin.password || 'admin123');
+  // Never a default credential: an empty field means "leave the password unchanged".
+  const [masterPassword, setMasterPassword] = useState('');
   const [credsSavedNotice, setCredsSavedNotice] = useState(false);
 
   // Super Admin's own settings & integrations state
