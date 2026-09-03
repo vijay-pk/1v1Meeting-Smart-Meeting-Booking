@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/stores/authStore';
+import { api } from '@/lib/api';
 import { BOOKING_STATUS_LABELS, BOOKING_STATUS_COLORS, CURRENCIES } from '@/lib/constants';
 import type { Booking } from '@/types';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -12,7 +11,6 @@ import { DataList } from '@/components/common/DataList';
 import { ErrorNote } from '@/components/common/ErrorNote';
 
 export function BookingsPage() {
-  const { user } = useAuthStore();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
@@ -20,36 +18,62 @@ export function BookingsPage() {
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
   useEffect(() => {
-    if (user) fetchBookings();
-  }, [user, filter]);
+    // No `if (user)` gate. The auth store hydrates asynchronously, and when it never
+    // produced a user object the fetch simply never ran -- the page sat on its loading
+    // state or showed an empty list forever. The request authenticates with the stored
+    // bearer token, so it does not need the store to have caught up.
+    fetchBookings();
+  }, [filter]);
 
   async function fetchBookings() {
     setLoading(true);
-    let query = supabase
-      .from('bookings')
-      .select(`
-        *,
-        customer:customers(*),
-        meeting_type:meeting_types(*),
-        payment:payments(*)
-      `)
-      .eq('admin_id', user!.id)
-      .order('created_at', { ascending: false });
+    try {
+      // Read from the backend that the booking flow actually writes to. This page used to
+      // query Supabase directly, which is a different database entirely -- so a real, paid
+      // booking could never appear here no matter how many were created. It also filtered
+      // on `user.id` from the auth store, which can be a client-derived `admin-<username>`
+      // rather than the real database id. The endpoint scopes to the authenticated admin
+      // server-side, so no client-supplied id is involved.
+      const rows = await api.getMyBookings(filter);
 
-    if (filter !== 'all') {
-      query = query.eq('status', filter);
-    }
-
-    const { data, error } = await query;
-    if (!error && data) {
-      setBookings(data as unknown as Booking[]);
+      // The API returns a flat row; the table and detail panel below render a nested shape.
+      // Mapped here rather than rewriting the rendering.
+      setBookings(
+        (Array.isArray(rows) ? rows : []).map((row: any) => ({
+          id: row.id,
+          public_id: row.public_id,
+          status: row.status,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          created_at: row.created_at,
+          customer_timezone: row.timezone,
+          google_meet_url: row.google_meet_link,
+          customer: {
+            name: row.client_name,
+            email: row.client_email,
+            phone: row.client_phone,
+          },
+          meeting_type: {
+            name: row.session_title,
+            duration_minutes: row.duration_minutes,
+            price: row.price,
+            currency: 'INR',
+          },
+          payment: {
+            status: row.payment_status,
+            amount: row.price,
+            currency: 'INR',
+          },
+        })) as unknown as Booking[]
+      );
       setLoadError('');
-    } else if (error) {
-      // Previously this failed silently and rendered the empty state, so a connection
-      // problem looked exactly like "you have no bookings". The query is unchanged.
-      setLoadError('We could not load your bookings just now.');
+    } catch (err: any) {
+      // An empty list and a failed request are different things: saying "No bookings yet"
+      // when the request failed is how a real booking looks like it vanished.
+      setLoadError(err?.message || 'We could not load your bookings just now.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const statusFilters = [
@@ -222,14 +246,9 @@ function BookingDetailModal({
     if (!confirm('Are you sure you want to cancel this booking?')) return;
     setCancelling(true);
     try {
-      await supabase
-        .from('bookings')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancellation_reason: 'Cancelled by admin',
-        })
-        .eq('id', booking.id);
+      // Was writing to Supabase, and to `cancelled_at`/`cancellation_reason` columns that
+      // do not exist in this schema -- so cancelling silently did nothing.
+      await api.cancelMyBooking(booking.id);
       onRefresh();
       onClose();
     } catch (err) {

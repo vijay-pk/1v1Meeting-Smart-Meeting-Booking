@@ -289,6 +289,37 @@ export const api = {
     return res.json();
   },
 
+  /**
+   * The signed-in admin's own bookings, straight from the database that the booking flow
+   * writes to. Throws on failure so the page can tell "no bookings yet" apart from
+   * "could not load".
+   */
+  getMyBookings: async (statusFilter?: string) => {
+    const query = statusFilter && statusFilter !== 'all'
+      ? `?status_filter=${encodeURIComponent(statusFilter)}`
+      : '';
+    const res = await fetch(`${API_BASE}/bookings/my-bookings${query}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not load your bookings.');
+    }
+    return res.json();
+  },
+
+  cancelMyBooking: async (bookingId: string) => {
+    const res = await fetch(`${API_BASE}/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not cancel that booking.');
+    }
+    return res.json();
+  },
+
   /** A confirmed booking, by its public reference (BK-YYYYMMDD-XXXXXX). */
   getPublicBooking: async (publicId: string) => {
     const res = await fetch(`${API_BASE}/bookings/public/${encodeURIComponent(publicId)}`);

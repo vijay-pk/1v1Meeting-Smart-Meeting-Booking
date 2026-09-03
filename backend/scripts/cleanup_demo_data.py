@@ -63,6 +63,8 @@ TEST_EMAIL_PATTERNS = [
     re.compile(r"^gtest_[0-9a-f]+@example\.com$", re.I),
     re.compile(r"^imp_[0-9a-f]+@testdomain\.com$", re.I),
     re.compile(r"^apitest_[0-9a-f]+@testdomain\.com$", re.I),
+    re.compile(r"^bk_[a-z]+_[0-9a-f]+@testdomain\.com$", re.I),
+    re.compile(r"^avail_[a-z]+_[0-9a-f]+@testdomain\.com$", re.I),
 ]
 
 

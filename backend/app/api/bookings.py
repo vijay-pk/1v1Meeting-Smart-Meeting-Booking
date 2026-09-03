@@ -121,6 +121,43 @@ def get_admin_bookings(
         })
     return results
 
+@router.post("/{booking_id}/cancel")
+def cancel_my_booking(
+    booking_id: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancels one of the signed-in admin's own bookings.
+
+    Ownership is re-checked here rather than trusted from the request, so an admin can never
+    cancel someone else's booking by id. The slot becomes bookable again because the slot
+    engine only counts "confirmed" and "pending_payment" bookings.
+    """
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id, Booking.admin_id == current_admin.id)
+        .first()
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    if booking.status == "cancelled":
+        return {"id": booking.id, "status": booking.status}
+
+    booking.status = "cancelled"
+
+    # Free any active hold on this slot so the time is immediately bookable again.
+    db.query(SlotLock).filter(
+        SlotLock.admin_id == current_admin.id,
+        SlotLock.start_time == booking.start_time,
+        SlotLock.status == "active",
+    ).update({SlotLock.status: "released"}, synchronize_session=False)
+
+    db.commit()
+    return {"id": booking.id, "status": booking.status}
+
+
 @router.get("/public/{public_id}")
 def get_public_booking(public_id: str, db: Session = Depends(get_db)):
     booking = db.query(Booking).filter(Booking.public_id == public_id).first()
