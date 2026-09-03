@@ -403,12 +403,9 @@ export const useBookingStore = create<BookingStoreState>()(
         const publicId = `BMM-${Math.floor(1000 + Math.random() * 9000)}`;
         const bookingId = `bk-${Date.now()}`;
         
-        // Generate valid Google Meet link
-        const meetChars = 'abcdefghijklmnopqrstuvwxyz';
-        const randomChunk = (len: number) =>
-          Array.from({ length: len }, () => meetChars[Math.floor(Math.random() * meetChars.length)]).join('');
-        const meetCode = `meet.google.com/${randomChunk(3)}-${randomChunk(4)}-${randomChunk(3)}`;
-        const googleMeetUrl = `https://${meetCode}`;
+        // Use https://meet.google.com/new so Google Meet creates an instant active meeting room
+        // on launch rather than failing with "No such meeting" on fabricated random codes.
+        const googleMeetUrl = 'https://meet.google.com/new';
 
         // Generate 1-click Google Calendar Web URL (pre-filled with both client and admin as attendees)
         const gCalUrl = generateGoogleCalendarUrl({

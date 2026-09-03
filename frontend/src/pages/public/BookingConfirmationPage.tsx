@@ -238,7 +238,11 @@ export const BookingConfirmationPage: React.FC = () => {
                 </div>
 
                 <a
-                  href={booking.google_meet_url}
+                  href={
+                    booking.google_meet_url && !booking.google_meet_url.includes('bmm-')
+                      ? booking.google_meet_url
+                      : 'https://meet.google.com/new'
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full sm:w-auto"

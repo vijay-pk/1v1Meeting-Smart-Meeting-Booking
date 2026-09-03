@@ -119,11 +119,9 @@ async def create_calendar_event_with_meet(
     try:
         access_token = await refresh_google_token(encrypted_refresh_token)
         if access_token == "simulated-access-token":
-            # Return realistic mock Meet URL and event ID
-            random_meet_code = f"abc-{int(datetime.now().timestamp()) % 10000:04d}-xyz"
             return {
                 "event_id": f"gcal_evt_{int(datetime.now().timestamp())}",
-                "meet_link": f"https://meet.google.com/{random_meet_code}",
+                "meet_link": "https://meet.google.com/new",
                 "html_link": f"https://calendar.google.com/calendar/r/eventedit"
             }
 
@@ -190,13 +188,13 @@ async def create_calendar_event_with_meet(
                 logger.error(f"Google Calendar event creation failed: {data}")
                 return {
                     "event_id": None,
-                    "meet_link": f"https://meet.google.com/bmm-{int(datetime.now().timestamp())%1000}",
+                    "meet_link": "https://meet.google.com/new",
                     "html_link": None
                 }
     except Exception as e:
         logger.error(f"Exception creating Google Calendar event: {e}")
         return {
             "event_id": None,
-            "meet_link": f"https://meet.google.com/bmm-{int(datetime.now().timestamp())%1000}",
+            "meet_link": "https://meet.google.com/new",
             "html_link": None
         }
