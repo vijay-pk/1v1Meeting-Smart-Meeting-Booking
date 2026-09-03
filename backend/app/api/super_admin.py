@@ -10,6 +10,7 @@ from app.schemas.schemas import (
     SuperAdminAdminItem, AdminStatusUpdate, PlatformAnalytics
 )
 from app.api.deps import get_current_super_admin
+from app.services import admin_deletion
 
 router = APIRouter()
 
@@ -94,9 +95,18 @@ def update_admin_status(
         raise HTTPException(status_code=404, detail="Admin not found")
 
     if admin.id == current_super_admin.id:
-        raise HTTPException(status_code=400, detail="Cannot change status of the Super Admin account")
+        raise HTTPException(status_code=403, detail="You cannot change your own account status")
 
-    valid_statuses = ["ACTIVE", "TEMPORARILY_DISABLED", "PERMANENTLY_DELETED"]
+    if admin.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin accounts can be managed through this endpoint."
+        )
+
+    # PERMANENTLY_DELETED is deliberately not settable here. A status flag is a
+    # suspension, not a deletion -- real removal goes through DELETE /admins/{id}, which
+    # erases the data and blocks the email from registering again.
+    valid_statuses = ["ACTIVE", "TEMPORARILY_DISABLED"]
     if req.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Status must be one of: {', '.join(valid_statuses)}")
 
@@ -113,30 +123,57 @@ def update_admin_status(
 def permanently_delete_admin(
     admin_id: str,
     confirm: bool = Query(..., description="Must explicitly confirm deletion"),
+    reason: Optional[str] = Query(None, max_length=255, description="Optional audit note"),
     current_super_admin: User = Depends(get_current_super_admin),
     db: Session = Depends(get_db)
 ):
     """
-    Permanently removes an admin account after explicit confirmation.
-    Public profile and future access are immediately revoked.
+    Permanently removes an admin account and every piece of admin-owned data.
+
+    Authorization is entirely server-side: `get_current_super_admin` re-reads the role
+    from the database on each request, so a role claimed by the client is never trusted.
+    Only role == "admin" accounts can be targeted -- neither the caller nor any other
+    super admin can be removed through this endpoint.
+
+    See services/admin_deletion.py for exactly what is deleted, what is anonymized and
+    what tombstone survives. The email of a deleted admin can never register again.
     """
     if not confirm:
         raise HTTPException(status_code=400, detail="Deletion confirmation is required")
 
     admin = db.query(User).filter(User.id == admin_id).first()
     if not admin:
+        # Idempotent: an already-deleted admin is simply gone.
         raise HTTPException(status_code=404, detail="Admin not found")
 
     if admin.id == current_super_admin.id:
-        raise HTTPException(status_code=400, detail="Cannot delete the Super Admin account")
+        raise HTTPException(status_code=403, detail="You cannot delete your own account")
 
-    # Mark as PERMANENTLY_DELETED and cascade cleanup
+    if admin.role != "admin":
+        # Covers super admins and client accounts. Deliberately not "not found": the
+        # caller is a super admin and is entitled to know the target is out of scope.
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin accounts can be deleted through this endpoint."
+        )
+
     admin_name = admin.name
-    admin.status = "PERMANENTLY_DELETED"
-    db.delete(admin)
-    db.commit()
 
-    return {"message": f"Admin '{admin_name}' permanently deleted successfully"}
+    try:
+        summary = admin_deletion.permanently_delete_admin(
+            db,
+            admin,
+            deleted_by=current_super_admin.id,
+            reason=reason,
+        )
+    except admin_deletion.AdminDeletionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "message": f"Admin '{admin_name}' permanently deleted",
+        "admin_id": admin_id,
+        "deleted": summary,
+    }
 
 @router.get("/bookings")
 def get_all_platform_bookings(

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Union, Optional
@@ -83,3 +84,28 @@ def decrypt_secret(cipher_text: str) -> str:
             "Stored secret could not be decrypted with the configured ENCRYPTION_KEY. "
             "The key may have changed since the secret was saved."
         ) from exc
+
+# --- Deleted-admin identity hashing -------------------------------------------------
+# A permanently deleted admin leaves behind only a hash of their email, never the
+# address itself (see models.DeletedAdminIdentity). Keyed with SECRET_KEY so the table
+# cannot be brute-forced against a list of candidate addresses by anyone who obtains a
+# database dump but not the application secret.
+
+def normalize_email(email: str) -> str:
+    """
+    Canonical form used for every identity comparison.
+
+    "  User@Example.COM " and "user@example.com" are the same person for the purposes of
+    the re-registration block, so both must produce the same hash.
+    """
+    return (email or "").strip().lower()
+
+
+def hash_email(email: str) -> str:
+    """Deterministic keyed digest of the normalized email. Hex, 64 chars."""
+    normalized = normalize_email(email)
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        normalized.encode(),
+        hashlib.sha256,
+    ).hexdigest()

@@ -47,7 +47,7 @@ export function CalendarPage() {
   const loggedAdminId =
     localStorage.getItem('bmm_logged_admin_id') ||
     profile?.id ||
-    'ameen-ahsan';
+    '';
 
   const currentAdmin =
     admins.find((a) => a.id === loggedAdminId || a.username === loggedAdminId) ||

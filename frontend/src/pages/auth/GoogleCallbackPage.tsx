@@ -102,15 +102,24 @@ export function GoogleCallbackPage() {
           social_links: bp.social_links || {},
         };
 
-        useBookingStore.setState((state) => ({
-          admins: [
-            synced,
-            ...state.admins.filter(
-              (a: any) =>
-                a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
-            ),
-          ],
-        }));
+        // Merge onto the existing record instead of replacing it: this payload carries no
+        // google_connected / google_email, and a wholesale replace is what used to make a
+        // connected Google Calendar look disconnected after a sign-in.
+        useBookingStore.setState((state) => {
+          const previous = state.admins.find(
+            (a: any) =>
+              a.id === synced.id || a.username.toLowerCase() === synced.username.toLowerCase()
+          );
+          return {
+            admins: [
+              { ...previous, ...synced } as any,
+              ...state.admins.filter(
+                (a: any) =>
+                  a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
+              ),
+            ],
+          };
+        });
       }
     } catch {
       // Profile hydration is best-effort; the token is already stored.

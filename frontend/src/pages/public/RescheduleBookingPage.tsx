@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 import { formatDate, formatTime } from '@/lib/format';
 import type { Booking, MeetingType, TimeSlot } from '@/types';
 import {
@@ -83,32 +84,47 @@ export const RescheduleBookingPage: React.FC = () => {
     fetchBooking();
   }, [token]);
 
-  // Generate slots for selected date
+  // Real availability for the selected date.
+  //
+  // This used to fabricate slots client-side from a fixed [9,10,11,14,15,16,17] hour list,
+  // so a client could reschedule into a time the host was not free -- straight past the
+  // working hours, leave, existing bookings and Google Calendar busy blocks that the
+  // backend slot engine accounts for.
   useEffect(() => {
     if (!selectedDate || !meetingType || !booking) return;
 
+    let ignore = false;
     setSlotsLoading(true);
+    setAvailableSlots([]);
 
-    // Mock slots generation
-    const slots: TimeSlot[] = [];
-    const duration = meetingType.duration_minutes || 30;
-    const hours = [9, 10, 11, 14, 15, 16, 17];
-
-    hours.forEach((hour) => {
-      const startTime = new Date(selectedDate);
-      startTime.setHours(hour, 0, 0, 0);
-      const endTime = new Date(startTime.getTime() + duration * 60 * 1000);
-
-      slots.push({
-        start: startTime.toISOString(),
-        end: endTime.toISOString(),
-        display_start: format(startTime, 'hh:mm a'),
-        display_end: format(endTime, 'hh:mm a'),
+    api
+      .getAvailableSlots({
+        admin_id: (booking as any).admin_id,
+        session_id: meetingType.id,
+        date_str: format(selectedDate, 'yyyy-MM-dd'),
+      })
+      .then((res: any) => {
+        if (ignore) return;
+        if (res?.error || res?.calendar_error) {
+          setError(res.message || 'Could not load availability. Please try again.');
+          return;
+        }
+        setAvailableSlots(
+          (res?.available_slots || []).map((slot: any) => ({
+            start: slot.start_time_iso,
+            end: slot.end_time_iso,
+            display_start: slot.label,
+            display_end: slot.end,
+          }))
+        );
+      })
+      .finally(() => {
+        if (!ignore) setSlotsLoading(false);
       });
-    });
 
-    setAvailableSlots(slots);
-    setSlotsLoading(false);
+    return () => {
+      ignore = true;
+    };
   }, [selectedDate, meetingType, booking]);
 
   const handleConfirmReschedule = async () => {

@@ -64,14 +64,22 @@ export const AdminLoginPage: React.FC = () => {
             social_links: bp.social_links || {},
           };
 
-          useBookingStore.setState((state) => ({
-            admins: [
-              synced,
-              ...state.admins.filter(
-                (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
-              ),
-            ],
-          }));
+          // Merge onto the existing record instead of replacing it: this payload carries no
+          // google_connected / google_email, and a wholesale replace is what used to make a
+          // connected Google Calendar look disconnected after a profile sync or re-login.
+          useBookingStore.setState((state) => {
+            const previous = state.admins.find(
+              (a) => a.id === synced.id || a.username.toLowerCase() === synced.username.toLowerCase()
+            );
+            return {
+              admins: [
+                { ...previous, ...synced } as any,
+                ...state.admins.filter(
+                  (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
+                ),
+              ],
+            };
+          });
         }
       } catch (e) {}
 
@@ -88,59 +96,12 @@ export const AdminLoginPage: React.FC = () => {
         setLoading(false);
         return;
       }
-      // If unauthorized or network error, fallback to local store validation
-    }
-
-    // 2. Client-side Store Validation (Fallback)
-    setTimeout(() => {
-      // Check Super Admin
-      const isSuperAdminMatch =
-        (cleanId === currentSuperAdmin.username.toLowerCase() ||
-          cleanId === currentSuperAdmin.email.toLowerCase()) &&
-        (cleanPass === (currentSuperAdmin.password || 'admin123'));
-
-      if (isSuperAdminMatch) {
-        localStorage.setItem('bmm_current_user_role', 'super_admin');
-        localStorage.setItem('bmm_logged_admin_id', currentSuperAdmin.id);
-        setLoading(false);
-        navigate('/super-admin');
-        return;
-      }
-
-      // Check Staff Admins
-      const matchedAdmin = admins.find(
-        (a) =>
-          (a.email.toLowerCase() === cleanId || a.username.toLowerCase() === cleanId) &&
-          (a.password || `${a.username}@123` || 'password123') === cleanPass
-      );
-
-      if (matchedAdmin) {
-        if (matchedAdmin.status === 'TEMPORARILY_DISABLED') {
-          setError('Your admin account has been temporarily disabled by the Super Admin.');
-          setLoading(false);
-          return;
-        }
-
-        if (matchedAdmin.status === 'PERMANENTLY_DELETED') {
-          setError('This admin account has been permanently removed.');
-          setLoading(false);
-          return;
-        }
-
-        localStorage.setItem('bmm_current_user_role', matchedAdmin.role);
-        localStorage.setItem('bmm_logged_admin_id', matchedAdmin.id);
-        setLoading(false);
-        if (matchedAdmin.role === 'super_admin') {
-          navigate('/super-admin');
-        } else {
-          navigate('/admin');
-        }
-        return;
-      }
-
-      setError('Invalid username/email or password. Please try again.');
+      // Any other failure (network, server down) is reported as-is below: signing
+      // somebody in against browser-held data is not an acceptable fallback.
+      setError(apiErr?.message || 'Could not reach the sign-in service. Please try again.');
       setLoading(false);
-    }, 200);
+      return;
+    }
   };
 
   return (

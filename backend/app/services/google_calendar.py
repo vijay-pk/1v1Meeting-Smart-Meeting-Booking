@@ -8,6 +8,17 @@ from app.core.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
+
+class GoogleCalendarUnavailable(Exception):
+    """
+    The admin's Google Calendar could not be read.
+
+    Raised instead of returning an empty busy list, because "no busy blocks" and "we could
+    not ask" must not look the same to the slot engine: treating a dead token as a free day
+    is exactly how a client books over a real personal event.
+    """
+
+
 async def refresh_google_token(encrypted_refresh_token: str) -> str:
     """Refreshes access token using stored encrypted refresh token."""
     refresh_token = decrypt_secret(encrypted_refresh_token)
@@ -35,13 +46,32 @@ async def refresh_google_token(encrypted_refresh_token: str) -> str:
             raise RuntimeError(data.get("error_description", "Failed to refresh token"))
         return data["access_token"]
 
-async def get_google_busy_intervals(encrypted_refresh_token: str, start_iso: str, end_iso: str) -> list:
-    """Queries Google Calendar FreeBusy API for busy intervals in the given range."""
+async def get_google_busy_intervals(
+    encrypted_refresh_token: str,
+    start_iso: str,
+    end_iso: str,
+    calendar_id: str = "primary"
+) -> list:
+    """
+    Queries Google Calendar FreeBusy for busy intervals in the given range.
+
+    Fails closed: every failure (dead refresh token, undecryptable ciphertext, unconfigured
+    OAuth client, non-200, timeout) raises GoogleCalendarUnavailable. Returning [] here would
+    tell the slot engine the admin is free all day.
+
+    start_iso / end_iso must be real UTC instants, not wall clock stamped with "Z".
+    """
     try:
         access_token = await refresh_google_token(encrypted_refresh_token)
-        if access_token == "simulated-access-token":
-            return []
+    except Exception as e:
+        logger.error(f"Google token refresh failed: {e}")
+        raise GoogleCalendarUnavailable(str(e)) from e
 
+    if access_token == "simulated-access-token":
+        # No OAuth client configured, or a mock connection: there is no calendar to read.
+        raise GoogleCalendarUnavailable("Google OAuth is not configured on this server")
+
+    try:
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 "https://www.googleapis.com/calendar/v3/freeBusy",
@@ -49,18 +79,29 @@ async def get_google_busy_intervals(encrypted_refresh_token: str, start_iso: str
                 json={
                     "timeMin": start_iso,
                     "timeMax": end_iso,
-                    "items": [{"id": "primary"}]
+                    "items": [{"id": calendar_id or "primary"}]
                 },
                 timeout=10.0
             )
-            if res.status_code == 200:
-                data = res.json()
-                busy_list = data.get("calendars", {}).get("primary", {}).get("busy", [])
-                return busy_list
-            return []
     except Exception as e:
         logger.error(f"Error fetching Google freeBusy: {e}")
-        return []
+        raise GoogleCalendarUnavailable(str(e)) from e
+
+    if res.status_code != 200:
+        logger.error(f"Google freeBusy returned {res.status_code}: {res.text[:300]}")
+        raise GoogleCalendarUnavailable(f"FreeBusy HTTP {res.status_code}")
+
+    data = res.json()
+    cal = data.get("calendars", {}).get(calendar_id or "primary", {})
+    if cal.get("errors"):
+        logger.error(f"Google freeBusy calendar errors: {cal['errors']}")
+        raise GoogleCalendarUnavailable(str(cal["errors"]))
+    return cal.get("busy", [])
+
+def _wall_clock(iso: str) -> str:
+    """'2026-03-04T15:00:00Z' -> '2026-03-04T15:00:00' (drops the misleading UTC marker)."""
+    return iso.replace("Z", "").replace("+00:00", "")
+
 
 async def create_calendar_event_with_meet(
     encrypted_refresh_token: str,
@@ -90,8 +131,11 @@ async def create_calendar_event_with_meet(
         payload = {
             "summary": title,
             "description": description,
-            "start": {"dateTime": start_time_iso, "timeZone": "UTC"},
-            "end": {"dateTime": end_time_iso, "timeZone": "UTC"},
+            # Booking times are stored as business-timezone wall clock with a trailing "Z"
+            # (see api/availability.py). Strip the false "Z" and name the real zone, so the
+            # event lands at the hour the client picked instead of shifting by the offset.
+            "start": {"dateTime": _wall_clock(start_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
+            "end": {"dateTime": _wall_clock(end_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
             "attendees": [
                 {"email": client_email, "displayName": client_name, "responseStatus": "accepted"}
             ],
@@ -134,9 +178,12 @@ async def create_calendar_event_with_meet(
                 if not meet_link:
                     meet_link = data.get("hangoutLink")
 
+                # meet_link stays None when Google created no conference: a fabricated
+                # meet.google.com URL would be emailed to a paying client and resolve to
+                # nothing. The caller decides what to do with a missing link.
                 return {
                     "event_id": data.get("id"),
-                    "meet_link": meet_link or f"https://meet.google.com/bmm-{int(datetime.now().timestamp())%1000}",
+                    "meet_link": meet_link,
                     "html_link": data.get("htmlLink")
                 }
             else:

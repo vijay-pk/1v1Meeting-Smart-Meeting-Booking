@@ -32,15 +32,23 @@ Swagger at `http://127.0.0.1:8000/docs`, health at `/health`.
 
 **Tests** (`cd backend`):
 ```
-pytest -q                                                          # all 43
+pytest -q                                                          # all 133
 pytest test_api.py::test_slot_lock_double_booking_protection -v    # single test
 ```
-Three test files:
-- `test_api.py` — 6 `TestClient` integration tests against the seeded DB.
+Six test files. Every one of them now builds the rows it needs and tears them down, so the
+suite is order-independent and leaves nothing behind in the development database:
+- `test_api.py` — 6 `TestClient` integration tests; signs up its own admin per test.
 - `test_security.py` — 30 unit tests on password hashing and Razorpay signature verification. No DB, no app.
-- `test_payment_flow.py` — 7 end-to-end tests on `POST /api/payments/verify`, building and tearing down their own rows.
+- `test_payment_flow.py` — 7 end-to-end tests on `POST /api/payments/verify`.
+- `test_google_auth.py` — 11 tests on Google sign-in with Supabase stubbed.
+- `test_admin_deletion.py` — 28 tests on permanent admin deletion, authorization, and the
+  re-registration block.
+- `test_superprofile_import.py` — 51 tests on the SuperProfile import: URL/SSRF rejection,
+  parsing without invented values, sanitization, duplicates, and the apply modes.
 
-The latter two encode fix-closed security guarantees. Do not relax an assertion in them to make a change pass.
+`test_security.py`, `test_payment_flow.py`, `test_admin_deletion.py` and
+`test_superprofile_import.py` encode fail-closed
+security guarantees. Do not relax an assertion in them to make a change pass.
 
 **Full stack**: `docker compose up` from the root — postgres on 5432, backend on 8000, frontend (nginx) on 80.
 
@@ -50,11 +58,11 @@ This is the thing to internalize first. The frontend reads from **three differen
 
 1. **`frontend/src/lib/api.ts`** — REST client for the FastAPI backend (`VITE_API_URL`, default `http://localhost:8000/api`). **This is the canonical path.**
 2. **`frontend/src/lib/supabase.ts`** — a Supabase client used for auth *and* direct table access, imported straight into `TopBar.tsx`, most of `pages/admin/*`, and the token-based `pages/public/{BookingStatus,Cancel,Reschedule}*.tsx`.
-3. **`frontend/src/stores/bookingStore.ts`** — a 1165-line Zustand store persisted to localStorage under `bookmymeet-platform-state-v3`, pre-seeded with demo admins (ameen/alex/priya/david), their sessions and bookings. It acts as an offline database.
+3. **`frontend/src/stores/bookingStore.ts`** — a Zustand store persisted to localStorage under `bookmymeet-platform-state-v4`. It **no longer ships seed data**: `admins`, `meetingTypes`, `scheduleBlocks` and `bookings` all start empty, and `currentSuperAdmin` is an identity-free placeholder filled in at sign-in. It is UI state, not a database.
 
-Nearly every `api.ts` method swallows its error and returns a soft default (`null`, `[]`, `{available_slots: []}`), and callers then fall back to store seed data. `frontend/src/pages/public/SuperProfileHomePage.tsx:45-76` is the canonical merge pattern: fetch remote, keep the local admin on failure, merge remote over local when both exist.
+**The public funnel is API-only.** `SuperProfileHomePage`, `TimeAvailabilityPage` and `PaymentCheckoutPage` render the host from `GET /api/profiles/public/{username}` alone. A username the backend does not know (never existed, or permanently deleted) renders a not-found screen — it must never fall back to a cached or seeded admin, because that used to resolve deleted admins to a live bookable page and, on checkout, to somebody else's Razorpay key.
 
-**Consequence:** a feature can look like it works while the backend is broken or not running. When debugging "the data is wrong", first establish *which* of the three paths produced it.
+**Consequence:** if a page shows nothing, the backend is the place to look. That is intended.
 
 **`supabase/` is a parallel implementation the Python backend does not use** — `supabase/schema.sql` (12 tables, RLS on all) plus 11 Deno Edge Functions under `supabase/functions/` that duplicate the FastAPI endpoints (hold-slot, create-order, verify-payment, google-auth, razorpay-webhook, …). Treat it as a second stack. Do not extend it without asking.
 
@@ -96,6 +104,106 @@ This is what most of `walkthrough.md` is about, and the area most prone to regre
 - `frontend/src/pages/public/TimeAvailabilityPage.tsx` resolves the host from search params, route params, or the store, then renders that admin's branding, video, theme and session list.
 - `createBooking` in `bookingStore.ts` must assign `admin_id`, `assigned_admin_id`, `assigned_admin_name` and `assigned_admin_email` from the *target* admin. The historical bug was a hardcoded override to `ameen-ahsan`, which silently routed every booking into the super admin's dashboard. Check any change to booking assignment against that.
 
+## Admin deletion, blocked identities, and the no-fake-data rule
+
+**FastAPI is the canonical backend for all of this.** Deletion, the re-registration block and
+the public-profile 404 are enforced server-side; the frontend only presents them.
+
+**No fake data, ever.** `main.seed_initial_data()` creates exactly one thing: the Super Admin,
+from `SUPER_ADMIN_*` env vars, and only when no super admin exists. No demo staff admins, no
+sample sessions, no placeholder availability, no connection rows holding placeholder
+credentials. `frontend/src/stores/bookingStore.ts` ships no seeded admins, sessions or
+bookings. Do not reintroduce any of it: a fake "connected" Razorpay or Google row is worse
+than none, because availability now fails closed on a calendar it cannot read.
+`backend/scripts/cleanup_demo_data.py` lists (and, with `--delete`, removes) demo/test
+residue in an existing database; it targets exact addresses and test-account patterns only.
+
+**Permanent deletion** — `DELETE /api/super-admin/admins/{id}?confirm=true`, implemented in
+`backend/app/services/admin_deletion.py`. It is a real deletion, not a status flag:
+`PUT /admins/{id}/status` deliberately no longer accepts `PERMANENTLY_DELETED`.
+
+| Data | What happens |
+| :--- | :--- |
+| user, admin profile, session types, availability rules and exceptions, slot locks, notifications | deleted |
+| Google Calendar connection (with its encrypted refresh token) | deleted |
+| Razorpay connection (with its encrypted key secret) | deleted |
+| bookings | kept, but anonymized: client name/email/phone/notes/Meet link/event id cleared, `admin_id` and `meeting_type_id` set NULL, active bookings marked `cancelled` |
+| payments | kept as a financial record, `admin_id` set NULL |
+
+Bookings and payments survive because a payment records money that actually moved through a
+merchant account and the platform analytics sum over it — but nothing personally identifying
+about the admin or their clients remains, and no foreign key points at a deleted row. That is
+why `bookings.admin_id`, `bookings.meeting_type_id` and `payments.admin_id` are nullable
+(migration `backend/migrations/001_admin_deletion.sql`).
+
+The whole thing runs in one transaction and rolls back on any failure — a half-deleted admin
+is never left behind. Deleting twice is a clean 404, not a corruption.
+
+**Blocked identities** — `deleted_admin_identities` holds one row per deleted admin: an
+HMAC-SHA256 digest of the normalized email (keyed with `SECRET_KEY`, so a database dump alone
+cannot be tested against a candidate list), plus the freed username. It is not an account and
+carries no profile data; it exists only to enforce two rules:
+
+- **The email can never register again.** `auth.reject_blocked_identity()` is called by
+  `POST /auth/signup`, `POST /auth/google` and `POST /auth/google/complete` *before* anything
+  is created, returning 403 with "no longer eligible to register as an Admin". Matching is on
+  `normalize_email()` (strip + lowercase), so casing and whitespace cannot slip past it.
+- **The username can never be claimed again.** `check_username()` rejects retired usernames,
+  so old inbound links to `/{username}` cannot start resolving to a different person.
+
+Google sign-in for a deleted admin therefore never creates an account, never restores one,
+and never reaches the username step — the check is on the backend, not in the UI.
+
+**Super Admin safety.** `get_current_super_admin` re-reads the role from the database on every
+request; a role sent by the client is never trusted. The delete endpoint additionally refuses
+any target whose `role != "admin"` (403), and refuses the caller's own id (403). A normal
+admin or client calling it gets 403; an unauthenticated caller gets 401.
+
+## Import from SuperProfile
+
+`Settings -> Profile Customization -> Import from SuperProfile`, backed by
+`backend/app/api/profile_imports.py` + `backend/app/services/superprofile_import.py`.
+
+**Two steps, never one.** `POST /api/profile-import/preview` fetches and parses the public
+page into a `profile_imports` row and returns it; `POST /api/profile-import/apply` writes the
+parts the admin ticked. Parsing never touches `admin_profiles` or `sessions` — that is what
+makes the feature safe to run against a live booking page. `GET /{import_id}` and
+`POST /{import_id}/cancel` are owner-scoped (404, not 403, for another admin's import id).
+
+**Never invent a value.** A field the page does not expose parses as `None` and imports as
+nothing. The predecessor (`scraper_service.py`, now deleted) substituted `price = 199900`
+whenever no price was found and injected hardcoded social links for URLs containing
+"mahir"/"ameen"; `test_superprofile_import.py` guards against that returning. A session with
+no publicly displayed price is created **inactive**, so nothing can be sold at a price nobody
+set.
+
+**Never imported, whatever the page contains:** the admin's `username` (their public URL
+stays `/{their-username}`), Razorpay keys or secrets, and Google OAuth tokens or calendar
+ids. Imported sessions are sold through this admin's own connected Razorpay account and
+scheduled on their own calendar.
+
+**Fetch safety** (`fetch_public_page`): https only; host must be exactly `superprofile.bio`
+or `www.superprofile.bio` (an exact hostname match — the old substring check passed
+`evil.com/?q=superprofile.bio`); every hostname is DNS-resolved and rejected if any address
+is private, loopback, link-local, reserved or multicast; redirects are not followed
+automatically but re-validated per hop (max 3); 10s timeout; body streamed and aborted past
+2 MB; `Content-Type` must be `text/html`. Previews are rate limited per admin (10 per 10
+minutes, in-process). All imported text passes through `clean_text()`, which strips markup —
+no HTML is stored, so nothing can be rendered as HTML later.
+
+**Images are preview-only** until the admin ticks "I have permission to reuse this image".
+Only then does the server download it (SSRF-guarded, `image/*`, ≤5 MB) into
+`backend/uploads/photos/` and store the local URL. Third-party images are never hotlinked.
+
+**Known limitation — superprofile.bio declines our fetches.** The importer identifies itself
+honestly as `BookMyMeet-ProfileImporter/1.0`, and superprofile.bio answers **429** to it
+while serving 200 to a browser User-Agent. Spoofing a browser would be working around an
+anti-bot control, so the importer does not do it. The supported route is the `page_html`
+field: the page's owner opens their own page, copies the source, and pastes it in — same
+parser, same sanitizer, no outbound request, URL still validated. **Consequence: the parser
+is verified against `__NEXT_DATA__`-shaped fixtures in `test_superprofile_import.py`, not
+against a live fetch of superprofile.bio.** Do not claim otherwise without re-testing.
+
 ## Frontend map (`frontend/src/`)
 
 - **Routing** — `App.tsx`, one flat `<Routes>`, no lazy loading. Several aliases point at the same three funnel pages (`/book/:username/schedule/:meetingId`, `/:username/schedule/:meetingId`, `/schedule/:meetingId` all render `TimeAvailabilityPage`). `/:username` is a catch-all that must stay last. Admin pages sit under a pathless `<Route element={<AdminLayout/>}>`.
@@ -113,12 +221,11 @@ Each of these costs a debugging cycle if rediscovered.
 - `@tanstack/react-query` and `@tanstack/react-table` are installed but never imported. Don't assume react-query is the data layer — it isn't; `api.ts` is plain `fetch`.
 
 **Database**
-- **There are no migrations.** Schema comes from `Base.metadata.create_all` at `main.py:19`, which only ever *adds* missing tables. Editing a column in `models.py` silently does nothing to an existing `backend/bookmymeet.db` — delete the file (losing seed state) or migrate by hand.
-- `seed_initial_data()` catches, logs and rolls back without re-raising (`main.py:234-236`), so a seeding failure lets the app boot in a half-populated state.
+- **There is no migration framework.** Schema comes from `Base.metadata.create_all`, which only ever *adds* missing tables — a new table appears by itself, an altered column does not. Column changes ship as hand-written SQL under `backend/migrations/`, applied with `python scripts/apply_migration.py` (`--check` to report only; handles both PostgreSQL and SQLite).
+- `seed_initial_data()` catches, logs and rolls back without re-raising, so a bootstrap failure lets the app boot without a super admin.
 
 **Tests**
-- They run against the real dev `bookmymeet.db`, not a fixture DB, and are order-dependent and stateful.
-- `test_admin_profile_customization` and `test_super_admin_management_and_disable` log in as the literal username `arun`, which the signup test (which creates a randomized `arun_<uid>`) never produces. They pass only against a DB carrying leftover rows from an earlier run, and fail on a fresh database.
+- They run against the real dev `bookmymeet.db`, not a fixture DB, but every suite now creates and removes its own rows, so order does not matter and nothing is left behind. Keep it that way: a test that depends on data another test left behind will pass on your machine and fail on a fresh database.
 
 **Payments — fail-closed rules (do not regress these)**
 - `verify_razorpay_signature` is HMAC-only: Razorpay's documented `HMAC-SHA256(order_id|payment_id)` keyed with **that admin's own** secret, compared via `hmac.compare_digest`. It has no simulation bypass and no path returning `True` without a matching HMAC. Never reintroduce one keyed on a client-supplied string.
@@ -130,7 +237,7 @@ Each of these costs a debugging cycle if rediscovered.
 - `verify_password` fails closed on any exception; there is deliberately no plaintext fallback.
 
 **Still-simulated (lower stakes, but be aware)**
-- `google_calendar.py` returns `"simulated-access-token"` when Google creds are absent, and event-creation failures fall back to a generated Meet link.
+- `google_calendar.py` returns `"simulated-access-token"` when Google creds are absent — the FreeBusy path treats that as unavailable and fails closed, so availability is hidden rather than shown as free.
 - `services/email_service.py` is a mock — it only logs `[EMAIL MOCK]`, it never sends.
 
 **Config drift**
@@ -145,7 +252,12 @@ Each of these costs a debugging cycle if rediscovered.
 - Dead files that mislead grep: `src/main.ts`, `src/counter.ts`, `src/style.css` (Vite template leftovers), `pages/auth/LoginPage.tsx` and `components/layout/PublicLayout.tsx` (never routed). The live entry is `src/main.tsx`.
 - `/signup` is declared twice in `App.tsx`.
 
-**Credentials in the tree** — `.env` is now gitignored at the root and in `frontend/`, so `backend/.env` and `frontend/.env` will not be picked up by a future `git init` + `git add .`. Still uncovered, because they are tracked source rather than env files: `docker-compose.yml` carries inline default `postgres123` / `JWT_SECRET` / `ENCRYPTION_KEY` values, staff-admin seed passwords are hardcoded in plaintext in `main.py` (alex/priya/david), and super-admin defaults sit in `config.py:22-25`. Replace these with env lookups before any real deployment.
+**Fixed since (do not reintroduce)**
+- `SuperAdminLoginPage` used to authenticate nobody: it waited 400 ms, wrote `bmm_current_user_role='super_admin'` to localStorage and opened the dashboard, with the owner's credentials pre-filled. It now signs in through `POST /api/auth/login` and verifies the returned role.
+- `AdminLoginPage` had a client-side password fallback against the store's plaintext passwords; `SignupPage` created a browser-only "account" whenever the API was unreachable. Both are gone.
+- `api.scrapeSuperProfile` returned a fabricated profile (name, photo, priced sessions) when the backend was down and the URL mentioned the seeded owner; `RescheduleBookingPage` generated availability from a fixed hour list. Both now use the real endpoints.
+
+**Credentials in the tree** — `.env` is now gitignored at the root and in `frontend/`, so `backend/.env` and `frontend/.env` will not be picked up by a future `git init` + `git add .`. Still uncovered, because they are tracked source rather than env files: `docker-compose.yml` carries inline default `postgres123` / `JWT_SECRET` / `ENCRYPTION_KEY` values, and the super-admin username/email defaults sit in `config.py` (the password has no default and fails startup if unset). The demo staff-admin seed and the plaintext passwords that used to live in `bookingStore.ts` are gone. Replace the compose defaults with env lookups before any real deployment.
 
 ## Graphify (optional aid)
 

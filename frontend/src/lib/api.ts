@@ -127,64 +127,68 @@ export const api = {
     return res.json();
   },
 
-  scrapeSuperProfile: async (url: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/profiles/scrape-superprofile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Failed to scrape SuperProfile');
-      }
-      const data = await res.json();
-      return data.data;
-    } catch (e: any) {
-      // Offline fallback: if backend is unreachable
-      if (url.includes('mahir') || url.includes('ameen')) {
-        return {
-          name: 'Ameen Ahsan',
-          title: 'Upskilling Marketers into Top 1% Performers',
-          heading_text: 'Upskilling Marketers into Top 1% Performers',
-          bio: '10+ years helping marketing leaders and founders scale predictable revenue funnels and performance creative engines.',
-          about_me_text: 'I coach performance marketers, agency owners, and growth consultants on scaling acquisition, attribution, and team leadership.',
-          profile_photo: 'https://media-cdn.cosmofeed.com/profile/my_image1761115854-2025-22-10-06-50-54.png?w=600&q=100',
-          intro_video: 'https://vimeo.com/1130419767',
-          button_color: '#D32F2F',
-          theme: 'amber',
-          social_links: {
-            instagram: 'https://instagram.com/ameenahsan',
-            whatsapp: '+919876543210',
-            linkedin: 'https://linkedin.com/in/ameenahsan',
-            website: 'https://adwaysacademy.com'
-          },
-          sessions: [
-            {
-              name: 'Get Clarity on Your Performance Marketing Journey: Talk to Your Mentor',
-              description: 'Earn more, work smarter, and grow faster in marketing with step-by-step guidance in a 1:1 mentorship call',
-              duration_minutes: 15,
-              price: 149700,
-              original_price: 499900,
-              currency: 'INR',
-              is_active: true
-            },
-            {
-              name: 'Elite 1:1 Performance Advisory Session',
-              description: 'Comprehensive strategy roadmap and high-level campaign audit',
-              duration_minutes: 30,
-              price: 599400,
-              original_price: 999900,
-              currency: 'INR',
-              is_active: true
-            }
-          ]
-        };
-      }
-      throw e;
+  // --- Import from SuperProfile -------------------------------------------------------
+  // Two steps on purpose: preview parses the public page into a pending import row and
+  // returns it for review; apply writes only what the admin selected, to their own records.
+  // pageHtml is the supported fallback when SuperProfile refuses an automated request:
+  // the page owner opens their own page, copies the source, and pastes it here.
+  importPreview: async (sourceUrl: string, pageHtml?: string) => {
+    const res = await fetch(`${API_BASE}/profile-import/preview`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_url: sourceUrl, page_html: pageHtml || null }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Unable to access this public page.');
     }
+    return res.json();
   },
 
+  importApply: async (payload: {
+    import_id: string;
+    mode: 'add' | 'replace' | 'sessions_only' | 'profile_only';
+    profile_fields?: string[];
+    sessions?: Array<{
+      index: number;
+      action: 'create' | 'update' | 'skip';
+      target_session_id?: string | null;
+      title?: string;
+      description?: string;
+      duration_minutes?: number | null;
+      price?: number | null;
+      currency?: string;
+    }>;
+    import_image?: boolean;
+    image_permission_confirmed?: boolean;
+    confirm_replace?: boolean;
+  }) => {
+    const res = await fetch(`${API_BASE}/profile-import/apply`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'The import could not be applied.');
+    }
+    return res.json();
+  },
+
+  importCancel: async (importId: string) => {
+    const res = await fetch(`${API_BASE}/profile-import/${importId}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  },
+
+  getImport: async (importId: string) => {
+    const res = await fetch(`${API_BASE}/profile-import/${importId}`, { headers: getAuthHeaders() });
+    if (!res.ok) return null;
+    return res.json();
+  },
   // Availability & Slots
   getAvailableSlots: async (params: { admin_id?: string; username?: string; session_id: string; date_str: string }) => {
     const query = new URLSearchParams();
@@ -193,9 +197,18 @@ export const api = {
     query.append('session_id', params.session_id);
     query.append('date_str', params.date_str);
 
-    const res = await fetch(`${API_BASE}/availability/slots?${query.toString()}`);
-    if (!res.ok) return { available_slots: [] };
-    return res.json();
+    // Errors are reported, not swallowed: "the backend is down" and "this day is full"
+    // must not look identical to the booking UI.
+    try {
+      const res = await fetch(`${API_BASE}/availability/slots?${query.toString()}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { available_slots: [], error: true, message: err.detail || 'Could not load availability' };
+      }
+      return res.json();
+    } catch (e: any) {
+      return { available_slots: [], error: true, message: e?.message || 'Could not reach the booking service' };
+    }
   },
 
   // Slot Lock
@@ -244,6 +257,15 @@ export const api = {
   },
 
   // Google Calendar
+  getGoogleAuthUrl: async () => {
+    const res = await fetch(`${API_BASE}/google/auth-url`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not start Google authorization');
+    }
+    return res.json() as Promise<{ auth_url: string | null; configured?: boolean; message?: string }>;
+  },
+
   getGoogleStatus: async () => {
     const res = await fetch(`${API_BASE}/google/admin/status`, { headers: getAuthHeaders() });
     if (!res.ok) return { connected: false };

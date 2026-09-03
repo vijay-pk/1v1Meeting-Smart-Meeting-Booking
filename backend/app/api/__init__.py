@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.api import (
+    profile_imports,
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload
 )
@@ -16,4 +17,5 @@ api_router.include_router(google_calendar.router, prefix="/google", tags=["Googl
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["Super Admin"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])
+api_router.include_router(profile_imports.router, prefix="/profile-import", tags=["Profile Import"])
 

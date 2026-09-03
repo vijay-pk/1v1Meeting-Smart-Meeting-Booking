@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
+import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
 import {
@@ -97,17 +98,10 @@ export function SettingsPage() {
   const storedAdminId = localStorage.getItem('bmm_logged_admin_id');
   const storedAdminName = localStorage.getItem('bmm_logged_admin_name');
 
-  // Strict check: Is this session accessing Super Admin / Master Admin portal?
-  const isSuperAdmin =
-    storedRole === 'super_admin' ||
-    storedUsername?.toLowerCase() === 'ameen' ||
-    storedUsername?.toLowerCase() === 'mahir' ||
-    storedUsername?.toLowerCase() === 'mahir6787' ||
-    storedAdminId === 'ameen-ahsan' ||
-    storedAdminId === 'admin-ameen' ||
-    storedAdminId === 'admin-mahir' ||
-    profile?.role === 'super_admin' ||
-    profile?.username?.toLowerCase() === 'ameen';
+  // Super-admin mode is a role, not a list of usernames. This used to also match the
+  // literal names "ameen" / "mahir" / "mahir6787" and ids like "admin-mahir", which meant
+  // anyone who registered one of those usernames was treated as the platform owner.
+  const isSuperAdmin = storedRole === 'super_admin' || profile?.role === 'super_admin';
 
   const [liveAdmin, setLiveAdmin] = useState<AdminUser | null>(null);
 
@@ -119,7 +113,7 @@ export function SettingsPage() {
         const bp = await api.getMyProfile();
         if (bp && isMounted) {
           // If in Super Admin mode, do NOT allow a staff admin profile from an old token to hijack
-          if (isSuperAdmin && bp.role !== 'super_admin' && bp.username?.toLowerCase() !== 'ameen') {
+          if (isSuperAdmin && bp.role !== 'super_admin') {
             console.warn('Ignoring staff admin backend profile while in Super Admin mode');
             return;
           }
@@ -156,14 +150,22 @@ export function SettingsPage() {
           setLiveAdmin(synced);
 
           // Update into bookingStore
-          useBookingStore.setState((state) => ({
-            admins: [
-              synced,
-              ...state.admins.filter(
-                (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
-              ),
-            ],
-          }));
+          // Merge onto the existing record instead of replacing it: this payload carries no
+          // google_connected / google_email, and a wholesale replace is what used to make a
+          // connected Google Calendar look disconnected after a profile sync or re-login.
+          useBookingStore.setState((state) => {
+            const previous = state.admins.find(
+              (a) => a.id === synced.id || a.username.toLowerCase() === synced.username.toLowerCase()
+            );
+            return {
+              admins: [
+                { ...previous, ...synced },
+                ...state.admins.filter(
+                  (a) => a.id !== synced.id && a.username.toLowerCase() !== synced.username.toLowerCase()
+                ),
+              ],
+            };
+          });
         }
       } catch (e) {}
     };
@@ -173,13 +175,13 @@ export function SettingsPage() {
 
   // Strict resolution of currently logged-in admin — never leak or show other admins
   const currentAdmin: AdminUser = useMemo(() => {
-    // 1. If Super Admin mode, ALWAYS resolve to Ameen Ahsan (currentSuperAdmin)
+    // 1. In Super Admin mode, always resolve to the signed-in super admin
     if (isSuperAdmin) {
-      if (liveAdmin && (liveAdmin.role === 'super_admin' || liveAdmin.username?.toLowerCase() === 'ameen')) {
+      if (liveAdmin && liveAdmin.role === 'super_admin') {
         return liveAdmin;
       }
       const superAdminInStore =
-        admins.find((a) => a.role === 'super_admin' || a.username?.toLowerCase() === 'ameen') ||
+        admins.find((a) => a.role === 'super_admin') ||
         currentSuperAdmin;
       return superAdminInStore;
     }
@@ -208,7 +210,7 @@ export function SettingsPage() {
       username: safeUser,
       full_name: safeName,
       title: 'Mentor & Growth Consultant',
-      email: `${safeUser}@adwaysacademy.com`,
+      email: '',
       role: 'admin',
       status: 'ACTIVE',
       avatar_color: 'bg-indigo-600',
@@ -264,7 +266,7 @@ export function SettingsPage() {
           </div>
           <p className="text-xs text-slate-500 mt-1">
             {isSuperAdmin
-              ? 'Customize Ameen Ahsan’s public SuperProfile booking page, 1v1 sessions, and direct integrations.'
+              ? 'Customize your public booking page, 1v1 sessions, and direct integrations.'
               : 'Customize what clients see on your personal SuperProfile booking page.'}
           </p>
         </div>
@@ -530,153 +532,12 @@ function ProfileCustomizer({
     setCustomSections(admin.custom_sections || []);
   }, [admin.id, admin.username]);
 
-  // === SuperProfile Import State ===
-  const [spUrl, setSpUrl] = useState('');
-  const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState('');
-  const [scrapedData, setScrapedData] = useState<any>(null);
-  const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({});
-  const [applied, setApplied] = useState(false);
-
-  const IMPORT_FIELDS = [
-    { key: 'username', label: 'Personal Booking Slug (URL)', getter: (d: any) => d.username },
-    { key: 'name', label: 'Full Name', getter: (d: any) => d.name },
-    { key: 'title', label: 'Professional Title', getter: (d: any) => d.title },
-    { key: 'heading_text', label: 'Heading Text', getter: (d: any) => d.heading_text },
-    { key: 'bio', label: 'Short Bio', getter: (d: any) => d.bio },
-    { key: 'about_me_text', label: 'About Me', getter: (d: any) => d.about_me_text },
-    { key: 'profile_photo', label: 'Profile Photo', getter: (d: any) => d.profile_photo },
-    { key: 'intro_video', label: 'Intro Video', getter: (d: any) => d.intro_video },
-    { key: 'button_color', label: 'Button Color', getter: (d: any) => d.button_color },
-    { key: 'social_instagram', label: 'Instagram', getter: (d: any) => d.social_links?.instagram },
-    { key: 'social_whatsapp', label: 'WhatsApp', getter: (d: any) => d.social_links?.whatsapp },
-    { key: 'social_linkedin', label: 'LinkedIn', getter: (d: any) => d.social_links?.linkedin },
-    { key: 'social_youtube', label: 'YouTube', getter: (d: any) => d.social_links?.youtube },
-    { key: 'social_website', label: 'Website', getter: (d: any) => d.social_links?.website },
-    {
-      key: 'sessions',
-      label: '1:1 Session Packages & Pricing',
-      getter: (d: any) => d.sessions?.length ? `${d.sessions.length} package(s) detected` : null,
-    },
-  ];
-
-  const extractSlugFromUrl = (inputUrl: string) => {
-    try {
-      const clean = inputUrl.trim().split('?')[0].replace(/\/$/, '');
-      const parts = clean.split('/').filter(Boolean);
-      if (parts.length > 0) {
-        const last = parts[parts.length - 1];
-        if ((last === 'bookings' || last === 'booking' || last === 'b') && parts.length > 1) {
-          return parts[parts.length - 2];
-        }
-        if (parts.includes('bookings') || parts.includes('booking')) {
-          const idx = parts.findIndex((p) => p === 'bookings' || p === 'booking');
-          if (idx !== -1 && idx + 1 < parts.length) return parts[idx + 1];
-        }
-        return last;
-      }
-    } catch (e) {}
-    return '';
-  };
-
-  const handleScrape = async () => {
-    if (!spUrl.trim()) return;
-    setScraping(true);
-    setScrapeError('');
-    setScrapedData(null);
-    setApplied(false);
-    try {
-      const result = await api.scrapeSuperProfile(spUrl.trim());
-      const data = result.data || result || {};
-      const urlSlug = extractSlugFromUrl(spUrl.trim());
-      if (urlSlug && !data.username) {
-        data.username = urlSlug;
-      }
-      setScrapedData(data);
-      // Auto-select all fields that have data
-      const initial: Record<string, boolean> = {};
-      IMPORT_FIELDS.forEach((f) => {
-        const val = f.getter(data);
-        initial[f.key] = !!val && String(val).trim() !== '';
-      });
-      setSelectedFields(initial);
-    } catch (e: any) {
-      // Fallback: extract slug directly from URL so user can at least import their slug
-      const urlSlug = extractSlugFromUrl(spUrl.trim());
-      if (urlSlug) {
-        const fallbackData = { username: urlSlug };
-        setScrapedData(fallbackData);
-        setSelectedFields({ username: true });
-      } else {
-        setScrapeError(e.message || 'Failed to scrape SuperProfile');
-      }
-    } finally {
-      setScraping(false);
-    }
-  };
-
-  const handleApplySelected = () => {
-    if (!scrapedData) return;
-    if (selectedFields.username && scrapedData.username) {
-      setUsername(scrapedData.username.toLowerCase().replace(/[^a-z0-9-_]/g, ''));
-    }
-    if (selectedFields.name && scrapedData.name) setName(scrapedData.name);
-    if (selectedFields.title && scrapedData.title) setTitle(scrapedData.title);
-    if (selectedFields.heading_text && scrapedData.heading_text) setHeadingText(scrapedData.heading_text);
-    if (selectedFields.bio && scrapedData.bio) setBio(scrapedData.bio);
-    if (selectedFields.about_me_text && scrapedData.about_me_text) setAboutMe(scrapedData.about_me_text);
-    if (selectedFields.profile_photo && scrapedData.profile_photo) setPhotoUrl(scrapedData.profile_photo);
-    if (selectedFields.intro_video && scrapedData.intro_video) setIntroVideo(scrapedData.intro_video);
-    if (selectedFields.button_color && scrapedData.button_color) setButtonColor(scrapedData.button_color);
-    if (selectedFields.social_instagram && scrapedData.social_links?.instagram) setInstagram(scrapedData.social_links.instagram);
-    if (selectedFields.social_whatsapp && scrapedData.social_links?.whatsapp) setWhatsapp(scrapedData.social_links.whatsapp);
-    if (selectedFields.social_linkedin && scrapedData.social_links?.linkedin) setLinkedin(scrapedData.social_links.linkedin);
-    if (selectedFields.social_youtube && scrapedData.social_links?.youtube) setYoutube(scrapedData.social_links.youtube);
-    if (selectedFields.social_website && scrapedData.social_links?.website) setWebsite(scrapedData.social_links.website);
-
-    // Also import 1:1 sessions into the store for this admin if selected
-    if (selectedFields.sessions && scrapedData.sessions && Array.isArray(scrapedData.sessions) && scrapedData.sessions.length > 0) {
-      const currentMeetings = useBookingStore.getState().meetingTypes;
-      const otherMeetings = currentMeetings.filter((m) => m.admin_id && m.admin_id !== admin.id);
-
-      const newMeetings = scrapedData.sessions.map((s: any, idx: number) => ({
-        id: `mt-${admin.id}-${Date.now()}-${idx}`,
-        admin_id: admin.id,
-        name: s.name || s.title || '1:1 Mentorship Session',
-        description: s.description || '',
-        duration_minutes: s.duration_minutes || 15,
-        price: s.price || 149700,
-        original_price: s.original_price || (s.price ? s.price * 2 : 499900),
-        currency: (s.currency || 'INR') as any,
-        is_active: true,
-        buffer_before_minutes: 0,
-        buffer_after_minutes: 5,
-        min_advance_hours: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
-
-      useBookingStore.setState({
-        meetingTypes: [...otherMeetings, ...newMeetings],
-      });
-    }
-
-    setApplied(true);
-    setTimeout(() => setApplied(false), 4000);
-  };
-
-  const toggleField = (key: string) => {
-    setSelectedFields((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const toggleAll = (checked: boolean) => {
-    const updated: Record<string, boolean> = {};
-    IMPORT_FIELDS.forEach((f) => {
-      const val = f.getter(scrapedData);
-      updated[f.key] = checked && !!val && String(val).trim() !== '';
-    });
-    setSelectedFields(updated);
-  };
+  // === SuperProfile Import ===
+  // The whole flow (URL -> preview -> field/session selection -> apply) lives in
+  // SuperProfileImportModal and writes through the backend import endpoints. The old inline
+  // version applied straight into this form and into the local store, which meant imported
+  // sessions never reached the database.
+  const [importOpen, setImportOpen] = useState(false);
 
   const handleAddSection = () => {
     const newSec = {
@@ -813,144 +674,36 @@ function ProfileCustomizer({
       </div>
 
       {/* ===== IMPORT FROM SUPERPROFILE ===== */}
-      <div className="space-y-4 p-4 rounded-2xl bg-gradient-to-br from-violet-50 via-indigo-50 to-purple-50 border border-indigo-200/60">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-br from-violet-50 via-indigo-50 to-purple-50 border border-indigo-200/60">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
             <Download className="w-4 h-4" />
           </div>
           <div>
             <h3 className="text-sm font-black text-indigo-900">Import from SuperProfile</h3>
-            <p className="text-[11px] text-indigo-600/70">Paste your superprofile.bio URL to auto-fill your profile</p>
+            <p className="text-[11px] text-indigo-600/70">
+              Bring your public profile and 1:1 sessions across. You review everything before anything changes.
+            </p>
           </div>
         </div>
-
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <Globe className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" />
-            <Input
-              value={spUrl}
-              onChange={(e) => setSpUrl(e.target.value)}
-              placeholder="https://superprofile.bio/yourname"
-              className="text-xs rounded-xl pl-9 border-indigo-200 focus:border-indigo-500 bg-white"
-              onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
-            />
-          </div>
-          <Button
-            onClick={handleScrape}
-            disabled={scraping || !spUrl.trim()}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-5 rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-50"
-          >
-            {scraping ? (
-              <span className="flex items-center gap-1.5">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Scraping...
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5">
-                <Download className="w-3.5 h-3.5" />
-                Import
-              </span>
-            )}
-          </Button>
-        </div>
-
-        {scrapeError && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{scrapeError}</span>
-          </div>
-        )}
-
-        {scrapedData && (
-          <div className="space-y-3 animate-fade-in">
-            {/* Preview Header with Photo */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {scrapedData.profile_photo && (
-                  <img
-                    src={scrapedData.profile_photo}
-                    alt="Scraped profile"
-                    className="w-10 h-10 rounded-xl object-cover border-2 border-indigo-200 shadow-sm"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                )}
-                <div>
-                  <p className="text-xs font-bold text-indigo-900">{scrapedData.name || 'Unknown'}</p>
-                  <p className="text-[11px] text-indigo-600/70">{scrapedData.title || scrapedData.heading_text || ''}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleAll(true)}
-                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-                >
-                  Select All
-                </button>
-                <span className="text-slate-300">|</span>
-                <button
-                  onClick={() => toggleAll(false)}
-                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline cursor-pointer"
-                >
-                  Deselect All
-                </button>
-              </div>
-            </div>
-
-            {/* Field Checkboxes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {IMPORT_FIELDS.map(field => {
-                const value = field.getter(scrapedData);
-                if (!value || (typeof value === 'string' && !value.trim())) return null;
-                const isChecked = selectedFields[field.key] || false;
-                const displayVal = value.length > 60 ? value.substring(0, 60) + '…' : value;
-
-                return (
-                  <label
-                    key={field.key}
-                    className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-all text-xs ${
-                      isChecked
-                        ? 'bg-indigo-100/80 border border-indigo-300'
-                        : 'bg-white/60 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleField(field.key)}
-                      className="mt-0.5 accent-indigo-600 cursor-pointer"
-                    />
-                    <div className="min-w-0">
-                      <span className="font-bold text-slate-700 block">{field.label}</span>
-                      <span className="text-[10px] text-slate-500 block truncate">{displayVal}</span>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            {/* Apply Button */}
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-[10px] text-indigo-500">
-                {Object.values(selectedFields).filter(Boolean).length} field(s) selected
-              </p>
-              <Button
-                onClick={handleApplySelected}
-                disabled={Object.values(selectedFields).filter(Boolean).length === 0}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-5 py-2 rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-50"
-              >
-                {applied ? (
-                  <span className="flex items-center gap-1.5">
-                    <Check className="w-3.5 h-3.5" />
-                    Applied to Form!
-                  </span>
-                ) : (
-                  'Apply Selected to Form ↓'
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
+        <Button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl px-4 py-2 cursor-pointer shadow-md shadow-indigo-600/20"
+        >
+          Import from SuperProfile
+        </Button>
       </div>
+
+      <SuperProfileImportModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => {
+          // The import wrote straight to the backend; reload so the form shows the result.
+          window.location.reload();
+        }}
+      />
+
 
       {/* Basic Info */}
       <div className="space-y-4">
@@ -1235,7 +988,7 @@ function ProfileCustomizer({
                   <Input
                     value={photoUrl}
                     onChange={(e) => setPhotoUrl(e.target.value)}
-                    placeholder="https://images.unsplash.com/... or /assets/mahir.png"
+                    placeholder="https://example.com/your-photo.jpg"
                     className="text-xs rounded-xl"
                   />
                   {photoUrl && (
@@ -1716,27 +1469,82 @@ function ProfileCustomizer({
 // =========================================================================
 function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
   const { connectGoogleCalendar, disconnectGoogleCalendar } = useBookingStore();
-  const [googleEmail, setGoogleEmail] = useState(admin.google_email || admin.email);
-  const [isConnected, setIsConnected] = useState(admin.google_connected || false);
+  // The server row is the only source of truth for connectedness. Local state is a cache of
+  // it, never the decider — that is what used to make the connection "drop" on reload.
+  const [googleEmail, setGoogleEmail] = useState(admin.google_email || '');
+  const [isConnected, setIsConnected] = useState(false);
+  const [isHealthy, setIsHealthy] = useState(true);
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const refreshStatus = React.useCallback(async () => {
+    try {
+      const status = await api.getGoogleStatus();
+      setIsConnected(!!status.connected);
+      setIsHealthy(status.connected ? !!status.healthy : true);
+      if (status.google_email) setGoogleEmail(status.google_email);
+      if (status.connected) {
+        connectGoogleCalendar(admin.id, status.google_email || '');
+      } else {
+        disconnectGoogleCalendar(admin.id);
+      }
+    } catch (e) {
+      // Leave the last known state alone: a failed status call is not a disconnect.
+    } finally {
+      setStatusLoaded(true);
+    }
+  }, [admin.id, connectGoogleCalendar, disconnectGoogleCalendar]);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  // Surface the outcome of the OAuth round trip (backend redirects back with these).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('error');
+    if (oauthError) {
+      const messages: Record<string, string> = {
+        InvalidState: 'That authorization link expired. Please try connecting again.',
+        AdminNotFound: 'Your admin account could not be matched. Please sign in again.',
+        OAuthFailed: 'Google rejected the authorization. Please try again.',
+        NoRefreshToken: 'Google did not return a long-lived token. Remove BookMyMeet at myaccount.google.com/permissions, then connect again.',
+      };
+      setError(messages[oauthError] || 'Google authorization failed.');
+    }
+  }, []);
 
   const handleConnect = async () => {
     setLoading(true);
-    connectGoogleCalendar(admin.id, googleEmail);
+    setError('');
     try {
-      await api.connectMockGoogle(googleEmail);
-    } catch (e) {}
-    setIsConnected(true);
-    setLoading(false);
+      const res = await api.getGoogleAuthUrl();
+      if (!res.auth_url) {
+        setError(res.message || 'Google OAuth is not configured on this server.');
+        setLoading(false);
+        return;
+      }
+      // Real consent screen. We come back at /admin/settings?tab=calendar&connected=true.
+      window.location.href = res.auth_url;
+    } catch (e: any) {
+      setError(e?.message || 'Could not start Google authorization');
+      setLoading(false);
+    }
   };
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect your Google Calendar? Automatic busy slot detection will be paused.')) return;
-    disconnectGoogleCalendar(admin.id);
+    if (!confirm('Disconnect your Google Calendar? Clients will not be able to book until you reconnect.')) return;
+    setLoading(true);
     try {
       await api.disconnectGoogle();
-    } catch (e) {}
-    setIsConnected(false);
+      disconnectGoogleCalendar(admin.id);
+      setIsConnected(false);
+    } catch (e: any) {
+      setError(e?.message || 'Could not disconnect');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1753,28 +1561,66 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
         </p>
       </div>
 
-      {isConnected ? (
-        <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3">
+      {error && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+          {error}
+        </div>
+      )}
+
+      {!statusLoaded ? (
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500 font-medium">
+          Checking your Google Calendar connection...
+        </div>
+      ) : isConnected ? (
+        <div
+          className={`p-4 rounded-2xl border space-y-3 ${
+            isHealthy ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-              ✓
+            <div
+              className={`w-10 h-10 rounded-xl text-white flex items-center justify-center font-bold text-lg shadow-sm ${
+                isHealthy ? 'bg-emerald-600' : 'bg-amber-500'
+              }`}
+            >
+              {isHealthy ? '✓' : '!'}
             </div>
             <div>
-              <p className="text-sm font-bold text-emerald-900">Google Calendar Connected</p>
-              <p className="text-xs text-emerald-700 font-mono">{googleEmail}</p>
+              <p className={`text-sm font-bold ${isHealthy ? 'text-emerald-900' : 'text-amber-900'}`}>
+                {isHealthy ? 'Google Calendar Connected' : 'Reconnect Required'}
+              </p>
+              <p className={`text-xs font-mono ${isHealthy ? 'text-emerald-700' : 'text-amber-800'}`}>{googleEmail}</p>
             </div>
           </div>
-          <p className="text-xs text-emerald-800 leading-relaxed">
-            Real-time busy slot detection is active. Clients will never be offered times when you have events or out-of-office blocks marked on this calendar.
-          </p>
-          <div className="pt-2 flex items-center gap-3">
+          {isHealthy ? (
+            <p className="text-xs text-emerald-800 leading-relaxed">
+              Real-time busy slot detection is active. Clients will never be offered times when you have events or out-of-office blocks marked on this calendar.
+            </p>
+          ) : (
+            <p className="text-xs text-amber-900 leading-relaxed">
+              Your calendar cannot be read right now — access was most likely revoked at Google. Bookings are paused for your page until you reconnect, so no one can book over an existing event.
+            </p>
+          )}
+          <div className="pt-2 flex items-center gap-3 flex-wrap">
+            {!isHealthy && (
+              <Button
+                onClick={handleConnect}
+                disabled={loading}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg px-3 py-1.5 cursor-pointer"
+              >
+                Reconnect Google Calendar
+              </Button>
+            )}
             <button
               onClick={handleDisconnect}
+              disabled={loading}
               className="px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold transition cursor-pointer"
             >
               Disconnect Calendar
             </button>
-            <span className="text-[11px] text-slate-400 font-medium">Auto-synced via OAuth 2.0</span>
+            <span className="text-[11px] text-slate-400 font-medium">
+              Stays connected until you disconnect it here
+            </span>
           </div>
         </div>
       ) : (
@@ -1788,22 +1634,18 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
             </ul>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold">Your Google Account Email</Label>
-            <Input
-              value={googleEmail}
-              onChange={(e) => setGoogleEmail(e.target.value)}
-              placeholder="you@gmail.com"
-              className="text-xs rounded-xl"
-            />
-          </div>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            You will be sent to Google's consent screen. The calendar that gets connected is
+            whichever Google account you sign in with there — it stays connected until you
+            disconnect it on this page.
+          </p>
 
           <Button
             onClick={handleConnect}
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl px-5 py-2.5 cursor-pointer shadow-md shadow-blue-600/20"
           >
-            {loading ? 'Connecting...' : 'Authorize & Connect Google Calendar'}
+            {loading ? 'Redirecting to Google...' : 'Authorize & Connect Google Calendar'}
           </Button>
         </div>
       )}
@@ -1849,7 +1691,7 @@ function PricingAndSessionsSettings({
     const storeMeetings = meetingTypes.filter(
       (m) =>
         m.admin_id === admin.id ||
-        (admin.role === 'super_admin' && (!m.admin_id || m.admin_id === 'ameen-ahsan'))
+        (admin.role === 'super_admin' && !m.admin_id)
     );
     setSessions(
       storeMeetings.map((m) => ({
@@ -2484,7 +2326,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           <Input
             value={accountRef}
             onChange={(e) => setAccountRef(e.target.value)}
-            placeholder="e.g. Adways Academy or your business name"
+            placeholder="e.g. your business name"
             className="text-xs rounded-xl bg-white border-slate-200"
           />
           <p className="text-[10px] text-slate-400">

@@ -5,7 +5,9 @@ from typing import Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import (
+    verify_password, get_password_hash, create_access_token, normalize_email,
+)
 from app.models.models import User, AdminProfile, AvailabilityRule, Session as SessionModel
 from app.schemas.schemas import (
     UserLogin, UserSignup, Token, AdminProfileResponse,
@@ -15,6 +17,7 @@ from app.api.deps import get_current_user
 from app.services.supabase_auth import (
     verify_supabase_token, SupabaseAuthError, SupabaseNotConfigured,
 )
+from app.services.admin_deletion import is_email_blocked, is_username_retired
 
 router = APIRouter()
 
@@ -68,6 +71,28 @@ def _reject_unusable_account(user: User) -> None:
         )
 
 
+BLOCKED_IDENTITY_MESSAGE = (
+    "This account is no longer eligible to register as an Admin. "
+    "Please contact the platform administrator if you believe this is a mistake."
+)
+
+
+def reject_blocked_identity(db: Session, email: str) -> None:
+    """
+    Refuses registration for an address that belonged to a permanently deleted admin.
+
+    Enforced on the server for every registration path (password signup and both legs of
+    Google sign-up), so a client that skips the UI cannot get around it. The check is on a
+    keyed hash of the normalized address, so casing and surrounding whitespace cannot be
+    used to slip past it.
+    """
+    if is_email_blocked(db, email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BLOCKED_IDENTITY_MESSAGE,
+        )
+
+
 def check_username(db: Session, username: str) -> Tuple[bool, Optional[str]]:
     """Returns (available, reason_if_not). Single source of truth for username rules."""
     clean = (username or "").strip().lower()
@@ -80,6 +105,10 @@ def check_username(db: Session, username: str) -> Tuple[bool, Optional[str]]:
         return False, "This username is reserved. Please choose another."
     if db.query(AdminProfile).filter(AdminProfile.username == clean).first():
         return False, "This username is already taken. Please choose another."
+    if is_username_retired(db, clean):
+        # The vanity URL of a deleted admin is never reissued: old links pointing at it
+        # must not resolve to somebody else's booking page.
+        return False, "This username is no longer available. Please choose another."
     return True, None
 
 
@@ -205,7 +234,7 @@ async def _verified_google_identity(access_token: str) -> dict:
 
 @router.post("/login", response_model=Token)
 def login(login_data: UserLogin, db: Session = Depends(get_db)):
-    identifier = login_data.username_or_email.strip().lower()
+    identifier = normalize_email(login_data.username_or_email)
     user = (
         db.query(User)
         .join(AdminProfile, isouter=True)
@@ -228,7 +257,10 @@ def login(login_data: UserLogin, db: Session = Depends(get_db)):
 @router.post("/signup", response_model=Token)
 def signup(signup_data: UserSignup, db: Session = Depends(get_db)):
     clean_username = signup_data.username.strip().lower()
-    clean_email = signup_data.email.strip().lower()
+    clean_email = normalize_email(signup_data.email)
+
+    # Before anything is created: no user, no profile, no sessions, no availability.
+    reject_blocked_identity(db, clean_email)
 
     available, reason = check_username(db, clean_username)
     if not available:
@@ -286,6 +318,10 @@ async def google_auth(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         username = user.profile.username if user.profile else email.split("@")[0]
         return _google_authenticated(user, username)
 
+    # No account, and this address is tombstoned: do not offer registration at all. A
+    # deleted admin must not be able to come back in through "Continue with Google".
+    reject_blocked_identity(db, email)
+
     return {
         "status": "registration_required",
         "email": email,
@@ -312,6 +348,10 @@ async def google_auth_complete(payload: GoogleAuthCompleteRequest, db: Session =
         _reject_unusable_account(existing)
         username = existing.profile.username if existing.profile else email.split("@")[0]
         return _google_authenticated(existing, username)
+
+    # Checked again on this leg, not just on /google: this endpoint creates the account,
+    # so it must not rely on the caller having gone through the previous step.
+    reject_blocked_identity(db, email)
 
     clean_username = payload.username.strip().lower()
     available, reason = check_username(db, clean_username)

@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
+import { DEFAULT_AVATAR } from '@/lib/utils';
 import type { AdminUser, MeetingType } from '@/types';
 import {
   Video,
@@ -24,34 +25,31 @@ import {
 export const SuperProfileHomePage: React.FC = () => {
   const navigate = useNavigate();
   const { username } = useParams<{ username?: string }>();
-  const { admins, meetingTypes, setPendingBooking } = useBookingStore();
+  const { setPendingBooking } = useBookingStore();
 
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. Resolve Admin from store or API
-  const localAdmin = useMemo(() => {
-    if (!username) {
-      return admins.find((a) => a.id === 'ameen-ahsan') || admins[0];
-    }
-    const cleanUser = username.trim().toLowerCase();
-    return admins.find(
-      (a) => a.username.toLowerCase() === cleanUser || a.id.toLowerCase() === cleanUser
-    );
-  }, [username, admins]);
-
+  // 1. Resolve the admin from the API. The backend is the only source of truth for who
+  //    exists: a profile that 404s (never existed, or was permanently deleted) must not be
+  //    rendered from anything cached in this browser.
   useEffect(() => {
     let isMounted = true;
     const fetchRemote = async () => {
+      if (!username) {
+        setRemoteProfile(null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      const target = username || 'ameen';
       try {
-        const data = await api.getPublicProfile(target);
+        const data = await api.getPublicProfile(username);
         if (isMounted) setRemoteProfile(data);
       } catch (err) {
-        // Fall back to local store
+        // 404 or unreachable: no profile. The not-found screen below handles both.
+        if (isMounted) setRemoteProfile(null);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -61,19 +59,6 @@ export const SuperProfileHomePage: React.FC = () => {
   }, [username]);
 
   const activeAdmin: AdminUser | null = useMemo(() => {
-    if (localAdmin) {
-      if (remoteProfile) {
-        return {
-          ...localAdmin,
-          ...remoteProfile,
-          full_name: localAdmin.full_name || remoteProfile.name,
-          username: localAdmin.username || remoteProfile.username,
-          razorpay_key_id: remoteProfile.razorpay_key_id || localAdmin.razorpay_key_id,
-          razorpay_configured: remoteProfile.razorpay_configured ?? localAdmin.razorpay_configured,
-        };
-      }
-      return localAdmin;
-    }
     if (remoteProfile) {
       return {
         id: remoteProfile.id,
@@ -84,14 +69,14 @@ export const SuperProfileHomePage: React.FC = () => {
         status: remoteProfile.status,
         avatar_color: 'bg-indigo-600',
         avatar_letter: remoteProfile.name ? remoteProfile.name.charAt(0).toUpperCase() : 'A',
-        photo_url: remoteProfile.profile_photo || '/assets/mahir.png',
+        photo_url: remoteProfile.profile_photo || DEFAULT_AVATAR,
         cover_image: remoteProfile.cover_image,
         intro_video: remoteProfile.intro_video,
         heading_text: remoteProfile.heading_text,
         about_me_text: remoteProfile.about_me_text,
         welcome_message: remoteProfile.welcome_message,
         bio: remoteProfile.bio,
-        email: `${remoteProfile.username}@adwaysacademy.com`,
+        email: '',
         theme_settings: remoteProfile.theme_settings,
         social_links: remoteProfile.social_links,
         razorpay_key_id: remoteProfile.razorpay_key_id,
@@ -99,7 +84,7 @@ export const SuperProfileHomePage: React.FC = () => {
       };
     }
     return null;
-  }, [remoteProfile, localAdmin]);
+  }, [remoteProfile]);
 
   // 2. Filter meeting types for this admin
   const adminMeetings = useMemo(() => {
@@ -128,62 +113,11 @@ export const SuperProfileHomePage: React.FC = () => {
         updated_at: new Date().toISOString(),
       }));
     }
-    if (!activeAdmin) return [];
-    const filtered = meetingTypes.filter(
-      (m) => m.admin_id === activeAdmin.id || (activeAdmin.id === 'ameen-ahsan' && !m.admin_id)
-    );
-    if (filtered.length > 0) return filtered;
-    if (activeAdmin.id === 'ameen-ahsan') return meetingTypes.slice(0, 3);
-    // Create default packages specific to this admin
-    return [
-      {
-        id: `mt-${activeAdmin.id}-15`,
-        admin_id: activeAdmin.id,
-        name: `1:1 Advisory Call with ${activeAdmin.full_name}`,
-        description: `Get dedicated guidance and answers tailored to your goals in a private 15-minute consultation.`,
-        duration_minutes: 15,
-        price: 29900,
-        original_price: 59900,
-        offer_price: 29900,
-        currency: 'INR',
-        is_active: true,
-        buffer_before_minutes: 5,
-        buffer_after_minutes: 5,
-        min_advance_hours: 1,
-        max_advance_days: 30,
-        cancellation_window_hours: 24,
-        reschedule_allowed: true,
-        max_bookings_per_day: 8,
-        color_id: 1,
-        sort_order: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: `mt-${activeAdmin.id}-30`,
-        admin_id: activeAdmin.id,
-        name: `30-Min Strategy Deep Dive with ${activeAdmin.full_name}`,
-        description: `In-depth consultation and tactical blueprint review with ${activeAdmin.full_name}.`,
-        duration_minutes: 30,
-        price: 49900,
-        original_price: 99900,
-        offer_price: 49900,
-        currency: 'INR',
-        is_active: true,
-        buffer_before_minutes: 5,
-        buffer_after_minutes: 10,
-        min_advance_hours: 2,
-        max_advance_days: 30,
-        cancellation_window_hours: 24,
-        reschedule_allowed: true,
-        max_bookings_per_day: 6,
-        color_id: 2,
-        sort_order: 2,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-    ];
-  }, [remoteProfile, activeAdmin, meetingTypes]);
+    // No invented packages. If the API returned no sessions, this admin has none
+    // published yet -- showing fabricated "₹299 advisory call" cards would offer clients
+    // sessions the admin never created and cannot honour.
+    return [];
+  }, [remoteProfile, activeAdmin]);
 
   const handleSelectMeeting = (meetingId: string) => {
     if (!activeAdmin || activeAdmin.status !== 'ACTIVE') return;
@@ -217,7 +151,17 @@ export const SuperProfileHomePage: React.FC = () => {
     return emojis[index % emojis.length];
   };
 
-  // 3. Status checks: Not Found / Permanently Deleted
+  // 3. Still asking the backend who this is -- do not flash "not found" first.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-10 h-10 rounded-full border-2 border-slate-700 border-t-orange-500 animate-spin mb-4" />
+        <p className="text-sm text-slate-400">Loading profile…</p>
+      </div>
+    );
+  }
+
+  // 4. Status checks: Not Found / Permanently Deleted
   if (!activeAdmin || activeAdmin.status === 'PERMANENTLY_DELETED') {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
@@ -232,7 +176,7 @@ export const SuperProfileHomePage: React.FC = () => {
           to="/"
           className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition"
         >
-          View Featured Mentor
+          Go to Home
         </Link>
       </div>
     );
@@ -362,11 +306,12 @@ export const SuperProfileHomePage: React.FC = () => {
           <div className="flex items-center gap-4">
             <div className="relative">
               <img
-                src={activeAdmin.photo_url || '/assets/mahir.png'}
+                src={activeAdmin.photo_url || DEFAULT_AVATAR}
                 alt={activeAdmin.full_name}
                 className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover object-top border-2 border-white/80 shadow-xl bg-slate-800"
                 onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
+                  const img = e.currentTarget;
+                  if (!img.src.endsWith(DEFAULT_AVATAR)) img.src = DEFAULT_AVATAR;
                 }}
               />
               <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#873600]" />

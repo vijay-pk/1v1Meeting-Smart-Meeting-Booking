@@ -142,8 +142,8 @@ export function Sidebar() {
                 if (isSuperAdmin) {
                   localStorage.setItem('bmm_current_user_role', 'super_admin');
                   localStorage.setItem('bmm_logged_role', 'super_admin');
-                  localStorage.setItem('bmm_logged_username', 'ameen');
-                  localStorage.setItem('bmm_logged_admin_name', 'Ameen Ahsan');
+                  // Identity comes from the signed-in account, never from a literal
+                  // written here: this used to overwrite whoever was logged in.
                 }
               }}
               className={({ isActive }) =>

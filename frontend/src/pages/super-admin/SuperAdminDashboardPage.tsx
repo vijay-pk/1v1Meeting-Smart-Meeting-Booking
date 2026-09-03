@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatPrice } from '@/lib/format';
+import { DEFAULT_AVATAR } from '@/lib/utils';
 import type { AdminUser, MeetingType, WeeklyScheduleBlock } from '@/types';
 import {
   Crown,
@@ -38,6 +39,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +109,54 @@ export const SuperAdminDashboardPage: React.FC = () => {
   // Deletion modal confirmation
   const [adminToDelete, setAdminToDelete] = useState<AdminUser | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [adminsLoading, setAdminsLoading] = useState(true);
+
+  /**
+   * The admin list is the backend's, not the browser's.
+   *
+   * This dashboard used to render a hardcoded array of seeded admins from localStorage,
+   * which meant deleted admins kept appearing and the list never matched the database.
+   */
+  const loadAdmins = React.useCallback(async () => {
+    setAdminsLoading(true);
+    try {
+      const rows = await api.superAdminListAdmins();
+      useBookingStore.setState((state) => ({
+        admins: rows.map((row: any) => {
+          const previous = state.admins.find((a) => a.id === row.id);
+          return {
+            ...previous,
+            id: row.id,
+            username: row.username,
+            full_name: row.name,
+            email: row.email,
+            phone: row.phone || '',
+            role: row.role,
+            status: row.status,
+            title: previous?.title || '',
+            avatar_color: previous?.avatar_color || 'bg-indigo-600',
+            avatar_letter: (row.name || '?').charAt(0).toUpperCase(),
+            google_connected: row.google_connected,
+            google_email: row.google_email || '',
+            razorpay_configured: row.razorpay_configured,
+            razorpay_key_id: row.razorpay_key_id || '',
+          } as AdminUser;
+        }),
+      }));
+    } catch (e: any) {
+      setNotice(e?.message || 'Could not load the admin list from the server.');
+    } finally {
+      setAdminsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAdmins();
+  }, [loadAdmins]);
 
   // Selected Admin tab in Section 1 (Weekly Hours)
   const [selectedAdminId, setSelectedAdminId] = useState<string>(admins[1]?.id || admins[0]?.id);
@@ -129,7 +179,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [newAdminPassword, setNewAdminPassword] = useState('');
 
   // New Meeting Type Form State
-  const [newMtAdminId, setNewMtAdminId] = useState<string>(admins[0]?.id || 'ameen-ahsan');
+  const [newMtAdminId, setNewMtAdminId] = useState<string>(admins[0]?.id || '');
   const [newMtName, setNewMtName] = useState('');
   const [newMtDesc, setNewMtDesc] = useState('');
   const [newMtDuration, setNewMtDuration] = useState<number>(30);
@@ -142,23 +192,20 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [masterPassword, setMasterPassword] = useState(currentSuperAdmin.password || 'admin123');
   const [credsSavedNotice, setCredsSavedNotice] = useState(false);
 
-  // Master Admin (Ameen Ahsan) Personal Settings & Integrations State
-  const [masterSpUrl, setMasterSpUrl] = useState('');
-  const [masterSpScraping, setMasterSpScraping] = useState(false);
+  // Super Admin's own settings & integrations state
+  const [masterImportOpen, setMasterImportOpen] = useState(false);
   const [masterSuperChat, setMasterSuperChat] = useState(
     currentSuperAdmin.social_links?.super_chat || currentSuperAdmin.super_chat_url || ''
   );
   const [masterTelegram, setMasterTelegram] = useState(
     currentSuperAdmin.social_links?.telegram || ''
   );
-  const [masterGoogleEmail, setMasterGoogleEmail] = useState(
-    currentSuperAdmin.google_email || 'mahir@adwaysacademy.com'
-  );
-  const [masterGoogleConnected, setMasterGoogleConnected] = useState(
-    currentSuperAdmin.google_connected ?? true
-  );
+  const [masterGoogleEmail, setMasterGoogleEmail] = useState(currentSuperAdmin.google_email || '');
+  // Never default to "connected": the server row decides, and it is loaded below.
+  const [masterGoogleConnected, setMasterGoogleConnected] = useState(false);
+  const [masterGoogleHealthy, setMasterGoogleHealthy] = useState(true);
   const [masterRzpKey, setMasterRzpKey] = useState(
-    currentSuperAdmin.razorpay_key_id || 'rzp_test_ameen_123456'
+    currentSuperAdmin.razorpay_key_id || ''
   );
   const [masterRzpSecret, setMasterRzpSecret] = useState('••••••••••••••••');
   const [masterIntegrationsNotice, setMasterIntegrationsNotice] = useState('');
@@ -182,9 +229,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
       if (masterRzpKey.trim() && !masterRzpSecret.includes('•')) {
         await api.setupRazorpay(masterRzpKey.trim(), masterRzpSecret.trim());
       }
-      if (masterGoogleConnected && masterGoogleEmail.trim()) {
-        await api.connectMockGoogle(masterGoogleEmail.trim());
-      }
     } catch (e) {}
 
     setMasterIntegrationsSaved(true);
@@ -195,41 +239,53 @@ export const SuperAdminDashboardPage: React.FC = () => {
     }, 3000);
   };
 
+  // Load the real connection state for the super admin's own calendar.
+  useEffect(() => {
+    let ignore = false;
+    api
+      .getGoogleStatus()
+      .then((status: any) => {
+        if (ignore) return;
+        setMasterGoogleConnected(!!status.connected);
+        setMasterGoogleHealthy(status.connected ? !!status.healthy : true);
+        if (status.google_email) setMasterGoogleEmail(status.google_email);
+        if (status.connected) {
+          connectGoogleCalendar(currentSuperAdmin.id, status.google_email || '');
+        } else {
+          disconnectGoogleCalendar(currentSuperAdmin.id);
+        }
+      })
+      .catch(() => {
+        // A failed status call is not a disconnect; leave the last known state alone.
+      });
+    return () => { ignore = true; };
+  }, [currentSuperAdmin.id]);
+
   const handleToggleMasterGoogle = async () => {
     if (masterGoogleConnected) {
-      setMasterGoogleConnected(false);
-      disconnectGoogleCalendar(currentSuperAdmin.id);
+      if (!confirm('Disconnect your Google Calendar? Clients will not be able to book until you reconnect.')) return;
       try { await api.disconnectGoogle(); } catch (e) {}
-    } else {
-      setMasterGoogleConnected(true);
-      connectGoogleCalendar(currentSuperAdmin.id, masterGoogleEmail);
-      try { await api.connectMockGoogle(masterGoogleEmail); } catch (e) {}
+      disconnectGoogleCalendar(currentSuperAdmin.id);
+      setMasterGoogleConnected(false);
+      return;
+    }
+    // Real OAuth: Google decides which account gets connected, not a typed-in address.
+    try {
+      const res = await api.getGoogleAuthUrl();
+      if (!res.auth_url) {
+        setMasterIntegrationsNotice(res.message || 'Google OAuth is not configured on this server.');
+        return;
+      }
+      window.location.href = res.auth_url;
+    } catch (e: any) {
+      setMasterIntegrationsNotice(e?.message || 'Could not start Google authorization');
     }
   };
 
-  const handleMasterScrapeSuperProfile = async () => {
-    if (!masterSpUrl.trim()) return;
-    setMasterSpScraping(true);
-    try {
-      const res = await api.scrapeSuperProfile(masterSpUrl.trim());
-      const d = res.data || res || {};
-      if (d.name) {
-        updateAdminProfile(currentSuperAdmin.id, {
-          full_name: d.name,
-          title: d.title || currentSuperAdmin.title,
-          heading_text: d.heading_text || currentSuperAdmin.heading_text,
-          bio: d.bio || currentSuperAdmin.bio,
-          photo_url: d.profile_photo || currentSuperAdmin.photo_url,
-        });
-      }
-      setMasterIntegrationsNotice('✓ Successfully imported SuperProfile data for Ameen Ahsan!');
-      setTimeout(() => setMasterIntegrationsNotice(''), 3000);
-    } catch (e) {
-      setMasterIntegrationsNotice('Could not scrape SuperProfile. Check URL and try again.');
-      setTimeout(() => setMasterIntegrationsNotice(''), 3000);
-    } finally {
-      setMasterSpScraping(false);
-    }
+  // The super admin imports through the same authenticated preview/apply flow as any other
+  // admin -- there is no separate scrape path, and nothing is written until they confirm.
+  const handleMasterScrapeSuperProfile = () => {
+    setMasterImportOpen(true);
   };
 
   // New Block temporary state per day
@@ -323,29 +379,55 @@ export const SuperAdminDashboardPage: React.FC = () => {
     setIsAddMeetingModalOpen(false);
   };
 
-  const handleCreateAdminSubmit = (e: React.FormEvent) => {
+  const handleCreateAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAdminName || !newAdminEmail) return;
 
-    const created = addAdmin({
-      full_name: newAdminName.trim(),
-      title: newAdminTitle.trim() || 'Consultant',
-      email: newAdminEmail.trim(),
-      username: newAdminUsername.trim() || newAdminName.toLowerCase().replace(/\s+/g, '-'),
-      password: newAdminPassword.trim() || `${newAdminName.toLowerCase().split(' ')[0]}@123`,
-    });
+    const username = (newAdminUsername.trim() || newAdminName.toLowerCase().replace(/\s+/g, '-')).toLowerCase();
+    const password = newAdminPassword.trim();
+
+    if (password.length < 6) {
+      setNotice('Set a password of at least 6 characters for the new admin.');
+      return;
+    }
+
+    // api.signup writes the new account's token into localStorage. Keep the super admin's
+    // own session and put it back afterwards, or creating an admin would sign the super
+    // admin out of their own dashboard.
+    const ownToken = localStorage.getItem('bmm_auth_token');
+    const ownRole = localStorage.getItem('bmm_current_user_role');
+
+    try {
+      // A real account through the real endpoint. Creating one only in this browser's
+      // store produced "admins" who could never sign in and did not exist in the database.
+      // The backend also enforces the rules that matter here: unique email and username,
+      // and a refusal for any address belonging to a permanently deleted admin.
+      await api.signup({
+        name: newAdminName.trim(),
+        email: newAdminEmail.trim(),
+        password,
+        username,
+      });
+    } catch (err: any) {
+      setNotice(err?.message || 'Could not create the admin account.');
+      return;
+    } finally {
+      if (ownToken) localStorage.setItem('bmm_auth_token', ownToken);
+      if (ownRole) localStorage.setItem('bmm_current_user_role', ownRole);
+    }
+
+    await loadAdmins();
+    const created = useBookingStore.getState().admins.find((a) => a.username === username);
 
     setIsAddAdminOpen(false);
-    setSelectedAdminId(created.id);
+    if (created) setSelectedAdminId(created.id);
     setNewAdminName('');
     setNewAdminTitle('');
     setNewAdminEmail('');
     setNewAdminUsername('');
     setNewAdminPassword('');
-
-    // Offer to email credentials immediately
-    setTargetAdminForEmail(created);
-    setIsEmailCredsOpen(true);
+    setNotice(`Admin @${username} created.`);
+    setTimeout(() => setNotice(''), 6000);
   };
 
   const handleSaveMasterCreds = (e: React.FormEvent) => {
@@ -360,23 +442,34 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
   const generateGmailComposeLink = (admin: AdminUser) => {
     const to = encodeURIComponent(admin.email);
-    const subject = encodeURIComponent(`Adways Academy — Your Admin Portal Login Credentials`);
+    const subject = encodeURIComponent(`Your admin portal access`);
     const body = encodeURIComponent(
-      `Hello ${admin.full_name},\n\n` +
-      `You have been granted Consultant / Admin access to the Adways Academy booking platform.\n\n` +
-      `🔑 Your Login Credentials:\n` +
-      `• Portal URL: http://localhost:5173/admin/login\n` +
-      `• Username / Email: ${admin.email} (or ${admin.username})\n` +
-      `• Password: ${admin.password || 'welcome@123'}\n\n` +
-      `Please log in to manage your weekly available hours and view your scheduled student appointments.\n\n` +
-      `Best regards,\nAmeen Ahsan\nCEO, Adways Academy`
+      `Hello ${admin.full_name},
+
+` +
+      `You have been granted admin access to the booking platform.
+
+` +
+      `• Portal URL: ${window.location.origin}/admin/login
+` +
+      `• Username / Email: ${admin.email} (or ${admin.username})
+` +
+      // A password is never held by this dashboard, and must not be mailed in plain text.
+      `• Password: the one set when the account was created
+
+` +
+      `Please sign in to set your weekly available hours and view your scheduled appointments.
+
+` +
+      `Best regards,
+${currentSuperAdmin.full_name || 'The platform team'}`
     );
     return `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${subject}&body=${body}`;
   };
 
   // Super Admin only manages his own personal 1v1 meeting types and pricing
   const displayedMeetingTypes = meetingTypes.filter(
-    (mt) => mt.admin_id === currentSuperAdmin.id || mt.admin_id === 'ameen-ahsan' || !mt.admin_id
+    (mt) => mt.admin_id === currentSuperAdmin.id || !mt.admin_id
   );
 
   return (
@@ -523,6 +616,17 @@ export const SuperAdminDashboardPage: React.FC = () => {
                 </Button>
               </div>
 
+              {notice && (
+                <div className="px-3 py-2 rounded-lg bg-slate-900 text-white text-[11px] font-semibold">
+                  {notice}
+                </div>
+              )}
+              {adminsLoading && (
+                <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-semibold">
+                  Loading admins from the server…
+                </div>
+              )}
+
               {/* Search & Filter Bar */}
               <div className="space-y-2">
                 <Input
@@ -592,17 +696,11 @@ export const SuperAdminDashboardPage: React.FC = () => {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            {adm.photo_url ? (
-                              <img
-                                src={adm.photo_url}
-                                alt={adm.full_name}
-                                className="w-8 h-8 rounded-full object-cover object-top border shrink-0"
-                              />
-                            ) : (
-                              <div className={`w-8 h-8 rounded-full ${adm.avatar_color} text-white font-bold text-xs flex items-center justify-center shrink-0`}>
-                                {adm.avatar_letter}
-                              </div>
-                            )}
+                            <img
+                              src={adm.photo_url || DEFAULT_AVATAR}
+                              alt={adm.full_name}
+                              className="w-8 h-8 rounded-full object-cover object-top border shrink-0"
+                            />
                             <div className="truncate">
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-bold text-slate-900 truncate">{adm.full_name}</p>
@@ -658,10 +756,15 @@ export const SuperAdminDashboardPage: React.FC = () => {
                               type="button"
                               onClick={async () => {
                                 const newStatus = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE';
-                                setAdminStatus(adm.id, newStatus);
                                 try {
+                                  // Server first: the local list follows what actually
+                                  // changed, instead of showing a state the API refused.
                                   await api.superAdminUpdateStatus(adm.id, newStatus);
-                                } catch (e) {}
+                                  setAdminStatus(adm.id, newStatus);
+                                } catch (e: any) {
+                                  setNotice(e?.message || 'Could not update that admin.');
+                                  setTimeout(() => setNotice(''), 6000);
+                                }
                               }}
                               className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
                                 isActive
@@ -841,7 +944,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                   <span>My 1v1 Sessions & Personal Pricing</span>
                 </h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                  Ameen Ahsan
+                  {currentSuperAdmin.full_name || 'You'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -976,7 +1079,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
         </div>
 
         {/* =========================================================================
-            SECTION 2B: MASTER ADMIN PROFILE, SUPER CHAT & INTEGRATIONS (Ameen Ahsan)
+            SECTION 2B: SUPER ADMIN PROFILE, SUPER CHAT & INTEGRATIONS
             (Requirement: Master Admin parity with regular consultants)
            ========================================================================= */}
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
@@ -994,7 +1097,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                 </Badge>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Configure your own SuperProfile import, Super Chat priority messaging link, Razorpay credentials, and Google Calendar sync for <strong>Ameen Ahsan</strong>.
+                Configure your own SuperProfile import, Super Chat priority messaging link, Razorpay credentials, and Google Calendar sync for <strong>{currentSuperAdmin.full_name || 'your account'}</strong>.
               </p>
             </div>
 
@@ -1038,22 +1141,16 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
                 <div className="space-y-1">
                   <Label className="text-[11px] font-semibold text-slate-700">Import from SuperProfile</Label>
-                  <div className="flex gap-1.5">
-                    <Input
-                      value={masterSpUrl}
-                      onChange={(e) => setMasterSpUrl(e.target.value)}
-                      placeholder="https://superprofile.bio/ameen"
-                      className="text-xs rounded-xl bg-white h-8.5"
-                    />
-                    <Button
-                      type="button"
-                      onClick={handleMasterScrapeSuperProfile}
-                      disabled={masterSpScraping || !masterSpUrl.trim()}
-                      className="bg-orange-600 hover:bg-orange-500 text-white text-xs px-3 h-8.5 rounded-xl shrink-0 cursor-pointer"
-                    >
-                      {masterSpScraping ? '...' : 'Import'}
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleMasterScrapeSuperProfile}
+                    className="w-full bg-orange-600 hover:bg-orange-500 text-white text-xs px-3 h-8.5 rounded-xl cursor-pointer"
+                  >
+                    Import from SuperProfile
+                  </Button>
+                  <p className="text-[10px] text-slate-500">
+                    Preview what the public page exposes, then choose what to import.
+                  </p>
                 </div>
 
                 <div className="space-y-1">
@@ -1063,7 +1160,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                   <Input
                     value={masterSuperChat}
                     onChange={(e) => setMasterSuperChat(e.target.value)}
-                    placeholder="https://superprofile.bio/chat/ameen"
+                    placeholder="https://superprofile.bio/chat/your-handle"
                     className="text-xs rounded-xl bg-white h-8.5"
                   />
                   <p className="text-[10px] text-slate-500">
@@ -1076,7 +1173,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                   <Input
                     value={masterTelegram}
                     onChange={(e) => setMasterTelegram(e.target.value)}
-                    placeholder="https://t.me/ameenahsan"
+                    placeholder="https://t.me/your-handle"
                     className="text-xs rounded-xl bg-white h-8.5"
                   />
                 </div>
@@ -1103,22 +1200,26 @@ export const SuperAdminDashboardPage: React.FC = () => {
                         : 'bg-amber-50 text-amber-700 border-amber-300'
                     }`}
                   >
-                    {masterGoogleConnected ? 'Synced' : 'Disconnected'}
+                    {masterGoogleConnected ? (masterGoogleHealthy ? 'Synced' : 'Reconnect needed') : 'Disconnected'}
                   </Badge>
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Google Account Email</Label>
-                  <Input
-                    type="email"
-                    value={masterGoogleEmail}
-                    onChange={(e) => setMasterGoogleEmail(e.target.value)}
-                    placeholder="mahir@adwaysacademy.com"
-                    className="text-xs rounded-xl bg-white h-8.5"
-                  />
+                  <Label className="text-[11px] font-semibold text-slate-700">Google Account</Label>
+                  {/* Read-only: the connected account is whichever one you sign in with on
+                      Google's consent screen, not an address typed here. */}
+                  <div className="text-xs rounded-xl bg-white border border-slate-200 h-8.5 px-3 flex items-center font-mono text-slate-700 truncate">
+                    {masterGoogleEmail || 'Not connected'}
+                  </div>
                   <p className="text-[10px] text-slate-500">
                     Creates calendar events & automated Google Meet video links for bookings.
+                    Stays connected until you disconnect it here.
                   </p>
+                  {masterGoogleConnected && !masterGoogleHealthy && (
+                    <p className="text-[10px] text-amber-700 font-semibold">
+                      Calendar cannot be read — access was likely revoked at Google. Bookings are paused until you reconnect.
+                    </p>
+                  )}
                 </div>
 
                 <div className="p-2.5 rounded-xl bg-white/80 border border-blue-200/70 text-[11px] text-blue-900 space-y-1">
@@ -1142,7 +1243,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
                 }`}
               >
-                {masterGoogleConnected ? 'Disconnect Calendar' : 'Connect Google Calendar'}
+                {masterGoogleConnected ? 'Disconnect Calendar' : 'Authorize & Connect Google Calendar'}
               </Button>
             </div>
 
@@ -1179,7 +1280,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
                     className="text-xs rounded-xl bg-white h-8.5 font-mono"
                   />
                   <p className="text-[10px] text-slate-500">
-                    Encrypted with AES-256 before storage. Payments go straight to Ameen's bank.
+                    Encrypted with AES-256 before storage. Payments settle directly into your own account.
                   </p>
                 </div>
               </div>
@@ -1329,7 +1430,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
               <Input
                 type="email"
                 required
-                placeholder="kavita@adwaysacademy.com"
+                placeholder="name@example.com"
                 value={newAdminEmail}
                 onChange={(e) => setNewAdminEmail(e.target.value)}
                 className="h-10 text-xs rounded-xl"
@@ -1393,7 +1494,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
               Add Personal 1v1 Session
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              Create a new 1v1 session offering and configure your personal pricing (Ameen Ahsan).
+              Create a new 1v1 session offering and configure your pricing.
             </DialogDescription>
           </DialogHeader>
 
@@ -1549,7 +1650,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
       </Dialog>
 
       {/* =========================================================================
-          MODAL 4: SUPER ADMIN CUSTOM CREDENTIALS EDITOR (Ameen Ahsan's Owner Key)
+          MODAL 4: SUPER ADMIN CREDENTIALS EDITOR
          ========================================================================= */}
       <Dialog open={isSuperAdminCredsOpen} onOpenChange={setIsSuperAdminCredsOpen}>
         <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-white">
@@ -1645,44 +1746,89 @@ export const SuperAdminDashboardPage: React.FC = () => {
           </DialogHeader>
 
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-2 my-2">
-            <p className="font-bold">⚠️ Warning: This action cannot be undone.</p>
+            <p className="font-bold">⚠️ This action cannot be undone.</p>
             <ul className="list-disc pl-4 space-y-1 text-[11px] text-red-700">
-              <li>Their personal booking link (<strong>/{adminToDelete?.username}</strong>) will be closed immediately.</li>
-              <li>They will no longer be able to log in to the admin portal.</li>
-              <li>Existing appointments will remain in the database for client reference.</li>
+              <li>The admin account, profile, session types, availability, Google Calendar connection and Razorpay configuration are permanently deleted.</li>
+              <li>Their booking link (<strong>/{adminToDelete?.username}</strong>) stops working immediately, and that username can never be claimed again.</li>
+              <li>They can no longer sign in, with a password or with Google.</li>
+              <li>They will not be able to register again using the same email address.</li>
+              <li>Past bookings and payments are kept as financial records, with all personal details erased.</li>
             </ul>
           </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-slate-700">
+              Type <span className="font-mono font-bold text-red-600">DELETE</span> to confirm
+            </Label>
+            <Input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="text-xs rounded-xl"
+              autoComplete="off"
+            />
+          </div>
+
+          {deleteError && (
+            <p className="text-[11px] font-semibold text-red-600">{deleteError}</p>
+          )}
 
           <div className="pt-2 flex items-center justify-end gap-2.5">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsDeleteModalOpen(false)}
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setDeleteConfirmText('');
+                setDeleteError('');
+              }}
               className="rounded-xl text-xs cursor-pointer"
             >
               Cancel
             </Button>
             <Button
               type="button"
+              disabled={deleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
               onClick={async () => {
-                if (adminToDelete) {
+                if (!adminToDelete) return;
+                setDeleting(true);
+                setDeleteError('');
+                try {
+                  // The server deletes; the local list is then rebuilt from the server, so
+                  // the UI can never disagree with the database about who exists.
+                  await api.superAdminDeleteAdmin(adminToDelete.id);
                   removeAdmin(adminToDelete.id);
-                  try {
-                    await api.superAdminDeleteAdmin(adminToDelete.id);
-                  } catch (e) {}
+                  await loadAdmins();
+                  const remaining = useBookingStore.getState().admins;
                   if (selectedAdminId === adminToDelete.id) {
-                    setSelectedAdminId(admins[0].id);
+                    setSelectedAdminId(remaining[0]?.id || '');
                   }
+                  setNotice(`${adminToDelete.full_name} was permanently deleted.`);
+                  setTimeout(() => setNotice(''), 6000);
                   setIsDeleteModalOpen(false);
+                  setDeleteConfirmText('');
+                } catch (e: any) {
+                  setDeleteError(e?.message || 'Deletion failed. Nothing was removed.');
+                } finally {
+                  setDeleting(false);
                 }
               }}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs px-5 cursor-pointer shadow-md shadow-red-600/20"
+              className="bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs px-5 cursor-pointer shadow-md shadow-red-600/20 disabled:opacity-50"
             >
-              Yes, Permanently Delete
+              {deleting ? 'Deleting…' : 'Yes, Permanently Delete'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <SuperProfileImportModal
+        open={masterImportOpen}
+        onOpenChange={setMasterImportOpen}
+        onImported={() => {
+          setMasterIntegrationsNotice('✓ SuperProfile data imported into your profile.');
+          setTimeout(() => setMasterIntegrationsNotice(''), 5000);
+        }}
+      />
 
     </div>
   );

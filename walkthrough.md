@@ -103,12 +103,11 @@ Every admin has full autonomy over their financial gateway. Client session fees 
      razorpay_key_id: Optional[str] = None
      ```
    - In `get_public_admin_profile`, queried `RazorpayConnection` for that admin and exposed their public `key_id` (safe for browser use) while keeping `encrypted_key_secret` strictly protected on the server.
-2. **Backend Seed Data for Staff Admins ([`backend/app/main.py`](file:///c:/Users/midhu/OneDrive/Desktop/super/backend/app/main.py))**:
-   - Seeded initial staff admins with unique Razorpay test configurations:
-     - **Ameen Ahsan** (`ameen`): `rzp_test_ameen_123456`
-     - **Alex Rivera** (`alex`): `rzp_test_alex_987654`
-     - **Priya Sharma** (`priya`): `rzp_test_priya_555444`
-     - **David Chen** (`david`): `rzp_test_david_333222`
+2. **No seeded admins (`backend/app/main.py`)**:
+   - The demo staff admins and their placeholder Razorpay test configurations have been
+     removed. Startup creates only the Super Admin, from `SUPER_ADMIN_*` environment
+     variables, and only when no super admin exists. Every other admin registers through
+     `/signup` or Google, and connects their own Razorpay account from Settings.
 3. **Dedicated Payment Checkout ([`PaymentCheckoutPage.tsx`](file:///c:/Users/midhu/OneDrive/Desktop/super/frontend/src/pages/public/PaymentCheckoutPage.tsx))**:
    - Dynamic key selection:
      ```typescript
@@ -227,13 +226,19 @@ Resolved previous loading delays when signing in or loading dashboards:
 
 ## 10. Super Admin Control Panel ([`/super-admin`](http://localhost:5173/super-admin))
 
-- **Credentials**: `ameen` / `mahir@adwaysacademy.com` / `admin123`.
+- **Credentials**: whatever `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` are set to in
+  `backend/.env`. The login form performs real authentication against
+  `POST /api/auth/login` and checks that the account's role is `super_admin`.
 - **Platform Analytics**: Total revenue, confirmed bookings, and active staff admins.
 - **Admin Management Table**:
   - Search by name, username, or email.
-  - Filter by status (`ACTIVE`, `TEMPORARILY_DISABLED`, `PERMANENTLY_DELETED`).
-  - **1-Click Status Toggle**: Temporarily disable or re-activate staff admin pages.
-  - **Permanent Delete Confirmation Modal**: Requires typing `DELETE` to avoid accidental removal.
+  - Filter by status (`ACTIVE`, `TEMPORARILY_DISABLED`).
+  - **1-Click Status Toggle**: Temporarily disable or re-activate staff admin pages. The
+    server is called first; the list only changes if it succeeded.
+  - **Permanent Delete Confirmation Modal**: Requires typing `DELETE`. Deletion is real —
+    the account, profile, sessions, availability, Google and Razorpay connections are
+    erased, bookings and payments are kept but anonymized, the username is retired, and
+    the email can never register again. See "Admin deletion" in `CLAUDE.md`.
 
 ---
 

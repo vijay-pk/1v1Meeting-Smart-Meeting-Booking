@@ -38,11 +38,10 @@ class Settings(BaseSettings):
     SUPER_ADMIN_PASSWORD: str
     SUPER_ADMIN_NAME: str = os.getenv("SUPER_ADMIN_NAME", "Ameen Ahsan")
 
-    # Demo staff admins (alex / priya / david) seeded by main.seed_initial_data().
-    # Off by default so a deployment never boots with known demo logins; turn it on in
-    # backend/.env for local development.
-    SEED_DEMO_ADMINS: bool = os.getenv("SEED_DEMO_ADMINS", "false").lower() in ("1", "true", "yes")
-    DEMO_ADMIN_PASSWORD: str = os.getenv("DEMO_ADMIN_PASSWORD", "")
+    # NOTE: demo/staff admin seeding has been removed entirely. The application never
+    # creates sample admin accounts -- see main.seed_initial_data(), which bootstraps only
+    # the Super Admin. SEED_DEMO_ADMINS / DEMO_ADMIN_PASSWORD are gone; leaving them set
+    # in an .env file is harmless (Config.extra = "allow") but has no effect.
 
     # Payments.
     # Simulation lets the seeded demo admins complete a booking without real Razorpay
@@ -55,6 +54,17 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
+
+    # Fake Google Calendar connections for local demos (POST /api/google/admin/connect-mock).
+    # Off by default: that endpoint overwrites whatever refresh token an admin already has,
+    # so leaving it open lets a stray call destroy a working integration. A mock connection
+    # can never read a real calendar, so availability fails closed for it.
+    ALLOW_MOCK_GOOGLE: bool = os.getenv("ALLOW_MOCK_GOOGLE", "false").lower() in ("1", "true", "yes")
+
+    # Timezone every admin's working hours and stored booking times are expressed in.
+    # Availability rules are bare wall clock ("10:00"), so they need a zone to be compared
+    # against the real UTC instants Google Calendar reports.
+    BUSINESS_TIMEZONE: str = os.getenv("BUSINESS_TIMEZONE", "Asia/Kolkata")
 
     # Supabase Auth. Used only to verify the access token issued by the browser's
     # Google OAuth flow -- the Python backend stores no Supabase data of its own.

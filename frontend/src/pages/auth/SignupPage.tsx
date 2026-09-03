@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 import {
@@ -23,7 +22,6 @@ import {
   ArrowRight,
   Video,
   Globe,
-  ExternalLink,
   Eye,
   EyeOff
 } from 'lucide-react';
@@ -38,7 +36,6 @@ export function SignupPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { addAdmin } = useBookingStore();
   const navigate = useNavigate();
 
   const handleUsernameChange = (value: string) => {
@@ -64,39 +61,31 @@ export function SignupPage() {
     setLoading(true);
 
     try {
-      // 1. Register with backend API
-      try {
-        await api.signup({
-          name: fullName,
-          email,
-          password,
-          phone,
-          username,
-        });
-      } catch (apiErr: any) {
-        // If username taken or validation failed from backend
-        if (apiErr.message && !apiErr.message.includes('Failed to fetch')) {
-          setError(apiErr.message);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 2. Also register in local persisted store
-      const newAdmin = addAdmin({
-        full_name: fullName,
-        title: 'Mentor & Growth Consultant',
+      // The backend is the only place an account is created. It rejects duplicate and
+      // permanently deleted email addresses, and it returns the reason -- which is shown
+      // to the user verbatim below. There is deliberately no local fallback: creating a
+      // browser-only "account" when the API is unreachable produced admins that existed
+      // in localStorage and nowhere else.
+      const data = await api.signup({
+        name: fullName,
         email,
-        username,
         password,
+        phone,
+        username,
       });
 
-      localStorage.setItem('bmm_current_user_role', 'admin');
-      localStorage.setItem('bmm_logged_admin_id', newAdmin.id);
+      localStorage.setItem('bmm_logged_admin_id', data.user_id);
+      localStorage.setItem('bmm_logged_username', data.username || username);
+      localStorage.setItem('bmm_logged_admin_name', data.name || fullName);
 
       navigate('/admin');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create admin account');
+    } catch (err: any) {
+      const message = err?.message || 'Failed to create admin account';
+      setError(
+        message.includes('Failed to fetch')
+          ? 'Could not reach the sign-up service. Please try again in a moment.'
+          : message
+      );
     } finally {
       setLoading(false);
     }
@@ -123,14 +112,6 @@ export function SignupPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link
-            to="/ameen"
-            className="hidden sm:flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition"
-          >
-            <span>Explore Ameen's Profile</span>
-            <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
-          </Link>
-
           <Link
             to="/admin/login"
             className="text-xs font-bold px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1.5 border border-white/10"
@@ -203,21 +184,6 @@ export function SignupPage() {
               </div>
             </div>
 
-            {/* Quick Demo Links */}
-            <div className="pt-2 flex items-center gap-3 text-xs text-slate-400">
-              <span>Try Live Profiles:</span>
-              <Link to="/ameen" className="text-orange-400 hover:underline font-semibold">
-                @ameen
-              </Link>
-              <span>•</span>
-              <Link to="/alex" className="text-amber-400 hover:underline font-semibold">
-                @alex
-              </Link>
-              <span>•</span>
-              <Link to="/priya" className="text-blue-400 hover:underline font-semibold">
-                @priya
-              </Link>
-            </div>
           </div>
 
           {/* Right Column: Registration Form */}
@@ -397,9 +363,6 @@ export function SignupPage() {
       <footer className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 border-t border-white/10 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 relative z-20">
         <p>© 2026 BookMyMeet. Multi-Admin 1:1 Mentorship Platform.</p>
         <div className="flex items-center gap-4">
-          <Link to="/ameen" className="hover:text-slate-300 transition">
-            Featured Mentor (Ameen)
-          </Link>
           <Link to="/admin/login" className="hover:text-slate-300 transition">
             Admin Portal
           </Link>

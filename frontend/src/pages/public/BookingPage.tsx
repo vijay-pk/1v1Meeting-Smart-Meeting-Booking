@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
+import { DEFAULT_AVATAR } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
   format,
@@ -40,27 +42,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
-const TESTIMONIALS = [
-  {
-    name: 'Rahul Sharma',
-    role: 'Founder, UrbanFit D2C',
-    content: 'Ameen Ahsan’s 30-min strategy session helped us revamp our Meta ad creatives and scale ROAS from 1.4x to 3.8x in under 3 weeks. Absolutely game-changing.',
-    rating: 5,
-  },
-  {
-    name: 'Sneha Kapoor',
-    role: 'Managing Director, Apex Digital',
-    content: 'The clarity, depth, and actionable takeaways in our 60-min Deep Dive were incredible. No fluff, straight to the point execution blueprint.',
-    rating: 5,
-  },
-  {
-    name: 'Vikram Talwar',
-    role: 'E-Commerce Growth Lead',
-    content: 'Adways Academy has the best performance marketing mentorship in India. Highly recommend booking a slot before they fill up!',
-    rating: 5,
-  },
-];
-
 const HIGHLIGHTS = [
   {
     icon: Target,
@@ -92,7 +73,6 @@ export const BookingPage: React.FC = () => {
     admins,
     meetingTypes,
     createBooking,
-    getAvailableSlots,
   } = useBookingStore();
 
   // Selected states
@@ -115,8 +95,7 @@ export const BookingPage: React.FC = () => {
   // Dynamic meeting types for the selected admin
   const activeMeetingTypes = useMemo(() => {
     if (!selectedAdminId) {
-      const superAdminMeetings = meetingTypes.filter(m => m.admin_id === 'ameen-ahsan' || !m.admin_id);
-      return superAdminMeetings.length > 0 ? superAdminMeetings : meetingTypes;
+      return meetingTypes.filter((m) => !m.admin_id);
     }
     const filtered = meetingTypes.filter(m => m.admin_id === selectedAdminId);
     return filtered.length > 0 ? filtered : meetingTypes;
@@ -151,19 +130,52 @@ export const BookingPage: React.FC = () => {
     return list;
   }, []);
 
-  // Compute available slots
-  const availableSlots = useMemo(() => {
-    if (!selectedMeeting) return [];
-    const all = getAvailableSlots(selectedDate, selectedMeeting.id, selectedAdminId);
-    return all.filter((s) => {
-      try {
-        const mins = new Date(s.start).getMinutes();
-        return mins === 0 || mins === 30;
-      } catch (e) {
-        return true;
-      }
-    });
-  }, [selectedDate, selectedMeeting?.id, selectedAdminId, getAvailableSlots]);
+  // Slots come from the backend engine, which subtracts the host's Google Calendar busy
+  // blocks, leave, confirmed bookings and slot locks.
+  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+
+  useEffect(() => {
+    if (!selectedMeeting || !selectedAdminId) {
+      setAvailableSlots([]);
+      return;
+    }
+
+    let ignore = false;
+    setSlotsLoading(true);
+    setSlotsError('');
+
+    api
+      .getAvailableSlots({
+        admin_id: selectedAdminId,
+        session_id: selectedMeeting.id,
+        date_str: format(selectedDate, 'yyyy-MM-dd'),
+      })
+      .then((res: any) => {
+        if (ignore) return; // superseded by a newer request
+        if (res?.error || res?.calendar_error) {
+          setAvailableSlots([]);
+          setSlotsError(res.message || 'Could not load availability. Please try again.');
+          return;
+        }
+        setAvailableSlots(
+          (res?.available_slots || []).map((slot: any) => ({
+            start: slot.start_time_iso,
+            end: slot.end_time_iso,
+            display_start: slot.label,
+            display_end: slot.end,
+          }))
+        );
+      })
+      .finally(() => {
+        if (!ignore) setSlotsLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedAdminId, selectedMeeting?.id, selectedDate]);
 
   // Set default slot
   useEffect(() => {
@@ -218,17 +230,11 @@ export const BookingPage: React.FC = () => {
       <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {selectedAdminUser?.photo_url ? (
-              <img
-                src={selectedAdminUser.photo_url}
-                alt={selectedAdminUser.full_name}
-                className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-xs"
-              />
-            ) : (
-              <div className={`w-10 h-10 rounded-xl ${selectedAdminUser?.avatar_color || 'bg-gradient-to-tr from-orange-600 to-amber-500'} text-white font-black flex items-center justify-center shadow-md shadow-orange-500/20 text-lg`}>
-                {selectedAdminUser?.avatar_letter || selectedAdminUser?.full_name?.charAt(0) || 'A'}
-              </div>
-            )}
+            <img
+              src={selectedAdminUser?.photo_url || DEFAULT_AVATAR}
+              alt={selectedAdminUser?.full_name || 'Host'}
+              className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-xs"
+            />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-slate-900 text-base sm:text-lg tracking-tight">
@@ -254,7 +260,7 @@ export const BookingPage: React.FC = () => {
       </header>
 
       {/* =========================================================================
-          HERO PROFILE SECTION (Featuring Mahir's Portrait & Credibility)
+          HERO PROFILE SECTION (Host portrait & credibility)
          ========================================================================= */}
       <section className="bg-gradient-to-b from-slate-900 via-[#0B1E3B] to-slate-900 text-white pt-10 pb-16 px-4 sm:px-6 relative overflow-hidden">
         {/* Subtle background glow */}
@@ -263,14 +269,14 @@ export const BookingPage: React.FC = () => {
         <div className="max-w-6xl mx-auto relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
             
-            {/* Left: Ameen Ahsan Portrait Photo */}
+            {/* Left: Host Portrait Photo */}
             <div className="md:col-span-4 flex justify-center md:justify-start">
               <div className="relative group">
                 <div className="absolute -inset-1.5 bg-gradient-to-tr from-orange-500 to-indigo-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500" />
                 <div className="relative w-56 sm:w-64 md:w-72 aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-b from-slate-800 to-slate-950 border-2 border-white/20 shadow-2xl flex items-end justify-center">
                   <img
-                    src="/assets/mahir.png"
-                    alt="Ameen Ahsan - CEO of Adways Academy"
+                    src={selectedAdminUser?.photo_url || DEFAULT_AVATAR}
+                    alt={`${selectedAdminUser?.full_name || 'Host'} profile photo`}
                     className="w-full h-full object-contain object-bottom transition-transform duration-300 group-hover:scale-103"
                   />
                   {/* Floating Trust Badge */}
@@ -298,12 +304,14 @@ export const BookingPage: React.FC = () => {
 
               <div>
                 <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white flex items-center justify-center md:justify-start gap-2.5 flex-wrap">
-                  <span>Ameen Ahsan</span>
-                  <span className="text-slate-400 font-normal text-lg sm:text-2xl">• CEO, Adways Academy</span>
+                  <span>{selectedAdminUser?.full_name || 'Your host'}</span>
+                  {selectedAdminUser?.title && (
+                    <span className="text-slate-400 font-normal text-lg sm:text-2xl">• {selectedAdminUser.title}</span>
+                  )}
                   <ShieldCheck className="w-6 h-6 text-blue-400 fill-blue-500/20" />
                 </h1>
                 <p className="text-sm sm:text-base text-slate-300 mt-2 font-medium max-w-2xl leading-relaxed">
-                  CEO & Lead Strategist at Adways Academy. Book a private 1-on-1 consultation or comprehensive growth audit to scale your campaigns, funnels, and revenue.
+                  {selectedAdminUser?.bio || 'Book a private 1-on-1 consultation.'}
                 </p>
               </div>
 
@@ -453,17 +461,11 @@ export const BookingPage: React.FC = () => {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {adm.photo_url ? (
-                          <img
-                            src={adm.photo_url}
-                            alt={adm.full_name}
-                            className="w-8 h-8 rounded-full object-cover object-top border border-slate-300"
-                          />
-                        ) : (
-                          <div className={`w-8 h-8 rounded-full ${adm.avatar_color} text-white font-bold text-xs flex items-center justify-center`}>
-                            {adm.avatar_letter}
-                          </div>
-                        )}
+                        <img
+                          src={adm.photo_url || DEFAULT_AVATAR}
+                          alt={adm.full_name}
+                          className="w-8 h-8 rounded-full object-cover object-top border border-slate-300"
+                        />
                         <div>
                           <p className="font-bold text-sm text-slate-900">{adm.full_name}</p>
                           <p className="text-[11px] text-slate-400">{adm.title}</p>
@@ -529,11 +531,22 @@ export const BookingPage: React.FC = () => {
                     <span className="text-slate-400 font-medium">4.</span> Pick a time
                   </h2>
                   <span className="text-xs text-slate-500 font-medium">
-                    {availableSlots.length} available slots • {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                        {slotsLoading ? 'Checking availability…' : `${availableSlots.length} available slots`} • {Intl.DateTimeFormat().resolvedOptions().timeZone}
                   </span>
                 </div>
 
-                {availableSlots.length === 0 ? (
+                {slotsLoading ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2 animate-pulse" />
+                    <p className="text-sm font-semibold text-slate-700">Checking the host's calendar…</p>
+                  </div>
+                ) : slotsError ? (
+                  <div className="p-8 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300">
+                    <Clock className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
+                    <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
+                  </div>
+                ) : availableSlots.length === 0 ? (
                   <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
                     <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="text-sm font-semibold text-slate-700">No slots available on this day</p>
@@ -597,7 +610,7 @@ export const BookingPage: React.FC = () => {
         </div>
 
         {/* =========================================================================
-            SECTION: WHAT YOU GET (Best Features from Adways Academy)
+            SECTION: WHAT YOU GET
            ========================================================================= */}
         <section className="mt-14 space-y-6">
           <div className="text-center space-y-2">
@@ -628,47 +641,6 @@ export const BookingPage: React.FC = () => {
         {/* =========================================================================
             SECTION: REVIEWS & SOCIAL PROOF
            ========================================================================= */}
-        <section className="mt-14 space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-bold border border-amber-200">
-              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-              <span>4.9 / 5.0 Star Verified Student & Founder Reviews</span>
-            </div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-              Trusted by 10,000+ Students & Business Owners
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {TESTIMONIALS.map((t, idx) => (
-              <div
-                key={idx}
-                className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between"
-              >
-                <div className="space-y-3">
-                  <div className="flex text-amber-400">
-                    {[...Array(t.rating)].map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-amber-400" />
-                    ))}
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-600 italic leading-relaxed">
-                    "{t.content}"
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-xs flex items-center justify-center">
-                    {t.name[0]}
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-900">{t.name}</h4>
-                    <p className="text-[10px] text-slate-400">{t.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
 
       </main>
 

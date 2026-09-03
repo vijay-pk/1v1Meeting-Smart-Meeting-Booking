@@ -121,8 +121,8 @@ export const BookingConfirmationPage: React.FC = () => {
     );
   }
 
-  const hostName = booking.assigned_admin_name || (booking as any).admin?.full_name || 'Ameen Ahsan';
-  const hostEmail = (booking as any).assigned_admin_email || (booking as any).admin?.email || 'mahir@adwaysacademy.com';
+  const hostName = booking.assigned_admin_name || (booking as any).admin?.full_name || 'your host';
+  const hostEmail = (booking as any).assigned_admin_email || (booking as any).admin?.email || '';
   const meetingName = booking.meeting_type?.name || 'Scheduled Meeting';
   const attendeeName = booking.customer?.name || 'Attendee';
   const attendeeEmail = booking.customer?.email || '';
@@ -312,7 +312,7 @@ export const BookingConfirmationPage: React.FC = () => {
               </div>
             </div>
 
-            {booking.assigned_admin_name && booking.assigned_admin_name !== 'Ameen Ahsan' && (
+            {booking.assigned_admin_name && (
               <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
                 ℹ️ Note: Primary mentor was booked at this time. This session was automatically matched to available senior strategist <strong>{booking.assigned_admin_name}</strong>.
               </p>

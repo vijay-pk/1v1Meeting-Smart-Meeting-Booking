@@ -149,19 +149,7 @@ def update_my_profile(
         "social_links": profile.social_links
     }
 
-from pydantic import BaseModel
-from app.services.scraper_service import scrape_superprofile_url
-
-class ScrapeRequest(BaseModel):
-    url: str
-
-@router.post("/scrape-superprofile")
-async def scrape_superprofile_endpoint(req: ScrapeRequest):
-    try:
-        data = await scrape_superprofile_url(req.url)
-        return {"success": True, "data": data}
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to scrape SuperProfile: {str(e)}")
-
+# The old unauthenticated POST /scrape-superprofile endpoint has been removed. It fetched an
+# arbitrary URL server-side with no authentication and no SSRF protection, and its parser
+# invented prices and social links when the page did not supply them. Importing now lives in
+# api/profile_imports.py behind get_current_admin, as a preview-then-apply flow.

@@ -162,8 +162,11 @@ class Booking(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     public_id = Column(String(50), unique=True, nullable=False)
-    admin_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    meeting_type_id = Column(String(36), ForeignKey("sessions.id"), nullable=False)
+    # Nullable so a permanently deleted admin can be erased while the financial record
+    # survives: admin_deletion.py scrubs the client PII and detaches these two references
+    # rather than leaving a row pointing at a user that no longer exists.
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    meeting_type_id = Column(String(36), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
     client_name = Column(String(100), nullable=False)
     client_email = Column(String(150), nullable=False)
     client_phone = Column(String(30), nullable=True)
@@ -188,7 +191,9 @@ class Payment(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     booking_id = Column(String(36), ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False, unique=True)
-    admin_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    # Detached (not deleted) when the admin is permanently removed -- the payment is a
+    # financial record, but it must not keep pointing at a deleted user row.
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     provider = Column(String(30), default="razorpay", nullable=False)
     order_id = Column(String(100), nullable=False, index=True)
     payment_id = Column(String(100), nullable=True, index=True)
@@ -210,3 +215,50 @@ class Notification(Base):
     booking_id = Column(String(36), nullable=True)
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class DeletedAdminIdentity(Base):
+    """
+    Minimal tombstone left behind when a Super Admin permanently deletes an admin.
+
+    This is NOT a user account or a profile. It holds no name, no phone, no profile
+    content -- only what is needed to enforce two rules after the account is gone:
+
+      1. the same email address can never register again (email_hash), and
+      2. the freed vanity URL can never be claimed by someone else (username).
+
+    The email is stored as a keyed HMAC-SHA256 digest, never in plain text: signup can
+    still test hash(normalized_email) for membership, but the table itself does not
+    disclose who was deleted. The username is public information by nature (it was a
+    public URL), so it is kept as-is to answer /{username} lookups.
+    """
+    __tablename__ = "deleted_admin_identities"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    email_hash = Column(String(64), unique=True, index=True, nullable=False)
+    username = Column(String(50), unique=True, index=True, nullable=True)
+    deleted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    deleted_by = Column(String(36), nullable=True)  # super admin user id, kept for audit
+    reason = Column(String(255), nullable=True)
+
+
+class ProfileImport(Base):
+    """
+    One "Import from SuperProfile" attempt by one admin.
+
+    Parsing writes here and nowhere else. The admin's real profile and session rows are only
+    touched after they review the preview and confirm, which is what keeps a bad parse (or a
+    page that changed shape) from silently overwriting a live booking page.
+
+    `parsed_data` holds the sanitized extraction: plain text only, no HTML, no credentials.
+    """
+    __tablename__ = "profile_imports"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_url = Column(String(1000), nullable=False)
+    source_type = Column(String(30), default="superprofile", nullable=False)
+    status = Column(String(20), default="preview", nullable=False)  # "preview", "applied", "cancelled"
+    parsed_data = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

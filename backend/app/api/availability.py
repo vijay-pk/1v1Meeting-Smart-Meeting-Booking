@@ -1,7 +1,9 @@
 from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import (
     User, AdminProfile, Session as SessionModel, AvailabilityRule,
@@ -9,9 +11,14 @@ from app.models.models import (
 )
 from app.schemas.schemas import AvailabilitySaveRequest, AvailabilityRuleItem
 from app.api.deps import get_current_admin
-from app.services.google_calendar import get_google_busy_intervals
+from app.services.google_calendar import get_google_busy_intervals, GoogleCalendarUnavailable
 
 router = APIRouter()
+
+# Working hours, bookings and slot locks are all stored as bare wall clock in this zone
+# (the trailing "Z" on stored ISO strings is cosmetic). Google, by contrast, speaks real
+# UTC -- BUSINESS_TZ is what bridges the two frames.
+BUSINESS_TZ = ZoneInfo(settings.BUSINESS_TIMEZONE)
 
 @router.get("/rules", response_model=List[AvailabilityRuleItem])
 def get_my_availability_rules(
@@ -153,7 +160,8 @@ async def get_available_slots(
         .all()
     )
 
-    # 7. Fetch Google Calendar Busy Intervals
+    # 7. Fetch Google Calendar Busy Intervals.
+    # The window sent to Google must be real UTC: the admin's local day, converted.
     google_busy = []
     g_conn = (
         db.query(GoogleConnection)
@@ -164,11 +172,48 @@ async def get_available_slots(
         .first()
     )
     if g_conn and g_conn.encrypted_refresh_token:
-        google_busy = await get_google_busy_intervals(
-            g_conn.encrypted_refresh_token,
-            day_start_iso,
-            day_end_iso
+        window_start_utc = (
+            datetime.combine(target_date, datetime.min.time(), tzinfo=BUSINESS_TZ)
+            .astimezone(timezone.utc)
         )
+        window_end_utc = window_start_utc + timedelta(days=1)
+        try:
+            google_busy_raw = await get_google_busy_intervals(
+                g_conn.encrypted_refresh_token,
+                window_start_utc.isoformat().replace("+00:00", "Z"),
+                window_end_utc.isoformat().replace("+00:00", "Z"),
+                g_conn.calendar_id or "primary"
+            )
+        except GoogleCalendarUnavailable:
+            # Fail closed. Showing the working day as free here would let a client book
+            # straight over a real event on the admin's calendar.
+            return {
+                "available_slots": [],
+                "date": date_str,
+                "admin_id": user.id,
+                "calendar_error": True,
+                "message": "Calendar sync unavailable — booking is temporarily paused for this host."
+            }
+
+        # Convert each busy interval from real UTC into business-timezone wall clock, so it
+        # can be compared with the naive wall-clock slots generated below.
+        for gb in google_busy_raw:
+            try:
+                gb_start = datetime.fromisoformat(gb["start"].replace("Z", "+00:00"))
+                gb_end = datetime.fromisoformat(gb["end"].replace("Z", "+00:00"))
+                google_busy.append({
+                    "start": gb_start.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+                    "end": gb_end.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+                })
+            except Exception:
+                # An unparseable interval must not silently vanish into "free".
+                return {
+                    "available_slots": [],
+                    "date": date_str,
+                    "admin_id": user.id,
+                    "calendar_error": True,
+                    "message": "Calendar sync unavailable — booking is temporarily paused for this host."
+                }
 
     # Helper function to check collision
     def is_colliding(slot_start: datetime, slot_end: datetime) -> bool:
@@ -195,22 +240,20 @@ async def get_available_slots(
             except Exception:
                 continue
 
-        # Check Google Calendar Busy intervals
+        # Check Google Calendar Busy intervals (already normalised to business-tz wall clock)
         for gb in google_busy:
-            try:
-                gb_start = datetime.fromisoformat(gb["start"].replace("Z", "+00:00")).replace(tzinfo=None)
-                gb_end = datetime.fromisoformat(gb["end"].replace("Z", "+00:00")).replace(tzinfo=None)
-                if not (buffered_end <= gb_start or buffered_start >= gb_end):
-                    return True
-            except Exception:
-                continue
+            if not (buffered_end <= gb["start"] or buffered_start >= gb["end"]):
+                return True
 
         return False
 
     # 8. Generate non-colliding slots
     slots = []
     current_slot = start_dt
-    min_notice = datetime.now() + timedelta(hours=session_obj.min_advance_hours)
+    # "Now" in the admin's zone, as naive wall clock, to match the slot frame. Server local
+    # time would be wrong on any host that isn't running in BUSINESS_TIMEZONE.
+    now_business = datetime.now(BUSINESS_TZ).replace(tzinfo=None)
+    min_notice = now_business + timedelta(hours=session_obj.min_advance_hours)
 
     while current_slot + duration <= end_dt:
         slot_finish = current_slot + duration

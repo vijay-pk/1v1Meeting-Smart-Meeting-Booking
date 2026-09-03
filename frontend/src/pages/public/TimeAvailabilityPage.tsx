@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
+import { DEFAULT_AVATAR } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
@@ -35,7 +36,6 @@ export const TimeAvailabilityPage: React.FC = () => {
   const {
     admins,
     meetingTypes,
-    getAvailableSlots,
     pendingBooking,
     setPendingBooking,
   } = useBookingStore();
@@ -62,147 +62,65 @@ export const TimeAvailabilityPage: React.FC = () => {
     return () => { isMounted = false; };
   }, [targetAdminId]);
 
-  // Resolve active admin
-  const selectedAdminUser = useMemo<AdminUser>(() => {
-    if (targetAdminId) {
-      const found = admins.find(
-        (a) => a.id === targetAdminId || a.username.toLowerCase() === targetAdminId.toLowerCase()
-      );
-      if (found) {
-        if (remoteProfile) {
-          return {
-            ...found,
-            ...remoteProfile,
-            full_name: found.full_name || remoteProfile.name,
-            username: found.username || remoteProfile.username,
-            razorpay_key_id: remoteProfile.razorpay_key_id || found.razorpay_key_id,
-            razorpay_configured: remoteProfile.razorpay_configured ?? found.razorpay_configured,
-          };
-        }
-        return found;
-      }
-    }
+  // Resolve the host from the API only. Falling back to a locally cached admin -- or, as
+  // this page used to, to admins[0] -- meant an unknown or deleted username silently
+  // rendered somebody else's scheduling page, with their Razorpay key on the next step.
+  const selectedAdminUser = useMemo<AdminUser | null>(() => {
+    if (!remoteProfile) return null;
+    return {
+      id: remoteProfile.id,
+      username: remoteProfile.username,
+      full_name: remoteProfile.name,
+      title: remoteProfile.title || 'Consultant & Mentor',
+      role: 'admin',
+      status: remoteProfile.status || 'ACTIVE',
+      avatar_color: 'bg-indigo-600',
+      avatar_letter: remoteProfile.name ? remoteProfile.name.charAt(0).toUpperCase() : 'C',
+      photo_url: remoteProfile.profile_photo || DEFAULT_AVATAR,
+      cover_image: remoteProfile.cover_image,
+      intro_video: remoteProfile.intro_video,
+      heading_text: remoteProfile.heading_text,
+      about_me_text: remoteProfile.about_me_text,
+      welcome_message: remoteProfile.welcome_message,
+      bio: remoteProfile.bio,
+      email: '',
+      theme_settings: remoteProfile.theme_settings,
+      social_links: remoteProfile.social_links,
+      razorpay_key_id: remoteProfile.razorpay_key_id,
+      razorpay_configured: remoteProfile.razorpay_configured,
+    } as AdminUser;
+  }, [remoteProfile]);
 
-    if (remoteProfile) {
-      return {
-        id: remoteProfile.id,
-        username: remoteProfile.username,
-        full_name: remoteProfile.name,
-        title: remoteProfile.title || 'Consultant & Mentor',
-        role: 'admin',
-        status: remoteProfile.status || 'ACTIVE',
-        avatar_color: 'bg-indigo-600',
-        avatar_letter: remoteProfile.name ? remoteProfile.name.charAt(0).toUpperCase() : 'C',
-        photo_url: remoteProfile.profile_photo || '/assets/mahir.png',
-        cover_image: remoteProfile.cover_image,
-        intro_video: remoteProfile.intro_video,
-        heading_text: remoteProfile.heading_text,
-        about_me_text: remoteProfile.about_me_text,
-        welcome_message: remoteProfile.welcome_message,
-        bio: remoteProfile.bio,
-        email: `${remoteProfile.username}@adwaysacademy.com`,
-        theme_settings: remoteProfile.theme_settings,
-        social_links: remoteProfile.social_links,
-        razorpay_key_id: remoteProfile.razorpay_key_id,
-        razorpay_configured: remoteProfile.razorpay_configured,
-      };
-    }
+  const selectedAdminId = selectedAdminUser?.id || '';
 
-    // If meeting has owner
-    if (meetingId) {
-      const m = meetingTypes.find((item) => item.id === meetingId);
-      if (m?.admin_id) {
-        const found = admins.find((a) => a.id === m.admin_id);
-        if (found) return found;
-      }
-    }
-
-    return admins[0];
-  }, [admins, targetAdminId, remoteProfile, meetingId, meetingTypes]);
-
-  const selectedAdminId = selectedAdminUser.id;
-
-  // Filter meeting types for this admin
+  // Sessions come from the API response for this host and nowhere else. The old fallback
+  // invented "₹299 advisory call" packages for any admin the store did not know about.
   const adminMeetingTypes: MeetingType[] = useMemo(() => {
-    if (remoteProfile?.sessions && remoteProfile.sessions.length > 0) {
-      return remoteProfile.sessions.map((s: any) => ({
-        id: s.id,
-        admin_id: selectedAdminUser.id,
-        name: s.title,
-        description: s.description || '',
-        duration_minutes: s.duration_minutes,
-        price: s.price,
-        original_price: s.original_price,
-        offer_price: s.price,
-        currency: s.currency || 'INR',
-        is_active: s.is_active,
-        buffer_before_minutes: s.buffer_before_minutes || 5,
-        buffer_after_minutes: s.buffer_after_minutes || 5,
-        min_advance_hours: s.min_advance_hours || 1,
-        max_advance_days: s.max_advance_days || 30,
-        cancellation_window_hours: 24,
-        reschedule_allowed: true,
-        max_bookings_per_day: 8,
-        color_id: 1,
-        sort_order: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
-    }
-    const filtered = meetingTypes.filter(
-      (m) => m.admin_id === selectedAdminUser.id || (selectedAdminUser.id === 'ameen-ahsan' && !m.admin_id)
-    );
-    if (filtered.length > 0) return filtered;
-    if (selectedAdminUser.id === 'ameen-ahsan') return meetingTypes.slice(0, 3);
-    return [
-      {
-        id: `mt-${selectedAdminUser.id}-15`,
-        admin_id: selectedAdminUser.id,
-        name: `1:1 Advisory Call with ${selectedAdminUser.full_name}`,
-        description: `Get dedicated guidance and answers tailored to your goals in a private 15-minute consultation.`,
-        duration_minutes: 15,
-        price: 29900,
-        original_price: 59900,
-        offer_price: 29900,
-        currency: 'INR',
-        is_active: true,
-        buffer_before_minutes: 5,
-        buffer_after_minutes: 5,
-        min_advance_hours: 1,
-        max_advance_days: 30,
-        cancellation_window_hours: 24,
-        reschedule_allowed: true,
-        max_bookings_per_day: 8,
-        color_id: 1,
-        sort_order: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: `mt-${selectedAdminUser.id}-30`,
-        admin_id: selectedAdminUser.id,
-        name: `30-Min Strategy Deep Dive with ${selectedAdminUser.full_name}`,
-        description: `In-depth consultation and tactical blueprint review with ${selectedAdminUser.full_name}.`,
-        duration_minutes: 30,
-        price: 49900,
-        original_price: 99900,
-        offer_price: 49900,
-        currency: 'INR',
-        is_active: true,
-        buffer_before_minutes: 5,
-        buffer_after_minutes: 10,
-        min_advance_hours: 2,
-        max_advance_days: 30,
-        cancellation_window_hours: 24,
-        reschedule_allowed: true,
-        max_bookings_per_day: 6,
-        color_id: 2,
-        sort_order: 2,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-    ];
-  }, [remoteProfile, selectedAdminUser, meetingTypes]);
+    if (!selectedAdminUser || !remoteProfile?.sessions) return [];
+    return remoteProfile.sessions.map((s: any) => ({
+      id: s.id,
+      admin_id: selectedAdminUser.id,
+      name: s.title,
+      description: s.description || '',
+      duration_minutes: s.duration_minutes,
+      price: s.price,
+      original_price: s.original_price,
+      offer_price: s.price,
+      currency: s.currency || 'INR',
+      is_active: s.is_active,
+      buffer_before_minutes: s.buffer_before_minutes || 5,
+      buffer_after_minutes: s.buffer_after_minutes || 5,
+      min_advance_hours: s.min_advance_hours || 1,
+      max_advance_days: s.max_advance_days || 30,
+      cancellation_window_hours: 24,
+      reschedule_allowed: true,
+      max_bookings_per_day: 8,
+      color_id: 1,
+      sort_order: 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+  }, [remoteProfile, selectedAdminUser]);
 
   // Selected meeting type
   const currentMeetingId = meetingId || pendingBooking.meetingTypeId;
@@ -228,19 +146,54 @@ export const TimeAvailabilityPage: React.FC = () => {
     return list;
   }, []);
 
-  // Compute available slots for the selected date & meeting
-  const availableSlots = useMemo(() => {
-    if (!selectedMeeting) return [];
-    const all = getAvailableSlots(selectedDate, selectedMeeting.id, selectedAdminId);
-    return all.filter((s) => {
-      try {
-        const mins = new Date(s.start).getMinutes();
-        return mins === 0 || mins === 30;
-      } catch (e) {
-        return true;
-      }
-    });
-  }, [selectedDate, selectedMeeting?.id, selectedAdminId, getAvailableSlots]);
+  // Available slots come from the backend engine only. It is the single place that knows
+  // the host's working hours, leave, confirmed bookings, slot locks and — crucially — the
+  // busy blocks on their connected Google Calendar.
+  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+
+  useEffect(() => {
+    if (!selectedMeeting || !selectedAdminUser?.id) {
+      setAvailableSlots([]);
+      return;
+    }
+
+    let ignore = false;
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    setSlotsLoading(true);
+    setSlotsError('');
+
+    api
+      .getAvailableSlots({
+        admin_id: selectedAdminUser.id,
+        session_id: selectedMeeting.id,
+        date_str: dateStr,
+      })
+      .then((res: any) => {
+        if (ignore) return; // a newer date/session request has superseded this one
+        if (res?.error || res?.calendar_error) {
+          setAvailableSlots([]);
+          setSlotsError(res.message || 'Could not load availability. Please try again.');
+          return;
+        }
+        setAvailableSlots(
+          (res?.available_slots || []).map((s: any) => ({
+            start: s.start_time_iso,
+            end: s.end_time_iso,
+            display_start: s.label,
+            display_end: s.end,
+          }))
+        );
+      })
+      .finally(() => {
+        if (!ignore) setSlotsLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedAdminUser?.id, selectedMeeting?.id, selectedDate]);
 
   // Auto-select first available slot if none selected or if slot is outside available range
   useEffect(() => {
@@ -264,7 +217,7 @@ export const TimeAvailabilityPage: React.FC = () => {
       slot: selectedSlot,
     });
 
-    navigate(`/book/payment?adminId=${selectedAdminUser.id}&username=${selectedAdminUser.username}&meetingId=${selectedMeeting.id}`);
+    navigate(`/book/payment?adminId=${selectedAdminUser?.id}&username=${selectedAdminUser?.username}&meetingId=${selectedMeeting.id}`);
   };
 
   // Video embed helper
@@ -285,9 +238,36 @@ export const TimeAvailabilityPage: React.FC = () => {
     return null;
   };
 
-  const videoEmbedUrl = getVideoEmbedUrl(selectedAdminUser.intro_video);
-  const profileLink = selectedAdminUser.username ? `/${selectedAdminUser.username}` : '/';
-  const buttonColor = selectedAdminUser.theme_settings?.button_color || '#D32F2F';
+  const videoEmbedUrl = getVideoEmbedUrl(selectedAdminUser?.intro_video);
+  const profileLink = selectedAdminUser?.username ? `/${selectedAdminUser.username}` : '/';
+  const buttonColor = selectedAdminUser?.theme_settings?.button_color || '#D32F2F';
+
+  // Unknown or permanently deleted host: no scheduling page. Hooks above have all run, so
+  // this early return is safe.
+  if (!selectedAdminUser || selectedAdminUser.status === 'PERMANENTLY_DELETED') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <h1 className="text-2xl font-extrabold mb-2">Booking page not available</h1>
+        <p className="text-slate-400 max-w-md text-sm mb-6">
+          This booking page does not exist or has been permanently removed.
+        </p>
+        <Link to="/" className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition">
+          Go to Home
+        </Link>
+      </div>
+    );
+  }
+
+  if (selectedAdminUser.status === 'TEMPORARILY_DISABLED') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <h1 className="text-2xl font-extrabold mb-2">Bookings are paused</h1>
+        <p className="text-slate-400 max-w-md text-sm">
+          {selectedAdminUser.full_name} is not accepting bookings at the moment.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-32">
@@ -305,19 +285,11 @@ export const TimeAvailabilityPage: React.FC = () => {
               <ArrowLeft className="w-4 h-4" />
             </Link>
 
-            {selectedAdminUser.photo_url ? (
-              <img
-                src={selectedAdminUser.photo_url}
-                alt={selectedAdminUser.full_name}
-                className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
-              />
-            ) : (
-              <div
-                className={`w-9 h-9 rounded-xl ${selectedAdminUser.avatar_color || 'bg-indigo-600'} text-white font-black flex items-center justify-center shadow-xs text-base`}
-              >
-                {selectedAdminUser.avatar_letter || selectedAdminUser.full_name.charAt(0)}
-              </div>
-            )}
+            <img
+              src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
+              alt={selectedAdminUser.full_name}
+              className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
+            />
 
             <div>
               <div className="flex items-center gap-1.5">
@@ -399,17 +371,11 @@ export const TimeAvailabilityPage: React.FC = () => {
                 <div className="relative group flex items-center justify-center">
                   <div className="absolute -inset-2 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-3xl blur-md opacity-50 group-hover:opacity-75 transition duration-500" />
                   <div className="relative w-40 h-40 sm:w-48 sm:h-48 rounded-3xl overflow-hidden bg-slate-800 border-2 border-white/20 shadow-2xl flex items-center justify-center">
-                    {selectedAdminUser.photo_url ? (
-                      <img
-                        src={selectedAdminUser.photo_url}
-                        alt={selectedAdminUser.full_name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-5xl font-black text-white">
-                        {selectedAdminUser.avatar_letter || selectedAdminUser.full_name.charAt(0)}
-                      </span>
-                    )}
+                    <img
+                      src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
+                      alt={selectedAdminUser.full_name}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                 </div>
               )}
@@ -561,11 +527,22 @@ export const TimeAvailabilityPage: React.FC = () => {
                   <span>Pick a Time</span>
                 </h3>
                 <span className="text-xs text-slate-500 font-medium">
-                  {availableSlots.length} slots available • {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                  {slotsLoading ? 'Checking availability…' : `${availableSlots.length} slots available`} • {Intl.DateTimeFormat().resolvedOptions().timeZone}
                 </span>
               </div>
 
-              {availableSlots.length === 0 ? (
+              {slotsLoading ? (
+                <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2 animate-pulse" />
+                  <p className="text-sm font-semibold text-slate-700">Checking the host's calendar…</p>
+                </div>
+              ) : slotsError ? (
+                <div className="p-8 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300">
+                  <Clock className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
+                  <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
+                </div>
+              ) : availableSlots.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
                   <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-slate-700">No slots available on this day</p>

@@ -61,7 +61,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         const localUser: any = {
           id: effectiveId,
-          email: `${username}@adwaysacademy.com`,
+          email: '',
           user_metadata: { full_name: name, username }
         };
 

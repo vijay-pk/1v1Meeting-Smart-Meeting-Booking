@@ -68,7 +68,7 @@ export const App: React.FC = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/admin/signup" element={<SignupPage />} />
 
-        {/* Super Admin Master Command Console (Ameen Ahsan / CEO) */}
+        {/* Super Admin console */}
         <Route path="/super-admin" element={<SuperAdminDashboardPage />} />
 
         {/* Individual Admin Portal */}

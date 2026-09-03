@@ -312,10 +312,13 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
             client_email=booking.client_email
         )
         booking.google_event_id = event_res.get("event_id")
+        # May be None when Google created the event without a conference, or when event
+        # creation failed. A fabricated meet.google.com link would be worse than none:
+        # the client would follow it and land nowhere.
         meet_link = event_res.get("meet_link")
     else:
-        # Fallback realistic Meet code
-        meet_link = f"https://meet.google.com/bmm-{secrets.token_hex(2)}-{secrets.token_hex(2)}"
+        # No calendar connected for this admin: nothing real to link to.
+        meet_link = None
 
     booking.google_meet_link = meet_link
 

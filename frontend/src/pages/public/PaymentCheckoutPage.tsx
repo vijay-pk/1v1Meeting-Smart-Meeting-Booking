@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
+import { DEFAULT_AVATAR } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { format, parseISO } from 'date-fns';
 import type { AdminUser } from '@/types';
@@ -64,54 +65,34 @@ export const PaymentCheckoutPage: React.FC = () => {
     return () => { isMounted = false; };
   }, [targetAdminId]);
 
-  // Selected Admin
+  // The host is whoever the API says owns this page. Never a locally cached admin and
+  // never admins[0]: this page picks the Razorpay key money is charged with, so resolving
+  // an unknown username to "some other admin" would route a payment to the wrong merchant.
   const selectedAdmin = useMemo<AdminUser | null>(() => {
-    if (targetAdminId) {
-      const found = admins.find(
-        (a) => a.id === targetAdminId || a.username.toLowerCase() === targetAdminId.toLowerCase()
-      );
-      if (found) {
-        if (remoteProfile) {
-          return {
-            ...found,
-            ...remoteProfile,
-            full_name: found.full_name || remoteProfile.name,
-            username: found.username || remoteProfile.username,
-            razorpay_key_id: remoteProfile.razorpay_key_id || found.razorpay_key_id,
-            razorpay_configured: remoteProfile.razorpay_configured ?? found.razorpay_configured,
-          };
-        }
-        return found;
-      }
-    }
-
-    if (remoteProfile) {
-      return {
-        id: remoteProfile.id,
-        username: remoteProfile.username,
-        full_name: remoteProfile.name,
-        title: remoteProfile.title || 'Consultant & Mentor',
-        role: 'admin',
-        status: remoteProfile.status || 'ACTIVE',
-        avatar_color: 'bg-indigo-600',
-        avatar_letter: remoteProfile.name ? remoteProfile.name.charAt(0).toUpperCase() : 'C',
-        photo_url: remoteProfile.profile_photo || '/assets/mahir.png',
-        cover_image: remoteProfile.cover_image,
-        intro_video: remoteProfile.intro_video,
-        heading_text: remoteProfile.heading_text,
-        about_me_text: remoteProfile.about_me_text,
-        welcome_message: remoteProfile.welcome_message,
-        bio: remoteProfile.bio,
-        email: `${remoteProfile.username}@adwaysacademy.com`,
-        theme_settings: remoteProfile.theme_settings,
-        social_links: remoteProfile.social_links,
-        razorpay_key_id: remoteProfile.razorpay_key_id,
-        razorpay_configured: remoteProfile.razorpay_configured,
-      };
-    }
-
-    return admins[0] || null;
-  }, [admins, targetAdminId, remoteProfile]);
+    if (!remoteProfile) return null;
+    return {
+      id: remoteProfile.id,
+      username: remoteProfile.username,
+      full_name: remoteProfile.name,
+      title: remoteProfile.title || 'Consultant & Mentor',
+      role: 'admin',
+      status: remoteProfile.status || 'ACTIVE',
+      avatar_color: 'bg-indigo-600',
+      avatar_letter: remoteProfile.name ? remoteProfile.name.charAt(0).toUpperCase() : 'C',
+      photo_url: remoteProfile.profile_photo || DEFAULT_AVATAR,
+      cover_image: remoteProfile.cover_image,
+      intro_video: remoteProfile.intro_video,
+      heading_text: remoteProfile.heading_text,
+      about_me_text: remoteProfile.about_me_text,
+      welcome_message: remoteProfile.welcome_message,
+      bio: remoteProfile.bio,
+      email: '',
+      theme_settings: remoteProfile.theme_settings,
+      social_links: remoteProfile.social_links,
+      razorpay_key_id: remoteProfile.razorpay_key_id,
+      razorpay_configured: remoteProfile.razorpay_configured,
+    } as AdminUser;
+  }, [remoteProfile]);
 
   // Find meeting and slot
   const queryMeetingId = searchParams.get('meetingId');
@@ -235,7 +216,7 @@ export const PaymentCheckoutPage: React.FC = () => {
           currency: selectedMeeting.currency || 'INR',
           name: selectedAdmin?.full_name || '1:1 Session',
           description: `${selectedMeeting.name} (${selectedMeeting.duration_minutes} mins)`,
-          image: selectedAdmin?.photo_url || '/assets/mahir.png',
+          image: selectedAdmin?.photo_url || DEFAULT_AVATAR,
           prefill: {
             name: name.trim(),
             email: email.trim(),
@@ -322,6 +303,23 @@ export const PaymentCheckoutPage: React.FC = () => {
 
   const buttonColor = selectedAdmin?.theme_settings?.button_color || '#D32F2F';
 
+  // No host resolved (unknown or deleted username), or the host is not taking bookings:
+  // do not present a payment form. Charging a card here would settle into whichever
+  // merchant account happened to be resolved.
+  if (!selectedAdmin || selectedAdmin.status !== 'ACTIVE') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <h1 className="text-2xl font-extrabold mb-2">Checkout unavailable</h1>
+        <p className="text-slate-400 max-w-md text-sm mb-6">
+          This booking page is no longer accepting payments.
+        </p>
+        <Link to="/" className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition">
+          Go to Home
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-24">
       {/* =========================================================================
@@ -338,19 +336,11 @@ export const PaymentCheckoutPage: React.FC = () => {
               <ArrowLeft className="w-4 h-4" />
             </Link>
 
-            {selectedAdmin?.photo_url ? (
-              <img
-                src={selectedAdmin.photo_url}
-                alt={selectedAdmin.full_name}
-                className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
-              />
-            ) : (
-              <div
-                className={`w-9 h-9 rounded-xl ${selectedAdmin?.avatar_color || 'bg-indigo-600'} text-white font-black flex items-center justify-center shadow-xs text-base`}
-              >
-                {selectedAdmin?.avatar_letter || selectedAdmin?.full_name?.charAt(0) || 'A'}
-              </div>
-            )}
+            <img
+              src={selectedAdmin?.photo_url || DEFAULT_AVATAR}
+              alt={selectedAdmin?.full_name || 'Host'}
+              className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
+            />
 
             <div>
               <div className="flex items-center gap-1.5">

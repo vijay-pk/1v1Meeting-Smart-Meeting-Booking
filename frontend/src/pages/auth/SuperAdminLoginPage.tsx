@@ -4,24 +4,68 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Crown, Lock, Mail, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { Crown, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useBookingStore } from '@/stores/bookingStore';
 
 export const SuperAdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('mahir6787');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  /**
+   * Real authentication against the backend.
+   *
+   * This form previously accepted anything: it waited 400 ms, wrote
+   * bmm_current_user_role = 'super_admin' into localStorage and navigated to the
+   * dashboard, with the owner's credentials pre-filled in the inputs. Anyone who opened
+   * the page had super-admin access. Now the password is verified server-side and the
+   * role comes from the issued token's account, not from the browser.
+   */
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      localStorage.setItem('bmm_current_user_role', 'super_admin');
-      localStorage.setItem('bmm_logged_admin_id', 'admin-mahir');
-      setLoading(false);
+    try {
+      const data = await api.login(username.trim(), password);
+
+      if (data.role !== 'super_admin') {
+        // api.login has already stored a token; drop it rather than leaving a
+        // half-authenticated session behind on the super-admin route.
+        localStorage.removeItem('bmm_auth_token');
+        localStorage.removeItem('bmm_current_user_role');
+        setError('This account is not a Super Admin.');
+        setLoading(false);
+        return;
+      }
+
+      localStorage.setItem('bmm_logged_admin_id', data.user_id);
+      localStorage.setItem('bmm_logged_username', data.username || '');
+      localStorage.setItem('bmm_logged_admin_name', data.name || '');
+      localStorage.setItem('bmm_logged_role', 'super_admin');
+
+      useBookingStore.setState((state) => ({
+        currentSuperAdmin: {
+          ...state.currentSuperAdmin,
+          id: data.user_id,
+          username: data.username || '',
+          full_name: data.name || '',
+          email: username.includes('@') ? username.trim().toLowerCase() : state.currentSuperAdmin.email,
+          role: 'super_admin',
+          status: 'ACTIVE',
+          avatar_letter: (data.name || '?').charAt(0).toUpperCase(),
+        },
+      }));
+
       navigate('/super-admin');
-    }, 400);
+    } catch (err: any) {
+      setError(err?.message || 'Sign-in failed. Check your credentials and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -38,15 +82,16 @@ export const SuperAdminLoginPage: React.FC = () => {
             <ShieldCheck className="w-5 h-5 text-indigo-400" />
           </h1>
           <p className="text-xs text-slate-400">
-            Adways Academy Master Control Center & Owner Portal
+            Platform owner portal
           </p>
         </div>
 
-        {/* Highlight badge */}
-        <div className="bg-indigo-950/60 border border-indigo-800/60 rounded-2xl p-3.5 text-center text-xs text-indigo-200 flex items-center justify-center gap-2">
-          <Sparkles className="w-4 h-4 text-indigo-400" />
-          <span>Logged in as <strong>Mahir (Owner)</strong> with global price & admin controls</span>
-        </div>
+        {error && (
+          <div className="bg-red-950/60 border border-red-800/60 rounded-2xl p-3.5 text-xs text-red-200 flex items-center justify-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Login Card */}
         <Card className="bg-slate-900 border-slate-800 text-slate-100 shadow-2xl rounded-3xl overflow-hidden">
