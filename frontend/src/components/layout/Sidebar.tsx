@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useState } from 'react';
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/bookings', icon: CalendarDays, label: 'Bookings' },
   { to: '/admin/calendar', icon: Calendar, label: 'Calendar' },
@@ -30,7 +30,7 @@ const NAV_ITEMS = [
   { to: '/admin/payments', icon: CreditCard, label: 'Payments' },
 ];
 
-const SETTINGS_ITEMS = [
+export const SETTINGS_ITEMS = [
   { to: '/admin/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -79,7 +79,9 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col h-screen bg-sidebar-bg border-r border-sidebar-border transition-all duration-300 relative',
+        // Hidden below lg: on a phone this 260px column left ~100px for the page. The same
+        // destinations are reachable from MobileTabBar + its More sheet.
+        'relative hidden lg:flex flex-col h-dvh shrink-0 bg-sidebar-bg border-r border-sidebar-border transition-[width] duration-300',
         collapsed ? 'w-[72px]' : 'w-[260px]'
       )}
     >
@@ -98,7 +100,7 @@ export function Sidebar() {
       {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-border shadow-sm hover:bg-surface-tertiary transition-colors cursor-pointer"
+        className="tap-hit press absolute -right-3.5 top-20 z-10 flex items-center justify-center w-7 h-7 rounded-full bg-surface border border-border shadow-sm hover:bg-surface-tertiary transition-colors cursor-pointer"
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         {collapsed ? (
@@ -186,7 +188,7 @@ export function Sidebar() {
             onClick={async () => {
               await signOut();
             }}
-            className="p-1.5 rounded-lg text-sidebar-text hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+            className="press inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sidebar-text hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
             aria-label="Sign out"
             title="Sign out & go to Sign Up"
           >

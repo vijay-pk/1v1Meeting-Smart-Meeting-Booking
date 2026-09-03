@@ -40,6 +40,8 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
+import { ThemeToggle } from '@/components/common/ThemeToggle';
+import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -209,6 +211,9 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
   // Super Admin's own settings & integrations state
   const [masterImportOpen, setMasterImportOpen] = useState(false);
+
+  // Hosts the admin dark theme for this route (see hooks/useAdminTheme.ts).
+  const { preference: themePreference, setPreference: setThemePreference } = useAdminTheme();
   const [masterSuperChat, setMasterSuperChat] = useState(
     currentSuperAdmin.social_links?.super_chat || currentSuperAdmin.super_chat_url || ''
   );
@@ -488,17 +493,17 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
   );
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] text-slate-800 antialiased font-sans pb-24">
+    <div className="admin-shell min-h-dvh bg-surface-secondary font-sans text-text-secondary antialiased pb-24">
       
       {/* Super Admin Top Command Bar */}
       <header className="bg-[#0B1E3B] text-white sticky top-0 z-30 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center shadow-md">
               <Crown className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-extrabold text-base tracking-tight text-white">
                   Super Admin Master Console
                 </span>
@@ -506,19 +511,25 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   {currentSuperAdmin.full_name} (CEO)
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-text-tertiary">
                 Manage Staff Admins, Send Gmail Credentials & Set Custom Pricing per Consultant
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
+            <ThemeToggle
+              value={themePreference}
+              onChange={setThemePreference}
+              className="bg-white/10"
+            />
+
             {/* Master Credentials Settings Button */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsSuperAdminCredsOpen(true)}
-              className="text-xs font-semibold px-3 h-8.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/30 flex items-center gap-1.5 cursor-pointer"
+              className="text-xs font-semibold px-3 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/30 flex items-center gap-1.5 cursor-pointer"
             >
               <Key className="w-3.5 h-3.5" />
               <span>Login Info</span>
@@ -534,7 +545,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 localStorage.setItem('bmm_logged_username', currentSuperAdmin.username);
                 localStorage.setItem('bmm_logged_admin_name', currentSuperAdmin.full_name);
               }}
-              className="text-xs font-bold px-3 h-8.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-sm transition-all"
+              className="text-xs font-bold px-3 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-sm transition-all"
             >
               <Settings className="w-3.5 h-3.5" />
               <span>My Portal Settings</span>
@@ -546,7 +557,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
             >
               <span>My Booking Link (/{currentSuperAdmin.username})</span>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+              <ExternalLink className="w-3.5 h-3.5 text-text-tertiary" />
             </Link>
 
             <Button
@@ -555,7 +566,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               onClick={async () => {
                 await signOut();
               }}
-              className="text-xs text-slate-400 hover:text-red-400 hover:bg-slate-800 gap-1.5 cursor-pointer transition-colors"
+              className="text-xs text-text-tertiary hover:text-red-400 hover:bg-slate-800 gap-1.5 cursor-pointer transition-colors"
               title="Sign out & go to Sign Up"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -570,33 +581,33 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         
         {/* PLATFORM ANALYTICS BANNER */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Admins</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{admins.length}</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Platform Staff</p>
+          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
+            <p className="text-[11px] font-bold text-text-tertiary uppercase tracking-wider">Total Admins</p>
+            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-text-primary mt-1">{admins.length}</p>
+            <p className="text-[10px] text-text-tertiary mt-0.5">Platform Staff</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
             <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Active Admins</p>
-            <p className="text-2xl font-black text-emerald-700 mt-1">
+            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-emerald-700 mt-1">
               {admins.filter(a => (a.status || 'ACTIVE') === 'ACTIVE').length}
             </p>
             <p className="text-[10px] text-emerald-600/80 mt-0.5">Accepting Bookings</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
             <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Disabled Admins</p>
-            <p className="text-2xl font-black text-amber-700 mt-1">
+            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-amber-700 mt-1">
               {admins.filter(a => a.status === 'TEMPORARILY_DISABLED').length}
             </p>
             <p className="text-[10px] text-amber-600/80 mt-0.5">Portals Paused</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
             <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">Total Bookings</p>
-            <p className="text-2xl font-black text-blue-900 mt-1">{bookings.length}</p>
+            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-blue-900 mt-1">{bookings.length}</p>
             <p className="text-[10px] text-blue-600/80 mt-0.5">Platform Wide</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
+          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs col-span-2 sm:col-span-1">
             <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Confirmed Revenue</p>
-            <p className="text-2xl font-black text-indigo-900 mt-1">
+            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-indigo-900 mt-1">
               ₹{(bookings.filter(b => b.payment_status === 'completed').length * 1497).toLocaleString()}
             </p>
             <p className="text-[10px] text-indigo-600/80 mt-0.5">Via Razorpay</p>
@@ -606,17 +617,17 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         {/* =========================================================================
             SECTION 1: ADMINS & WEEKLY HOURS CONFIGURATION
            ========================================================================= */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-200">
             
             {/* Left Sidebar: Admins List + Add Admin */}
-            <div className="md:col-span-4 lg:col-span-4 p-5 bg-slate-50/70 space-y-4">
+            <div className="md:col-span-4 lg:col-span-4 p-5 bg-surface-secondary/70 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="font-bold text-slate-900 text-sm tracking-tight">
+                  <h2 className="font-bold text-text-primary text-sm tracking-tight">
                     Admins & Staff ({admins.length})
                   </h2>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-text-tertiary">
                     Search, toggle status & manage consultants
                   </p>
                 </div>
@@ -637,7 +648,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </div>
               )}
               {adminsLoading && (
-                <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-semibold">
+                <div className="px-3 py-2 rounded-lg bg-surface-tertiary text-text-tertiary text-[11px] font-semibold">
                   Loading admins from the server…
                 </div>
               )}
@@ -648,14 +659,14 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   placeholder="Search admin by name, email, or @user..."
                   value={adminSearch}
                   onChange={(e) => setAdminSearch(e.target.value)}
-                  className="h-8 text-xs bg-white rounded-lg border-slate-200"
+                  className="h-11 sm:h-9 text-xs bg-surface rounded-lg border-border"
                 />
                 <div className="flex gap-1">
                   <button
                     type="button"
                     onClick={() => setStatusFilter('all')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'all' ? 'bg-[#0B1E3B] text-white' : 'bg-slate-200/70 text-slate-600'
+                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
+                      statusFilter === 'all' ? 'bg-[#0B1E3B] text-white' : 'bg-slate-200/70 text-text-secondary'
                     }`}
                   >
                     All ({admins.length})
@@ -663,8 +674,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <button
                     type="button"
                     onClick={() => setStatusFilter('ACTIVE')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'ACTIVE' ? 'bg-emerald-600 text-white' : 'bg-slate-200/70 text-slate-600'
+                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
+                      statusFilter === 'ACTIVE' ? 'bg-emerald-600 text-white' : 'bg-slate-200/70 text-text-secondary'
                     }`}
                   >
                     Active ({admins.filter(a => (a.status || 'ACTIVE') === 'ACTIVE').length})
@@ -672,8 +683,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <button
                     type="button"
                     onClick={() => setStatusFilter('TEMPORARILY_DISABLED')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition cursor-pointer ${
-                      statusFilter === 'TEMPORARILY_DISABLED' ? 'bg-amber-600 text-white' : 'bg-slate-200/70 text-slate-600'
+                    className={`px-3 py-2 text-[11px] font-bold rounded-md transition cursor-pointer ${
+                      statusFilter === 'TEMPORARILY_DISABLED' ? 'bg-amber-600 text-white' : 'bg-slate-200/70 text-text-secondary'
                     }`}
                   >
                     Disabled ({admins.filter(a => a.status === 'TEMPORARILY_DISABLED').length})
@@ -682,7 +693,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               {/* Admin Cards List */}
-              <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-[60dvh] overflow-y-auto pr-1">
                 {admins
                   .filter((adm) => {
                     const matchSearch =
@@ -706,7 +717,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         className={`p-3 rounded-xl transition-all duration-150 border cursor-pointer ${
                           isSelected
                             ? 'bg-[#EBF3FF] border-blue-400 text-blue-900 shadow-xs'
-                            : 'bg-white hover:bg-slate-100/80 border-slate-200 text-slate-700'
+                            : 'bg-surface hover:bg-surface-tertiary/80 border-border text-text-secondary'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -718,12 +729,12 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                             />
                             <div className="truncate">
                               <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold text-slate-900 truncate">{adm.full_name}</p>
+                                <p className="text-xs font-bold text-text-primary truncate">{adm.full_name}</p>
                                 {isSuper && (
                                   <Crown className="w-3 h-3 text-amber-500 shrink-0" />
                                 )}
                               </div>
-                              <p className="text-[10px] text-slate-400 font-mono truncate">/{adm.username}</p>
+                              <p className="text-[10px] text-text-tertiary font-mono truncate">/{adm.username}</p>
                             </div>
                           </div>
 
@@ -740,13 +751,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         </div>
 
                         {/* Integration Badges */}
-                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 text-[10px]">
-                          <span className={`inline-flex items-center gap-1 font-medium ${adm.google_connected ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-[10px]">
+                          <span className={`inline-flex items-center gap-1 font-medium ${adm.google_connected ? 'text-emerald-600' : 'text-text-tertiary'}`}>
                             <span>GCal</span>
                             <span>{adm.google_connected ? '✓' : '—'}</span>
                           </span>
                           <span className="text-slate-300">•</span>
-                          <span className={`inline-flex items-center gap-1 font-medium ${adm.razorpay_configured ? 'text-blue-600' : 'text-slate-400'}`}>
+                          <span className={`inline-flex items-center gap-1 font-medium ${adm.razorpay_configured ? 'text-blue-600' : 'text-text-tertiary'}`}>
                             <span>Razorpay</span>
                             <span>{adm.razorpay_configured ? '✓' : '—'}</span>
                           </span>
@@ -765,7 +776,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
                         {/* Actions Row */}
                         {!isSuper && (
-                          <div className="flex items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-border" onClick={(e) => e.stopPropagation()}>
                             {/* Toggle Status */}
                             <button
                               type="button"
@@ -798,7 +809,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                                 setTargetAdminForEmail(adm);
                                 setIsEmailCredsOpen(true);
                               }}
-                              className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-slate-100 cursor-pointer"
+                              className="press inline-flex h-10 w-10 items-center justify-center rounded-md text-text-tertiary hover:text-indigo-600 hover:bg-surface-tertiary cursor-pointer"
                             >
                               <Mail className="w-3.5 h-3.5" />
                             </button>
@@ -811,7 +822,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                                 setAdminToDelete(adm);
                                 setIsDeleteModalOpen(true);
                               }}
-                              className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                              className="press inline-flex h-10 w-10 items-center justify-center rounded-md text-text-tertiary hover:text-red-600 hover:bg-red-50 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -824,18 +835,18 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
 
             {/* Right: Selected Admin Weekly Hours */}
-            <div className="md:col-span-8 lg:col-span-8.5 p-6 sm:p-8 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="md:col-span-8 lg:col-span-8 p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-slate-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-bold text-text-primary">
                       {selectedAdmin.full_name} — weekly hours
                     </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-text-secondary font-semibold">
                       {selectedAdmin.role === 'super_admin' ? 'Super Admin' : 'Staff Consultant'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-text-tertiary mt-0.5">
                     Set daily availability time blocks for {selectedAdmin.full_name.split(' ')[0]}.
                   </p>
                 </div>
@@ -865,7 +876,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   const currentNew = dayNewBlocks[day.index] || { start: '07:00', end: '07:00' };
 
                   return (
-                    <div key={day.index} className="space-y-2 pb-4 border-b border-slate-100 last:border-0 last:pb-0">
+                    <div key={day.index} className="space-y-2 pb-4 border-b border-border last:border-0 last:pb-0">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-sm text-slate-800 w-16">
                           {day.name}
@@ -874,14 +885,14 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
                       <div className="flex flex-wrap items-center gap-2">
                         {blocksForDay.length === 0 ? (
-                          <span className="text-xs text-slate-400 italic py-1 mr-2">
+                          <span className="text-xs text-text-tertiary italic py-1 mr-2">
                             No hours set
                           </span>
                         ) : (
                           blocksForDay.map((block) => (
                             <div
                               key={block.id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs font-semibold border border-slate-200"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-tertiary text-slate-800 text-xs font-semibold border border-border"
                             >
                               <span>{block.start_time}-{block.end_time}</span>
                               <button
@@ -902,7 +913,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                             value={currentNew.start}
                             onValueChange={(val) => handleTimeChange(day.index, 'start', val)}
                           >
-                            <SelectTrigger className="w-24 h-9 text-xs rounded-lg bg-white border-slate-200">
+                            <SelectTrigger className="w-full sm:w-24 h-9 text-xs rounded-lg bg-surface border-border">
                               <SelectValue placeholder="Start" />
                             </SelectTrigger>
                             <SelectContent className="max-h-56">
@@ -912,13 +923,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                             </SelectContent>
                           </Select>
 
-                          <span className="text-xs text-slate-400 font-medium">to</span>
+                          <span className="text-xs text-text-tertiary font-medium">to</span>
 
                           <Select
                             value={currentNew.end}
                             onValueChange={(val) => handleTimeChange(day.index, 'end', val)}
                           >
-                            <SelectTrigger className="w-24 h-9 text-xs rounded-lg bg-white border-slate-200">
+                            <SelectTrigger className="w-full sm:w-24 h-9 text-xs rounded-lg bg-surface border-border">
                               <SelectValue placeholder="End" />
                             </SelectTrigger>
                             <SelectContent className="max-h-56">
@@ -950,11 +961,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         {/* =========================================================================
             SECTION 2: SUPER ADMIN PERSONAL 1v1 SESSIONS & PRICING
            ========================================================================= */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
                   <Tag className="w-5 h-5 text-indigo-600" />
                   <span>My 1v1 Sessions & Personal Pricing</span>
                 </h2>
@@ -962,7 +973,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   {currentSuperAdmin.full_name || 'You'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-text-tertiary mt-0.5">
                 Set your personal 1v1 session rates, offer pricing, and durations. Staff admins customize their own session pricing and payment gateway independently in their portal settings.
               </p>
             </div>
@@ -981,7 +992,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <tr className="border-b border-border text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
                   <th className="py-3 px-3">SESSION TITLE</th>
                   <th className="py-3 px-3">DURATION</th>
                   <th className="py-3 px-3">ORIGINAL PRICE (₹)</th>
@@ -992,7 +1003,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               <tbody className="divide-y divide-slate-100">
                 {displayedMeetingTypes.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={5} className="py-8 text-center text-text-tertiary italic">
                       No 1v1 sessions configured for your profile yet.{' '}
                       <button
                         type="button"
@@ -1016,13 +1027,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         : '';
 
                     return (
-                      <tr key={meeting.id} className="hover:bg-slate-50/60 transition-colors">
+                      <tr key={meeting.id} className="hover:bg-surface-secondary/60 transition-colors">
                         {/* Name input */}
                         <td className="py-3 px-3">
                           <Input
                             value={meeting.name}
                             onChange={(e) => handlePriceUpdate(meeting.id, 'name', e.target.value)}
-                            className="h-9 text-xs rounded-lg font-semibold bg-white border-slate-200 min-w-44"
+                            className="h-9 text-xs rounded-lg font-semibold bg-surface border-border min-w-0 flex-1 sm:min-w-44"
                           />
                         </td>
 
@@ -1032,7 +1043,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                             value={String(meeting.duration_minutes)}
                             onValueChange={(val) => handlePriceUpdate(meeting.id, 'duration_minutes', Number(val))}
                           >
-                            <SelectTrigger className="w-28 h-9 text-xs rounded-lg bg-white border-slate-200">
+                            <SelectTrigger className="w-full sm:w-28 h-9 text-xs rounded-lg bg-surface border-border">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1048,13 +1059,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         {/* Original Price */}
                         <td className="py-3 px-3">
                           <div className="relative">
-                            <span className="absolute left-2.5 top-2 text-slate-400 text-xs font-semibold select-none">₹</span>
+                            <span className="absolute left-2.5 top-2 text-text-tertiary text-xs font-semibold select-none">₹</span>
                             <Input
                               type="text"
                               value={origPriceInRupees}
                               onChange={(e) => handlePriceUpdate(meeting.id, 'original_price', e.target.value)}
                               placeholder="999"
-                              className="h-9 text-xs rounded-lg bg-white border-slate-200 pl-6 w-28 line-through text-slate-400"
+                              className="h-9 text-xs rounded-lg bg-surface border-border pl-6 w-28 line-through text-text-tertiary"
                             />
                           </div>
                         </td>
@@ -1068,7 +1079,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                               value={offerPriceInRupees}
                               onChange={(e) => handlePriceUpdate(meeting.id, 'price', e.target.value)}
                               placeholder="499"
-                              className="h-9 text-xs rounded-lg bg-white border-slate-200 pl-6 w-28 font-bold text-emerald-700"
+                              className="h-9 text-xs rounded-lg bg-surface border-border pl-6 w-28 font-bold text-emerald-700"
                             />
                           </div>
                         </td>
@@ -1078,7 +1089,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                           <button
                             type="button"
                             onClick={() => removeMeetingType(meeting.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg transition hover:bg-red-50 cursor-pointer"
+                            className="p-1.5 text-text-tertiary hover:text-red-500 rounded-lg transition hover:bg-red-50 cursor-pointer"
                             title="Delete session"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1097,11 +1108,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             SECTION 2B: SUPER ADMIN PROFILE, SUPER CHAT & INTEGRATIONS
             (Requirement: Master Admin parity with regular consultants)
            ========================================================================= */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
                   <span className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-black text-xs">
                     2B
                   </span>
@@ -1111,7 +1122,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   Master Consultant Parity
                 </Badge>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-text-tertiary mt-1">
                 Configure your own SuperProfile import, Super Chat priority messaging link, Razorpay credentials, and Google Calendar sync for <strong>{currentSuperAdmin.full_name || 'your account'}</strong>.
               </p>
             </div>
@@ -1155,41 +1166,41 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Import from SuperProfile</Label>
+                  <Label className="text-[11px] font-semibold text-text-secondary">Import from SuperProfile</Label>
                   <Button
                     type="button"
                     onClick={handleMasterScrapeSuperProfile}
-                    className="w-full bg-orange-600 hover:bg-orange-500 text-white text-xs px-3 h-8.5 rounded-xl cursor-pointer"
+                    className="w-full bg-orange-600 hover:bg-orange-500 text-white text-xs px-3 h-9 rounded-xl cursor-pointer"
                   >
                     Import from SuperProfile
                   </Button>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-text-tertiary">
                     Preview what the public page exposes, then choose what to import.
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                  <Label className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                     <span>⚡ Super Chat / Priority DM Link</span>
                   </Label>
                   <Input
                     value={masterSuperChat}
                     onChange={(e) => setMasterSuperChat(e.target.value)}
                     placeholder="https://superprofile.bio/chat/your-handle"
-                    className="text-xs rounded-xl bg-white h-8.5"
+                    className="text-xs rounded-xl bg-surface h-9"
                   />
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-text-tertiary">
                     Clients see an instant Super Chat card on /{currentSuperAdmin.username}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Telegram VIP Channel / DM</Label>
+                  <Label className="text-[11px] font-semibold text-text-secondary">Telegram VIP Channel / DM</Label>
                   <Input
                     value={masterTelegram}
                     onChange={(e) => setMasterTelegram(e.target.value)}
                     placeholder="https://t.me/your-handle"
-                    className="text-xs rounded-xl bg-white h-8.5"
+                    className="text-xs rounded-xl bg-surface h-9"
                   />
                 </div>
               </div>
@@ -1220,13 +1231,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Google Account</Label>
+                  <Label className="text-[11px] font-semibold text-text-secondary">Google Account</Label>
                   {/* Read-only: the connected account is whichever one you sign in with on
                       Google's consent screen, not an address typed here. */}
-                  <div className="text-xs rounded-xl bg-white border border-slate-200 h-8.5 px-3 flex items-center font-mono text-slate-700 truncate">
+                  <div className="text-xs rounded-xl bg-surface border border-border h-9 px-3 flex items-center font-mono text-text-secondary truncate">
                     {masterGoogleEmail || 'Not connected'}
                   </div>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-text-tertiary">
                     Creates calendar events & automated Google Meet video links for bookings.
                     Stays connected until you disconnect it here.
                   </p>
@@ -1237,7 +1248,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   )}
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-white/80 border border-blue-200/70 text-[11px] text-blue-900 space-y-1">
+                <div className="p-2.5 rounded-xl bg-surface/80 border border-blue-200/70 text-[11px] text-blue-900 space-y-1">
                   <div className="flex items-center gap-1.5 font-bold">
                     <Video className="w-3.5 h-3.5 text-blue-600" />
                     <span>Google Meet Auto-Generator</span>
@@ -1252,7 +1263,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 type="button"
                 onClick={handleToggleMasterGoogle}
                 variant={masterGoogleConnected ? 'outline' : 'default'}
-                className={`w-full text-xs font-bold h-8.5 rounded-xl cursor-pointer ${
+                className={`w-full text-xs font-bold h-9 rounded-xl cursor-pointer ${
                   masterGoogleConnected
                     ? 'border-red-200 text-red-600 hover:bg-red-50'
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
@@ -1277,7 +1288,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <Label className="text-[11px] font-semibold text-slate-700">Razorpay Key ID</Label>
+                    <Label className="text-[11px] font-semibold text-text-secondary">Razorpay Key ID</Label>
                     <a
                       href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
                       target="_blank"
@@ -1292,7 +1303,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     value={masterRzpKey}
                     onChange={(e) => setMasterRzpKey(e.target.value)}
                     placeholder="rzp_live_... (Live Key ID)"
-                    className="text-xs rounded-xl bg-white h-8.5 font-mono"
+                    className="text-xs rounded-xl bg-surface h-9 font-mono"
                   />
                   {masterRzpKey.startsWith('rzp_live_') && (
                     <p className="text-[10px] text-emerald-700 font-bold">● Live Mode (Real payments active)</p>
@@ -1303,15 +1314,15 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Razorpay Key Secret</Label>
+                  <Label className="text-[11px] font-semibold text-text-secondary">Razorpay Key Secret</Label>
                   <Input
                     type="password"
                     value={masterRzpSecret}
                     onChange={(e) => setMasterRzpSecret(e.target.value)}
                     placeholder="Enter Secret"
-                    className="text-xs rounded-xl bg-white h-8.5 font-mono"
+                    className="text-xs rounded-xl bg-surface h-9 font-mono"
                   />
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-text-tertiary">
                     Encrypted with AES-256 before storage. Payments settle directly into your own account.
                   </p>
                 </div>
@@ -1320,7 +1331,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               <Button
                 type="button"
                 onClick={handleSaveMasterProfileSettings}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold h-8.5 rounded-xl shadow-xs cursor-pointer"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold h-9 rounded-xl shadow-xs cursor-pointer"
               >
                 {masterIntegrationsSaved ? '✓ Credentials Saved' : 'Connect Razorpay & Save'}
               </Button>
@@ -1331,13 +1342,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         {/* =========================================================================
             SECTION 3: MASTER BOOKINGS OVERVIEW
            ========================================================================= */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-          <div className="border-b border-slate-100 pb-3">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
+          <div className="border-b border-border pb-3">
+            <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
               <span>Bookings Overview (Master List)</span>
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-text-tertiary">
               Live records of all appointments across all platform consultants.
             </p>
           </div>
@@ -1345,7 +1356,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <tr className="border-b border-border text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
                   <th className="py-3 px-3">WHEN</th>
                   <th className="py-3 px-3">TYPE</th>
                   <th className="py-3 px-3">ASSIGNED TO</th>
@@ -1357,13 +1368,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               <tbody className="divide-y divide-slate-100">
                 {bookings.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={6} className="py-8 text-center text-text-tertiary italic">
                       No bookings yet — confirm one from the Book tab.
                     </td>
                   </tr>
                 ) : (
                   bookings.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr key={b.id} className="hover:bg-surface-secondary/60 transition-colors">
                       <td className="py-3.5 px-3 font-semibold text-slate-800">
                         {new Date(b.start_time).toLocaleDateString('en-US', {
                           month: 'short',
@@ -1375,7 +1386,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                           minute: '2-digit',
                         })}
                       </td>
-                      <td className="py-3.5 px-3 font-medium text-slate-700">
+                      <td className="py-3.5 px-3 font-medium text-text-secondary">
                         {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
                       </td>
                       <td className="py-3.5 px-3">
@@ -1384,8 +1395,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         </span>
                       </td>
                       <td className="py-3.5 px-3">
-                        <p className="font-semibold text-slate-900">{b.customer_name || (b as any).customer?.name}</p>
-                        <p className="text-[11px] text-slate-400">{b.customer_email || (b as any).customer?.email}</p>
+                        <p className="font-semibold text-text-primary">{b.customer_name || (b as any).customer?.name}</p>
+                        <p className="text-[11px] text-text-tertiary">{b.customer_email || (b as any).customer?.email}</p>
                       </td>
                       <td className="py-3.5 px-3">
                         {b.google_meet_url ? (
@@ -1399,7 +1410,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                             {b.google_meet_url.replace('https://', '')}
                           </a>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-text-tertiary">—</span>
                         )}
                       </td>
                       <td className="py-3.5 px-3 text-right">
@@ -1421,23 +1432,23 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           MODAL 1: ADD NEW ADMIN / CONSULTANT
          ========================================================================= */}
       <Dialog open={isAddAdminOpen} onOpenChange={setIsAddAdminOpen}>
-        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-white">
+        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-surface">
           <DialogHeader>
             <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
               <UserPlus className="w-4 h-4" />
               <span>Add Staff Consultant</span>
             </div>
-            <DialogTitle className="text-xl font-extrabold text-slate-900">
+            <DialogTitle className="text-xl font-extrabold text-text-primary">
               Create New Admin Account
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
+            <DialogDescription className="text-xs text-text-tertiary">
               New admins can log in at the portal with their email & password to manage appointments.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleCreateAdminSubmit} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700">Full Name</Label>
+              <Label className="text-xs font-bold text-text-secondary">Full Name</Label>
               <Input
                 required
                 placeholder="e.g. Kavita Reddy"
@@ -1448,7 +1459,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700">Professional Title</Label>
+              <Label className="text-xs font-bold text-text-secondary">Professional Title</Label>
               <Input
                 placeholder="e.g. Performance Ads Specialist"
                 value={newAdminTitle}
@@ -1458,7 +1469,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700">Work Email (for Login)</Label>
+              <Label className="text-xs font-bold text-text-secondary">Work Email (for Login)</Label>
               <Input
                 type="email"
                 required
@@ -1471,7 +1482,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Username</Label>
+                <Label className="text-xs font-bold text-text-secondary">Username</Label>
                 <Input
                   placeholder="e.g. kavita"
                   value={newAdminUsername}
@@ -1481,7 +1492,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Initial Password</Label>
+                <Label className="text-xs font-bold text-text-secondary">Initial Password</Label>
                 <Input
                   type="password"
                   placeholder="e.g. kavita@123"
@@ -1516,16 +1527,16 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           MODAL 2: ADD MEETING TYPE / CUSTOM PRICE RANGE FOR ADMIN
          ========================================================================= */}
       <Dialog open={isAddMeetingModalOpen} onOpenChange={setIsAddMeetingModalOpen}>
-        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-white">
+        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-surface">
           <DialogHeader>
             <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
               <Tag className="w-4 h-4" />
               <span>Custom Pricing & Session</span>
             </div>
-            <DialogTitle className="text-xl font-extrabold text-slate-900">
+            <DialogTitle className="text-xl font-extrabold text-text-primary">
               Add Personal 1v1 Session
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
+            <DialogDescription className="text-xs text-text-tertiary">
               Create a new 1v1 session offering and configure your pricing.
             </DialogDescription>
           </DialogHeader>
@@ -1533,7 +1544,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           <form onSubmit={handleCreateMeetingSubmit} className="space-y-4 pt-2">
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700">Session Name</Label>
+              <Label className="text-xs font-bold text-text-secondary">Session Name</Label>
               <Input
                 required
                 placeholder="e.g. Growth Blueprint Consultation"
@@ -1545,7 +1556,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
             <div className="grid grid-cols-3 gap-2.5">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Duration</Label>
+                <Label className="text-xs font-bold text-text-secondary">Duration</Label>
                 <Select
                   value={String(newMtDuration)}
                   onValueChange={(val) => setNewMtDuration(Number(val))}
@@ -1564,7 +1575,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Original (₹)</Label>
+                <Label className="text-xs font-bold text-text-secondary">Original (₹)</Label>
                 <Input
                   placeholder="999"
                   value={newMtOrigPrice}
@@ -1574,7 +1585,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700 text-orange-600">Offer (₹)</Label>
+                <Label className="text-xs font-bold text-text-secondary text-orange-600">Offer (₹)</Label>
                 <Input
                   required
                   placeholder="499"
@@ -1586,7 +1597,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700">Description (Optional)</Label>
+              <Label className="text-xs font-bold text-text-secondary">Description (Optional)</Label>
               <Textarea
                 placeholder="What will be covered in this session?"
                 value={newMtDesc}
@@ -1620,38 +1631,38 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           MODAL 3: SEND CREDENTIALS VIA GMAIL / EMAIL
          ========================================================================= */}
       <Dialog open={isEmailCredsOpen} onOpenChange={setIsEmailCredsOpen}>
-        <DialogContent className="sm:max-w-lg p-6 sm:p-8 rounded-3xl bg-white">
+        <DialogContent className="sm:max-w-lg p-6 sm:p-8 rounded-3xl bg-surface">
           <DialogHeader>
             <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
               <Mail className="w-4 h-4" />
               <span>Gmail & Email Dispatch</span>
             </div>
-            <DialogTitle className="text-xl font-extrabold text-slate-900">
+            <DialogTitle className="text-xl font-extrabold text-text-primary">
               Send Login Credentials to {targetAdminForEmail?.full_name}
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
+            <DialogDescription className="text-xs text-text-tertiary">
               You can dispatch their login credentials via Gmail compose or copy the message.
             </DialogDescription>
           </DialogHeader>
 
           {targetAdminForEmail && (
             <div className="space-y-4 pt-2">
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
+              <div className="bg-surface-secondary p-4 rounded-2xl border border-border space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Consultant Email:</span>
-                  <span className="font-bold text-slate-900">{targetAdminForEmail.email}</span>
+                  <span className="text-text-tertiary">Consultant Email:</span>
+                  <span className="font-bold text-text-primary">{targetAdminForEmail.email}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Username:</span>
-                  <span className="font-bold font-mono text-slate-900">{targetAdminForEmail.username}</span>
+                  <span className="text-text-tertiary">Username:</span>
+                  <span className="font-bold font-mono text-text-primary">{targetAdminForEmail.username}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Password:</span>
+                  <span className="text-text-tertiary">Password:</span>
                   <span className="font-bold font-mono text-indigo-600">{targetAdminForEmail.password || 'welcome@123'}</span>
                 </div>
-                <div className="flex justify-between border-t border-slate-200/80 pt-2">
-                  <span className="text-slate-500">Portal Login Link:</span>
-                  <span className="font-mono text-slate-700 text-[11px]">http://localhost:5173/admin/login</span>
+                <div className="flex justify-between border-t border-border/80 pt-2">
+                  <span className="text-text-tertiary">Portal Login Link:</span>
+                  <span className="font-mono text-text-secondary text-[11px]">http://localhost:5173/admin/login</span>
                 </div>
               </div>
 
@@ -1685,16 +1696,16 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           MODAL 4: SUPER ADMIN CREDENTIALS EDITOR
          ========================================================================= */}
       <Dialog open={isSuperAdminCredsOpen} onOpenChange={setIsSuperAdminCredsOpen}>
-        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-white">
+        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-surface">
           <DialogHeader>
             <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
               <Key className="w-4 h-4" />
               <span>Owner Access Settings</span>
             </div>
-            <DialogTitle className="text-xl font-extrabold text-slate-900">
+            <DialogTitle className="text-xl font-extrabold text-text-primary">
               Customize Super Admin Login Credentials
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
+            <DialogDescription className="text-xs text-text-tertiary">
               You can set your own custom username, owner email, and master password.
             </DialogDescription>
           </DialogHeader>
@@ -1708,7 +1719,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           ) : (
             <form onSubmit={handleSaveMasterCreds} className="space-y-4 pt-2">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Master Username</Label>
+                <Label className="text-xs font-bold text-text-secondary">Master Username</Label>
                 <Input
                   required
                   value={masterUsername}
@@ -1718,7 +1729,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Owner Email</Label>
+                <Label className="text-xs font-bold text-text-secondary">Owner Email</Label>
                 <Input
                   type="email"
                   required
@@ -1729,7 +1740,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-700">Master Password</Label>
+                <Label className="text-xs font-bold text-text-secondary">Master Password</Label>
                 <Input
                   required
                   value={masterPassword}
@@ -1763,16 +1774,16 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           MODAL 5: PERMANENT DELETE ADMIN CONFIRMATION (Requirement 19 Safety Dialog)
          ========================================================================= */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-white">
+        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-surface">
           <DialogHeader>
             <div className="flex items-center gap-2 text-red-600 text-xs font-bold uppercase tracking-wider mb-1">
               <AlertCircle className="w-4 h-4" />
               <span>Safety Deletion Safeguard</span>
             </div>
-            <DialogTitle className="text-xl font-extrabold text-slate-900">
+            <DialogTitle className="text-xl font-extrabold text-text-primary">
               Permanently Delete Admin?
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
+            <DialogDescription className="text-xs text-text-tertiary">
               Are you sure you want to permanently delete <strong className="text-slate-800">{adminToDelete?.full_name}</strong> (@{adminToDelete?.username})?
             </DialogDescription>
           </DialogHeader>
@@ -1789,7 +1800,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold text-slate-700">
+            <Label className="text-[11px] font-semibold text-text-secondary">
               Type <span className="font-mono font-bold text-red-600">DELETE</span> to confirm
             </Label>
             <Input

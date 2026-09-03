@@ -246,10 +246,10 @@ export function SettingsPage() {
   return (
     <div className="animate-fade-in space-y-6 pb-20 font-sans">
       {/* Header with Quick Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-border shadow-xs">
+      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Portal Settings</h1>
+            <h1 className="text-xl font-black tracking-tight text-text-primary sm:text-2xl">Portal Settings</h1>
             {isSuperAdmin ? (
               <span className="text-xs px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-extrabold border border-indigo-200 flex items-center gap-1">
                 <span>👑 Master Admin:</span>
@@ -260,11 +260,11 @@ export function SettingsPage() {
                 Admin: {currentAdmin?.full_name}
               </span>
             )}
-            <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold">
+            <span className="text-xs px-2 py-0.5 rounded-md bg-surface-tertiary text-text-secondary font-mono font-bold">
               /{currentAdmin?.username}
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-text-tertiary mt-1">
             {isSuperAdmin
               ? 'Customize your public booking page, 1v1 sessions, and direct integrations.'
               : 'Customize what clients see on your personal SuperProfile booking page.'}
@@ -275,19 +275,19 @@ export function SettingsPage() {
 
           <button
             onClick={handleCopyLink}
-            className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            className="press inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border px-3 text-xs font-bold text-text-secondary shadow-2xs transition hover:bg-surface-tertiary sm:h-9 sm:flex-none"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied URL' : 'Copy Personal Link'}</span>
+            <span className="whitespace-nowrap">{copied ? 'Copied' : 'Copy link'}</span>
           </button>
 
           <a
             href={publicProfileUrl}
             target="_blank"
             rel="noreferrer"
-            className="px-4 py-2 text-xs font-bold rounded-xl bg-orange-600 hover:bg-orange-500 text-white transition flex items-center gap-1.5 shadow-sm shadow-orange-600/20 cursor-pointer"
+            className="press inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-500 sm:h-9 sm:flex-none"
           >
-            <span>Preview Public Profile</span>
+            <span className="whitespace-nowrap">Preview</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
@@ -296,17 +296,18 @@ export function SettingsPage() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar */}
         <nav className="lg:w-60 flex-shrink-0">
-          <ul className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 bg-white p-2 rounded-2xl border border-border">
+          <ul className="scroll-x flex gap-1.5 rounded-2xl border border-border bg-surface p-2 lg:flex-col lg:overflow-visible">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <li key={tab.id}>
                   <button
                     onClick={() => setActiveTab(tab.id)}
-                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    aria-current={activeTab === tab.id ? 'page' : undefined}
+                    className={`press flex h-11 w-full items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 text-xs font-bold transition-all cursor-pointer ${
                       activeTab === tab.id
-                        ? 'bg-orange-50 text-orange-700 shadow-2xs font-extrabold'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        ? 'bg-orange-50 font-extrabold text-orange-700 shadow-2xs'
+                        : 'text-text-secondary hover:bg-surface-tertiary hover:text-text-primary'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -318,7 +319,7 @@ export function SettingsPage() {
           </ul>
 
           {/* Quick Info Box */}
-          <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 space-y-2 hidden lg:block">
+          <div className="mt-4 hidden space-y-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-900 sm:block">
             <p className="font-bold flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-600" />
               <span>Personal Booking Link</span>
@@ -646,11 +647,11 @@ function ProfileCustomizer({
   const currentPublicLink = `${window.location.origin}/${currentDisplaySlug}`;
 
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
-      <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-6 shadow-xs">
+      <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black text-slate-900">Customize Public Profile</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <h2 className="text-lg font-black text-text-primary">Customize Public Profile</h2>
+          <p className="text-xs text-text-tertiary mt-0.5">
             Everything configured here reflects on your personal booking page at{' '}
             <a
               href={currentPublicLink}
@@ -707,7 +708,7 @@ function ProfileCustomizer({
 
       {/* Basic Info */}
       <div className="space-y-4">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">1. Basic Profile Information</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary">1. Basic Profile Information</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1">
             <Label className="text-xs font-semibold">Full Name</Label>
@@ -723,7 +724,7 @@ function ProfileCustomizer({
               <span className="text-[10px] text-orange-600 font-mono font-bold">Custom URL</span>
             </div>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-text-tertiary font-mono">
                 /
               </span>
               <Input
@@ -733,7 +734,7 @@ function ProfileCustomizer({
                 className="text-xs rounded-xl pl-6 font-mono font-bold text-slate-800"
               />
             </div>
-            <p className="text-[10px] text-slate-400 truncate">
+            <p className="text-[10px] text-text-tertiary truncate">
               Public link:{' '}
               <a
                 href={`${window.location.origin}/${username}`}
@@ -792,16 +793,16 @@ function ProfileCustomizer({
       </div>
 
       {/* 2. Media & Intro Video (Device Upload & URL options) */}
-      <div className="space-y-4 pt-4 border-t border-slate-100">
+      <div className="space-y-4 pt-4 border-t border-border">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex items-center gap-1.5">
               <span>2. Media & Intro Video</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
                 Device Upload
               </span>
             </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[11px] text-text-tertiary mt-0.5">
               Choose to upload directly from your device (phone/computer) or paste a web link for both picture and video.
             </p>
           </div>
@@ -809,7 +810,7 @@ function ProfileCustomizer({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* A. PROFILE PICTURE / PHOTO */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold">
@@ -817,19 +818,19 @@ function ProfileCustomizer({
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-800">Profile Picture</h4>
-                  <p className="text-[10px] text-slate-400">Displayed on your booking page & portrait</p>
+                  <p className="text-[10px] text-text-tertiary">Displayed on your booking page & portrait</p>
                 </div>
               </div>
 
               {/* Toggle Source */}
-              <div className="flex items-center p-0.5 rounded-lg bg-slate-100 text-[10px] font-semibold">
+              <div className="flex items-center p-0.5 rounded-lg bg-surface-tertiary text-[10px] font-semibold">
                 <button
                   type="button"
                   onClick={() => setPhotoTab('device')}
                   className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
                     photoTab === 'device'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-surface text-text-primary shadow-sm'
+                      : 'text-text-tertiary hover:text-slate-800'
                   }`}
                 >
                   <Upload className="w-3 h-3" />
@@ -840,8 +841,8 @@ function ProfileCustomizer({
                   onClick={() => setPhotoTab('url')}
                   className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
                     photoTab === 'url'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-surface text-text-primary shadow-sm'
+                      : 'text-text-tertiary hover:text-slate-800'
                   }`}
                 >
                   <Globe className="w-3 h-3" />
@@ -881,7 +882,7 @@ function ProfileCustomizer({
               <div className="space-y-3">
                 {/* Active Photo Preview or Upload Dropzone */}
                 {photoUrl ? (
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center gap-3">
+                  <div className="p-3 rounded-xl border border-border bg-surface-secondary/70 flex items-center gap-3">
                     <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-200 border border-slate-300 shrink-0 shadow-sm">
                       <img
                         src={photoUrl}
@@ -898,7 +899,7 @@ function ProfileCustomizer({
                           Active Picture
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-600 truncate font-mono">
+                      <p className="text-[11px] text-text-secondary truncate font-mono">
                         {photoUrl.startsWith('data:') ? 'Local file from device' : photoUrl.split('/').pop() || photoUrl}
                       </p>
                       <div className="flex items-center gap-2 pt-0.5">
@@ -950,7 +951,7 @@ function ProfileCustomizer({
                     className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
                       isDraggingPhoto
                         ? 'border-orange-500 bg-orange-50/50'
-                        : 'border-slate-200 hover:border-orange-400 hover:bg-orange-50/20 bg-slate-50/40'
+                        : 'border-border hover:border-orange-400 hover:bg-orange-50/20 bg-surface-secondary/40'
                     }`}
                   >
                     <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center">
@@ -961,10 +962,10 @@ function ProfileCustomizer({
                       )}
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-700">
+                      <p className="text-xs font-bold text-text-secondary">
                         {isUploadingPhoto ? 'Uploading image from device...' : 'Click to add picture from device'}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
+                      <p className="text-[10px] text-text-tertiary mt-0.5">
                         PNG, JPG, JPEG, WEBP, GIF (up to 25MB)
                       </p>
                     </div>
@@ -973,7 +974,7 @@ function ProfileCustomizer({
                       variant="secondary"
                       size="sm"
                       disabled={isUploadingPhoto}
-                      className="h-7 text-xs font-semibold px-3 rounded-lg mt-1 bg-white border border-slate-200 shadow-sm cursor-pointer"
+                      className="h-9 text-xs font-semibold px-3 rounded-lg mt-1 bg-surface border border-border shadow-sm cursor-pointer"
                     >
                       Browse Device Files
                     </Button>
@@ -983,7 +984,7 @@ function ProfileCustomizer({
             ) : (
               /* URL Mode for Photo */
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-slate-600">Enter Image URL</Label>
+                <Label className="text-xs font-medium text-text-secondary">Enter Image URL</Label>
                 <div className="flex gap-2">
                   <Input
                     value={photoUrl}
@@ -997,14 +998,14 @@ function ProfileCustomizer({
                       variant="ghost"
                       size="sm"
                       onClick={() => setPhotoUrl('')}
-                      className="h-9 px-2 text-slate-400 hover:text-slate-600"
+                      className="h-9 px-2 text-text-tertiary hover:text-text-secondary"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   )}
                 </div>
                 {photoUrl && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-surface-secondary border border-border">
                     <img
                       src={photoUrl}
                       alt="URL preview"
@@ -1013,7 +1014,7 @@ function ProfileCustomizer({
                         (e.target as HTMLElement).style.display = 'none';
                       }}
                     />
-                    <span className="text-[10px] text-slate-500 truncate flex-1">{photoUrl}</span>
+                    <span className="text-[10px] text-text-tertiary truncate flex-1">{photoUrl}</span>
                   </div>
                 )}
               </div>
@@ -1021,7 +1022,7 @@ function ProfileCustomizer({
           </div>
 
           {/* B. INTRO VIDEO */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
@@ -1029,19 +1030,19 @@ function ProfileCustomizer({
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-800">Intro Video</h4>
-                  <p className="text-[10px] text-slate-400">Featured greeting video on your page</p>
+                  <p className="text-[10px] text-text-tertiary">Featured greeting video on your page</p>
                 </div>
               </div>
 
               {/* Toggle Source */}
-              <div className="flex items-center p-0.5 rounded-lg bg-slate-100 text-[10px] font-semibold">
+              <div className="flex items-center p-0.5 rounded-lg bg-surface-tertiary text-[10px] font-semibold">
                 <button
                   type="button"
                   onClick={() => setVideoTab('device')}
                   className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
                     videoTab === 'device'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-surface text-text-primary shadow-sm'
+                      : 'text-text-tertiary hover:text-slate-800'
                   }`}
                 >
                   <Upload className="w-3 h-3" />
@@ -1052,8 +1053,8 @@ function ProfileCustomizer({
                   onClick={() => setVideoTab('url')}
                   className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
                     videoTab === 'url'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-surface text-text-primary shadow-sm'
+                      : 'text-text-tertiary hover:text-slate-800'
                   }`}
                 >
                   <Globe className="w-3 h-3" />
@@ -1092,7 +1093,7 @@ function ProfileCustomizer({
             {videoTab === 'device' ? (
               <div className="space-y-3">
                 {introVideo ? (
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                  <div className="p-3 rounded-xl border border-border bg-surface-secondary/70 space-y-2.5">
                     {/* If it's a direct uploaded video or blob, render HTML5 video preview */}
                     {!introVideo.includes('youtube.com') && !introVideo.includes('youtu.be') && !introVideo.includes('vimeo.com') ? (
                       <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
@@ -1162,7 +1163,7 @@ function ProfileCustomizer({
                     className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
                       isDraggingVideo
                         ? 'border-indigo-500 bg-indigo-50/50'
-                        : 'border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/20 bg-slate-50/40'
+                        : 'border-border hover:border-indigo-400 hover:bg-indigo-50/20 bg-surface-secondary/40'
                     }`}
                   >
                     <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
@@ -1173,10 +1174,10 @@ function ProfileCustomizer({
                       )}
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-700">
+                      <p className="text-xs font-bold text-text-secondary">
                         {isUploadingVideo ? 'Uploading video from device...' : 'Click to add video from device'}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
+                      <p className="text-[10px] text-text-tertiary mt-0.5">
                         MP4, WebM, MOV, MKV (up to 150MB)
                       </p>
                     </div>
@@ -1185,7 +1186,7 @@ function ProfileCustomizer({
                       variant="secondary"
                       size="sm"
                       disabled={isUploadingVideo}
-                      className="h-7 text-xs font-semibold px-3 rounded-lg mt-1 bg-white border border-slate-200 shadow-sm cursor-pointer"
+                      className="h-9 text-xs font-semibold px-3 rounded-lg mt-1 bg-surface border border-border shadow-sm cursor-pointer"
                     >
                       Browse Video Files
                     </Button>
@@ -1195,7 +1196,7 @@ function ProfileCustomizer({
             ) : (
               /* URL Mode for Video */
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-slate-600">Enter Video Link (Vimeo or YouTube)</Label>
+                <Label className="text-xs font-medium text-text-secondary">Enter Video Link (Vimeo or YouTube)</Label>
                 <div className="flex gap-2">
                   <Input
                     value={introVideo}
@@ -1209,13 +1210,13 @@ function ProfileCustomizer({
                       variant="ghost"
                       size="sm"
                       onClick={() => setIntroVideo('')}
-                      className="h-9 px-2 text-slate-400 hover:text-slate-600"
+                      className="h-9 px-2 text-text-tertiary hover:text-text-secondary"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   )}
                 </div>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-[10px] text-text-tertiary">
                   Tip: Paste a Vimeo link (e.g. vimeo.com/1130419767) or a YouTube video link.
                 </p>
               </div>
@@ -1225,8 +1226,8 @@ function ProfileCustomizer({
       </div>
 
       {/* Theme Presets & Styling */}
-      <div className="space-y-4 pt-4 border-t border-slate-100">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">3. Design & Colors</h3>
+      <div className="space-y-4 pt-4 border-t border-border">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary">3. Design & Colors</h3>
 
         <div>
           <Label className="text-xs font-semibold mb-2 block">Select Background Theme Preset</Label>
@@ -1242,13 +1243,13 @@ function ProfileCustomizer({
                 className={`p-3 rounded-xl border text-left flex items-center gap-3 transition cursor-pointer ${
                   bgGradient === preset.bg_gradient
                     ? 'border-orange-600 bg-orange-50/50 ring-2 ring-orange-500/20'
-                    : 'border-slate-200 hover:bg-slate-50'
+                    : 'border-border hover:bg-surface-secondary'
                 }`}
               >
                 <span className={`w-8 h-8 rounded-lg ${preset.preview_bg} shrink-0 shadow-xs`} />
                 <div className="text-xs">
                   <p className="font-bold text-slate-800">{preset.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">Button: {preset.button_color}</p>
+                  <p className="text-[10px] text-text-tertiary font-mono">Button: {preset.button_color}</p>
                 </div>
               </button>
             ))}
@@ -1263,7 +1264,7 @@ function ProfileCustomizer({
                 type="color"
                 value={buttonColor}
                 onChange={(e) => setButtonColor(e.target.value)}
-                className="w-10 h-10 rounded-xl cursor-pointer border border-slate-200"
+                className="w-10 h-10 rounded-xl cursor-pointer border border-border"
               />
               <Input
                 value={buttonColor}
@@ -1285,8 +1286,8 @@ function ProfileCustomizer({
       </div>
 
       {/* Social Links */}
-      <div className="space-y-4 pt-4 border-t border-slate-100">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">4. Social Media Links</h3>
+      <div className="space-y-4 pt-4 border-t border-border">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary">4. Social Media Links</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs">WhatsApp Number / Link</Label>
@@ -1328,14 +1329,14 @@ function ProfileCustomizer({
       </div>
 
       {/* 5. Super Chat & Priority Links */}
-      <div className="space-y-4 pt-4 border-t border-slate-100">
+      <div className="space-y-4 pt-4 border-t border-border">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex items-center gap-1.5">
               <span>5. Super Chat & Direct Messaging Link</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">Priority DM</span>
             </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[11px] text-text-tertiary mt-0.5">
               Add your paid Super Chat or direct priority message link (SuperProfile, Telegram, or WhatsApp).
             </p>
           </div>
@@ -1368,16 +1369,16 @@ function ProfileCustomizer({
       </div>
 
       {/* 6. Custom Uploaded Sections & Resource Blocks */}
-      <div className="space-y-4 pt-4 border-t border-slate-100">
+      <div className="space-y-4 pt-4 border-t border-border">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex items-center gap-1.5">
               <span>6. Custom Sections & Resource Uploads</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
                 {customSections.length} Sections
               </span>
             </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[11px] text-text-tertiary mt-0.5">
               Upload custom highlighted cards on your public page (e.g. Free Guides, VIP Community, Super Chat, Portfolio).
             </p>
           </div>
@@ -1392,19 +1393,19 @@ function ProfileCustomizer({
         </div>
 
         {customSections.length === 0 ? (
-          <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+          <div className="p-4 rounded-xl border border-dashed border-border text-center text-xs text-text-tertiary">
             No custom sections uploaded yet. Click "+ Add Section" to feature custom links, guides, or ask-me-anything banners on your public page.
           </div>
         ) : (
           <div className="space-y-3">
             {customSections.map((sec, idx) => (
-              <div key={sec.id || idx} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+              <div key={sec.id || idx} className="p-3.5 rounded-xl border border-border bg-surface-secondary/70 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-700">Section #{idx + 1}</span>
+                  <span className="text-[11px] font-bold text-text-secondary">Section #{idx + 1}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveSection(sec.id)}
-                    className="text-slate-400 hover:text-red-500 text-xs transition cursor-pointer"
+                    className="text-text-tertiary hover:text-red-500 text-xs transition cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1414,33 +1415,33 @@ function ProfileCustomizer({
                     value={sec.title}
                     onChange={(e) => handleUpdateSection(sec.id, 'title', e.target.value)}
                     placeholder="Section Title (e.g. Ask a Priority Question)"
-                    className="text-xs rounded-lg bg-white h-8 font-semibold"
+                    className="text-xs rounded-lg bg-surface h-8 font-semibold"
                   />
                   <Input
                     value={sec.badge || ''}
                     onChange={(e) => handleUpdateSection(sec.id, 'badge', e.target.value)}
                     placeholder="Badge Tag (e.g. ⚡ Super Chat, Free, Popular)"
-                    className="text-xs rounded-lg bg-white h-8"
+                    className="text-xs rounded-lg bg-surface h-8"
                   />
                 </div>
                 <Input
                   value={sec.description || ''}
                   onChange={(e) => handleUpdateSection(sec.id, 'description', e.target.value)}
                   placeholder="Short description or benefits for clients..."
-                  className="text-xs rounded-lg bg-white h-8"
+                  className="text-xs rounded-lg bg-surface h-8"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <Input
                     value={sec.button_text || ''}
                     onChange={(e) => handleUpdateSection(sec.id, 'button_text', e.target.value)}
                     placeholder="Button Label (e.g. Ask Now ⚡, Download PDF)"
-                    className="text-xs rounded-lg bg-white h-8"
+                    className="text-xs rounded-lg bg-surface h-8"
                   />
                   <Input
                     value={sec.button_url || ''}
                     onChange={(e) => handleUpdateSection(sec.id, 'button_url', e.target.value)}
                     placeholder="Button Destination URL (https://...)"
-                    className="text-xs rounded-lg bg-white h-8"
+                    className="text-xs rounded-lg bg-surface h-8"
                   />
                 </div>
               </div>
@@ -1450,8 +1451,8 @@ function ProfileCustomizer({
       </div>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-        <p className="text-xs text-slate-400">Updates will be saved instantly to your live public profile.</p>
+      <div className="pt-4 border-t border-border flex items-center justify-between">
+        <p className="text-xs text-text-tertiary">Updates will be saved instantly to your live public profile.</p>
         <Button
           onClick={handleSave}
           disabled={saving}
@@ -1553,15 +1554,15 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
-      <div className="border-b border-slate-100 pb-4">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-5 shadow-xs">
+      <div className="border-b border-border pb-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-black text-slate-900">Google Calendar & Google Meet</h2>
+          <h2 className="text-lg font-black text-text-primary">Google Calendar & Google Meet</h2>
           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
             Personal Admin Account
           </span>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
+        <p className="text-xs text-text-tertiary mt-1">
           Connect your personal or work Google account. Each admin independently sets up their own Google Calendar. Meetings booked on your page will sync directly with your calendar and auto-generate unique Google Meet video links.
         </p>
       </div>
@@ -1573,7 +1574,7 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
       )}
 
       {!statusLoaded ? (
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500 font-medium">
+        <div className="p-4 bg-surface-secondary rounded-2xl border border-border text-xs text-text-tertiary font-medium">
           Checking your Google Calendar connection...
         </div>
       ) : isConnected ? (
@@ -1623,23 +1624,23 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
             >
               Disconnect Calendar
             </button>
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-[11px] text-text-tertiary font-medium">
               Stays connected until you disconnect it here
             </span>
           </div>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+          <div className="p-4 bg-surface-secondary border border-border rounded-2xl space-y-2">
             <p className="text-xs font-bold text-slate-800">Why connect your Google Calendar?</p>
-            <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
+            <ul className="text-xs text-text-secondary space-y-1 list-disc pl-4">
               <li><strong>Zero Double Booking:</strong> Automatically blocks busy slots, appointments, and personal events.</li>
               <li><strong>Instant Google Meet:</strong> Creates calendar event with client added as attendee.</li>
               <li><strong>Automated Reminders:</strong> Google Calendar sends alerts 1 hour and 5 minutes prior.</li>
             </ul>
           </div>
 
-          <p className="text-[11px] text-slate-500 leading-relaxed">
+          <p className="text-[11px] text-text-tertiary leading-relaxed">
             You will be sent to Google's consent screen. The calendar that gets connected is
             whichever Google account you sign in with there — it stays connected until you
             disconnect it on this page.
@@ -1822,16 +1823,16 @@ function PricingAndSessionsSettings({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
-      <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-6 shadow-xs">
+      <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-black text-slate-900">1v1 Sessions & Pricing Customization</h2>
+            <h2 className="text-lg font-black text-text-primary">1v1 Sessions & Pricing Customization</h2>
             <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
               Admin Direct Authority
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-text-tertiary mt-0.5">
             You have full authority to set your own session rates, discount pricing, and durations. Super admin cannot modify your pricing.
           </p>
         </div>
@@ -1869,11 +1870,11 @@ function PricingAndSessionsSettings({
 
       <div className="space-y-4">
         {loading ? (
-          <div className="py-10 text-center text-xs text-slate-400">Loading your session offerings...</div>
+          <div className="py-10 text-center text-xs text-text-tertiary">Loading your session offerings...</div>
         ) : sessions.length === 0 ? (
-          <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-2xl space-y-2">
+          <div className="py-10 text-center border-2 border-dashed border-border rounded-2xl space-y-2">
             <Tag className="w-8 h-8 text-slate-300 mx-auto" />
-            <p className="text-xs text-slate-500 font-semibold">No 1v1 sessions configured yet</p>
+            <p className="text-xs text-text-tertiary font-semibold">No 1v1 sessions configured yet</p>
             <Button
               type="button"
               onClick={() => setIsAddingOpen(true)}
@@ -1892,7 +1893,7 @@ function PricingAndSessionsSettings({
             return (
               <div
                 key={s.id || index}
-                className="p-4 rounded-2xl border border-border bg-slate-50/50 hover:bg-white transition-all space-y-3 shadow-2xs"
+                className="p-4 rounded-2xl border border-border bg-surface-secondary/50 hover:bg-surface transition-all space-y-3 shadow-2xs"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1">
@@ -1903,7 +1904,7 @@ function PricingAndSessionsSettings({
                       value={s.title || ''}
                       onChange={(e) => handlePriceUpdate(s.id, 'title', e.target.value)}
                       placeholder="Session Title"
-                      className="text-xs font-bold text-slate-800 bg-white rounded-xl h-9"
+                      className="text-xs font-bold text-slate-800 bg-surface rounded-xl h-9"
                     />
                   </div>
 
@@ -1911,7 +1912,7 @@ function PricingAndSessionsSettings({
                     <button
                       type="button"
                       onClick={() => handleDelete(s.id)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
+                      className="text-text-tertiary hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
                       title="Delete session"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1921,14 +1922,14 @@ function PricingAndSessionsSettings({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
+                    <Label className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-text-tertiary" />
                       <span>Duration</span>
                     </Label>
                     <select
                       value={String(s.duration_minutes || 30)}
                       onChange={(e) => handlePriceUpdate(s.id, 'duration_minutes', Number(e.target.value))}
-                      className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 h-9 cursor-pointer"
+                      className="w-full text-xs font-semibold bg-surface border border-border rounded-xl px-2.5 h-9 cursor-pointer"
                     >
                       <option value="15">15 Minutes</option>
                       <option value="30">30 Minutes</option>
@@ -1950,24 +1951,24 @@ function PricingAndSessionsSettings({
                         value={offerRupees}
                         onChange={(e) => handlePriceUpdate(s.id, 'price', e.target.value)}
                         placeholder="1497"
-                        className="text-xs font-bold text-emerald-700 pl-6 bg-white rounded-xl h-9"
+                        className="text-xs font-bold text-emerald-700 pl-6 bg-surface rounded-xl h-9"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <Label className="text-[11px] font-semibold text-slate-500 flex items-center justify-between">
+                    <Label className="text-[11px] font-semibold text-text-tertiary flex items-center justify-between">
                       <span>Original Price (₹)</span>
-                      <span className="text-[9px] text-slate-400">Strikethrough</span>
+                      <span className="text-[9px] text-text-tertiary">Strikethrough</span>
                     </Label>
                     <div className="relative">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-text-tertiary">₹</span>
                       <Input
                         type="text"
                         value={origRupees}
                         onChange={(e) => handlePriceUpdate(s.id, 'original_price', e.target.value)}
                         placeholder="4999"
-                        className="text-xs font-bold text-slate-400 line-through pl-6 bg-white rounded-xl h-9"
+                        className="text-xs font-bold text-text-tertiary line-through pl-6 bg-surface rounded-xl h-9"
                       />
                     </div>
                   </div>
@@ -1978,7 +1979,7 @@ function PricingAndSessionsSettings({
                     value={s.description || ''}
                     onChange={(e) => handlePriceUpdate(s.id, 'description', e.target.value)}
                     placeholder="Brief description of what is covered in this 1v1 session..."
-                    className="text-xs text-slate-600 bg-white rounded-xl h-8"
+                    className="text-xs text-text-secondary bg-surface rounded-xl h-8"
                   />
                 </div>
               </div>
@@ -1988,16 +1989,16 @@ function PricingAndSessionsSettings({
       </div>
 
       {isAddingOpen && (
-        <div className="p-5 rounded-2xl border-2 border-slate-900 bg-white space-y-4 shadow-md animate-fade-in">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+        <div className="p-5 rounded-2xl border-2 border-slate-900 bg-surface space-y-4 shadow-md animate-fade-in">
+          <div className="flex items-center justify-between border-b border-border pb-3">
+            <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
               <Plus className="w-4 h-4 text-orange-600" />
               <span>Create New 1v1 Session Offering</span>
             </h3>
             <button
               type="button"
               onClick={() => setIsAddingOpen(false)}
-              className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
+              className="text-text-tertiary hover:text-text-secondary text-xs font-bold cursor-pointer"
             >
               ✕ Cancel
             </button>
@@ -2021,7 +2022,7 @@ function PricingAndSessionsSettings({
                 <select
                   value={String(newDuration)}
                   onChange={(e) => setNewDuration(Number(e.target.value))}
-                  className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-xl px-2.5 h-9"
+                  className="w-full text-xs font-semibold bg-surface border border-border rounded-xl px-2.5 h-9"
                 >
                   <option value="15">15 Minutes</option>
                   <option value="30">30 Minutes</option>
@@ -2046,14 +2047,14 @@ function PricingAndSessionsSettings({
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-slate-500">Original Price (₹)</Label>
+                <Label className="text-xs font-semibold text-text-tertiary">Original Price (₹)</Label>
                 <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-text-tertiary">₹</span>
                   <Input
                     value={newOriginalPrice}
                     onChange={(e) => setNewOriginalPrice(e.target.value.replace(/[^0-9]/g, ''))}
                     placeholder="4999"
-                    className="text-xs font-bold text-slate-400 pl-6 rounded-xl"
+                    className="text-xs font-bold text-text-tertiary pl-6 rounded-xl"
                   />
                 </div>
               </div>
@@ -2147,11 +2148,11 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-6 shadow-xs">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-6 shadow-xs">
       {/* Header with Admin Direct Payout Guarantee */}
-      <div className="border-b border-slate-100 pb-4">
+      <div className="border-b border-border pb-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-black text-slate-900">Direct Razorpay Payment Customization</h2>
+          <h2 className="text-lg font-black text-text-primary">Direct Razorpay Payment Customization</h2>
           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
             Admin Controlled Payouts
           </span>
@@ -2159,7 +2160,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             0% Platform Fee
           </span>
         </div>
-        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+        <p className="text-xs text-text-tertiary mt-1 leading-relaxed">
           You have complete, independent authority over your payment gateway. Connect your <strong>own real Razorpay account</strong>.
           Client booking payments deposit directly into your linked bank account. The platform takes 0% cut.
         </p>
@@ -2171,7 +2172,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           ? 'bg-emerald-50/60 border-emerald-200'
           : isConfigured && isTest
           ? 'bg-amber-50/60 border-amber-200'
-          : 'bg-slate-50 border-slate-200'
+          : 'bg-surface-secondary border-border'
       }`}>
         <div className="flex items-center gap-3.5">
           <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-black text-lg shadow-sm ${
@@ -2179,13 +2180,13 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
               ? 'bg-emerald-600 text-white'
               : isConfigured && isTest
               ? 'bg-amber-500 text-white'
-              : 'bg-slate-300 text-slate-700'
+              : 'bg-slate-300 text-text-secondary'
           }`}>
             {isConfigured && isLive ? '✓' : isConfigured ? '!' : '✕'}
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold text-slate-900">
+              <p className="text-xs font-bold text-text-primary">
                 {isConfigured && isLive
                   ? `Razorpay Live Connected for ${admin.full_name}`
                   : isConfigured && isTest
@@ -2201,12 +2202,12 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
                   ● Test Mode (Simulated)
                 </span>
               ) : (
-                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 border border-slate-300">
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-text-secondary border border-slate-300">
                   ● Real Payments Disabled
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+            <p className="text-[11px] text-text-tertiary font-mono mt-0.5">
               Active Key:{' '}
               {keyId && keyId !== 'rzp_test_'
                 ? `${keyId.substring(0, 18)}...`
@@ -2260,16 +2261,16 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
         </div>
 
         {showGuide && (
-          <div className="space-y-3 pt-1 text-xs text-slate-700">
+          <div className="space-y-3 pt-1 text-xs text-text-secondary">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Step 1 */}
-              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+              <div className="p-3.5 bg-surface rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">1</span>
-                    <p className="font-bold text-slate-900">Open Razorpay Dashboard</p>
+                    <p className="font-bold text-text-primary">Open Razorpay Dashboard</p>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                  <p className="text-[11px] text-text-secondary leading-relaxed">
                     Click the button below to open your Razorpay Dashboard. Make sure you are in <strong>Live Mode</strong> (switch the toggle at top-left from "Test" to <strong>"Live"</strong>).
                   </p>
                 </div>
@@ -2285,13 +2286,13 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
               </div>
 
               {/* Step 2 */}
-              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+              <div className="p-3.5 bg-surface rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">2</span>
-                    <p className="font-bold text-slate-900">Generate Live Key</p>
+                    <p className="font-bold text-text-primary">Generate Live Key</p>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                  <p className="text-[11px] text-text-secondary leading-relaxed">
                     Under <strong>API Keys</strong>, click <strong>"Generate Key"</strong>. Razorpay will show your <strong>Live Key ID</strong> (<code className="bg-emerald-50 text-emerald-800 font-bold px-1 rounded">rzp_live_...</code>) and <strong>Key Secret</strong>.
                   </p>
                 </div>
@@ -2301,13 +2302,13 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
               </div>
 
               {/* Step 3 */}
-              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+              <div className="p-3.5 bg-surface rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-black text-[11px] flex items-center justify-center">3</span>
-                    <p className="font-bold text-slate-900">Paste Below & Connect</p>
+                    <p className="font-bold text-text-primary">Paste Below & Connect</p>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                  <p className="text-[11px] text-text-secondary leading-relaxed">
                     Paste the <strong>Key ID</strong> and <strong>Key Secret</strong> into the inputs below and click <strong>"Connect Razorpay to Website"</strong>. Real payments will go live immediately!
                   </p>
                 </div>
@@ -2354,13 +2355,13 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             <Label className="text-xs font-bold text-slate-800">
               Razorpay Key ID <span className="text-emerald-600 font-semibold">(Real payments use rzp_live_...)</span>
             </Label>
-            <span className="text-[10px] text-slate-500 font-mono">Starts with rzp_live_ (Live) or rzp_test_</span>
+            <span className="text-[10px] text-text-tertiary font-mono">Starts with rzp_live_ (Live) or rzp_test_</span>
           </div>
           <Input
             value={keyId}
             onChange={(e) => setKeyId(e.target.value)}
             placeholder="rzp_live_xxxxxxxxxxxxxxxx"
-            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500 h-10"
+            className="text-xs font-mono rounded-xl bg-surface border-border focus:border-indigo-500 h-10"
           />
         </div>
 
@@ -2381,9 +2382,9 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             value={keySecret}
             onChange={(e) => setKeySecret(e.target.value)}
             placeholder="Paste your Razorpay Key Secret here"
-            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500 h-10"
+            className="text-xs font-mono rounded-xl bg-surface border-border focus:border-indigo-500 h-10"
           />
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-text-tertiary">
             Encrypted with <strong>AES-256</strong> at rest. Your secret key is never sent to the client browser and is strictly used server-side to generate and verify payment orders.
           </p>
         </div>
@@ -2394,20 +2395,20 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             value={accountRef}
             onChange={(e) => setAccountRef(e.target.value)}
             placeholder="e.g. My Mentorship Business"
-            className="text-xs rounded-xl bg-white border-slate-200"
+            className="text-xs rounded-xl bg-surface border-border"
           />
-          <p className="text-[10px] text-slate-400">
+          <p className="text-[10px] text-text-tertiary">
             Helps you identify which merchant account is linked for this admin profile.
           </p>
         </div>
       </div>
 
       {/* Security & Payout Assurance */}
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+      <div className="p-4 rounded-xl bg-surface-secondary border border-border flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
           <p className="font-bold text-slate-800">Security & Direct Settlement Guarantee</p>
-          <p className="text-slate-600 leading-relaxed">
+          <p className="text-text-secondary leading-relaxed">
             All Razorpay transactions are processed via secure server-to-server calls with HMAC-SHA256 signature verification.
             Payouts settle directly into your registered bank account according to your Razorpay settlement cycle (typically T+2 days).
           </p>
@@ -2415,8 +2416,8 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
       </div>
 
       {/* Save Button & Modes Note */}
-      <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <span className="text-xs text-slate-500">
+      <div className="pt-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <span className="text-xs text-text-tertiary">
           Supports UPI (GPay, PhonePe, Paytm), Credit/Debit Cards, NetBanking, and Wallets.
         </span>
         <Button
@@ -2441,10 +2442,10 @@ function BookingRulesSettings({ admin }: { admin: AdminUser }) {
   const [saved, setSaved] = useState(false);
 
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
-      <div className="border-b border-slate-100 pb-4">
-        <h2 className="text-lg font-black text-slate-900">Booking Rules & Buffers</h2>
-        <p className="text-xs text-slate-500 mt-0.5">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-5 shadow-xs">
+      <div className="border-b border-border pb-4">
+        <h2 className="text-lg font-black text-text-primary">Booking Rules & Buffers</h2>
+        <p className="text-xs text-text-tertiary mt-0.5">
           Configure advance notice thresholds and rest periods between consecutive meetings.
         </p>
       </div>
@@ -2459,7 +2460,7 @@ function BookingRulesSettings({ admin }: { admin: AdminUser }) {
             onChange={(e) => setMinAdvance(parseInt(e.target.value) || 0)}
             className="text-xs rounded-xl"
           />
-          <p className="text-[10px] text-slate-400">Clients cannot book a meeting sooner than this.</p>
+          <p className="text-[10px] text-text-tertiary">Clients cannot book a meeting sooner than this.</p>
         </div>
 
         <div className="space-y-1">
@@ -2471,7 +2472,7 @@ function BookingRulesSettings({ admin }: { admin: AdminUser }) {
             onChange={(e) => setMaxHorizon(parseInt(e.target.value) || 30)}
             className="text-xs rounded-xl"
           />
-          <p className="text-[10px] text-slate-400">How far into the future slots are opened.</p>
+          <p className="text-[10px] text-text-tertiary">How far into the future slots are opened.</p>
         </div>
       </div>
 
@@ -2484,10 +2485,10 @@ function BookingRulesSettings({ admin }: { admin: AdminUser }) {
           onChange={(e) => setDefaultBuffer(parseInt(e.target.value) || 0)}
           className="text-xs rounded-xl"
         />
-        <p className="text-[10px] text-slate-400">Cool-down buffer before and after meetings to avoid back-to-back fatigue.</p>
+        <p className="text-[10px] text-text-tertiary">Cool-down buffer before and after meetings to avoid back-to-back fatigue.</p>
       </div>
 
-      <div className="pt-3 border-t border-slate-100 flex justify-end">
+      <div className="pt-3 border-t border-border flex justify-end">
         <Button
           onClick={() => {
             setSaved(true);
@@ -2507,31 +2508,31 @@ function BookingRulesSettings({ admin }: { admin: AdminUser }) {
 // =========================================================================
 function EmailSettings({ admin }: { admin: AdminUser }) {
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 space-y-5 shadow-xs">
-      <div className="border-b border-slate-100 pb-4">
-        <h2 className="text-lg font-black text-slate-900">Email & Google Calendar Reminders</h2>
-        <p className="text-xs text-slate-500 mt-0.5">
+    <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-5 shadow-xs">
+      <div className="border-b border-border pb-4">
+        <h2 className="text-lg font-black text-text-primary">Email & Google Calendar Reminders</h2>
+        <p className="text-xs text-text-tertiary mt-0.5">
           Automated confirmation emails and meeting reminders sent to clients and admins.
         </p>
       </div>
 
       <div className="space-y-3">
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+        <div className="p-4 rounded-xl bg-surface-secondary border border-border text-xs space-y-2">
           <p className="font-bold text-slate-800 flex items-center gap-1.5">
             <Mail className="w-4 h-4 text-orange-600" />
             <span>Instant Confirmation Email</span>
           </p>
-          <p className="text-slate-600">
+          <p className="text-text-secondary">
             Dispatched to the client immediately upon payment with the confirmed Google Meet link and date/time in their local timezone.
           </p>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+        <div className="p-4 rounded-xl bg-surface-secondary border border-border text-xs space-y-2">
           <p className="font-bold text-slate-800 flex items-center gap-1.5">
             <CalendarIcon className="w-4 h-4 text-blue-600" />
             <span>Google Calendar Reminders (Configured per Spec)</span>
           </p>
-          <ul className="text-slate-600 space-y-1 list-disc pl-4">
+          <ul className="text-text-secondary space-y-1 list-disc pl-4">
             <li><strong>1 Hour Before:</strong> Pop-up notification and reminder email to both Client and Admin.</li>
             <li><strong>5 Minutes Before:</strong> Direct mobile & desktop alert with [Join Google Meet] button.</li>
           </ul>

@@ -5,6 +5,11 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { CURRENCIES } from '@/lib/constants';
 import { format } from 'date-fns';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { SkeletonList } from '@/components/common/Skeleton';
+import { DataList } from '@/components/common/DataList';
+import { ErrorNote } from '@/components/common/ErrorNote';
 
 interface PaymentRow {
   id: string;
@@ -25,6 +30,7 @@ export function PaymentsPage() {
   const { user } = useAuthStore();
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [stats, setStats] = useState({
     total: 0,
     successful: 0,
@@ -52,7 +58,12 @@ export function PaymentsPage() {
       .eq('booking.admin_id', user!.id)
       .order('created_at', { ascending: false });
 
+    if (error) {
+      // Was silent: a failed request rendered as "no records".
+      setLoadError('We could not load your payments just now.');
+    }
     if (!error && data) {
+      setLoadError('');
       const rows = data as unknown as PaymentRow[];
       setPayments(rows);
 
@@ -82,110 +93,131 @@ export function PaymentsPage() {
   };
 
   return (
-    <div className="animate-fade-in">
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Payments</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Track all payment activity across your 1:1 sessions
-          </p>
-        </div>
-        <Link
-          to="/admin/settings"
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 transition shadow-2xs self-start sm:self-auto cursor-pointer"
-        >
-          <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Manage Razorpay Gateway</span>
-        </Link>
+    <div className="animate-fade-in space-y-5">
+      <PageHeader
+        title="Payments"
+        description="Track all payment activity across your 1:1 sessions"
+        actions={
+          <Link
+            to="/admin/settings"
+            className="press inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-3.5 text-xs font-bold text-text-secondary shadow-2xs transition hover:bg-surface-tertiary"
+          >
+            <CreditCard className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+            <span>Manage Razorpay Gateway</span>
+          </Link>
+        }
+      />
+
+      {/* Stat tiles: 2-up on phones, 3-up on tablets, 5-up on desktop. Values use tabular
+          figures and can shrink, so a large revenue number cannot blow out its tile. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+        {[
+          { label: 'Total Revenue', value: `₹${(stats.revenue / 100).toLocaleString('en-IN')}`, tone: 'text-text-primary' },
+          { label: 'Successful', value: stats.successful, tone: 'text-emerald-600' },
+          { label: 'Failed', value: stats.failed, tone: 'text-red-600' },
+          { label: 'Refunds', value: stats.refunded, tone: 'text-purple-600' },
+          { label: 'Total', value: stats.total, tone: 'text-text-primary' },
+        ].map((tile) => (
+          <div key={tile.label} className="rounded-xl border border-border bg-surface p-4">
+            <p className="truncate text-[11px] uppercase tracking-wider text-text-tertiary">
+              {tile.label}
+            </p>
+            <p className={`mt-1 truncate text-xl font-bold tabular-nums sm:text-2xl ${tile.tone}`}>
+              {tile.value}
+            </p>
+          </div>
+        ))}
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-border p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wider">Total Revenue</p>
-          <p className="text-2xl font-bold text-text-primary mt-1">
-            ₹{(stats.revenue / 100).toLocaleString('en-IN')}
-          </p>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wider">Successful</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.successful}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wider">Failed</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{stats.failed}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wider">Refunds</p>
-          <p className="text-2xl font-bold text-purple-600 mt-1">{stats.refunded}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wider">Total</p>
-          <p className="text-2xl font-bold text-text-primary mt-1">{stats.total}</p>
-        </div>
-      </div>
+      {loadError && <ErrorNote message={loadError} onRetry={fetchPayments} />}
 
-      {/* Payments Table */}
-      <div className="bg-white rounded-xl border border-border shadow-card overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center">
-            <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          </div>
-        ) : payments.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="text-4xl mb-3">💳</div>
-            <h3 className="text-lg font-medium">No payments yet</h3>
-            <p className="text-sm text-text-secondary mt-1">Payments will appear here as customers book meetings</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-surface-secondary">
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Order ID</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Payment ID</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Customer</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Booking</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Amount</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Status</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {payments.map((payment) => (
-                  <tr key={payment.id} className="hover:bg-surface-secondary/50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono text-text-secondary">
-                      {payment.razorpay_order_id}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-mono text-text-secondary">
-                      {payment.razorpay_payment_id || '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium">{payment.booking?.customer?.name || '—'}</p>
-                      <p className="text-xs text-text-tertiary">{payment.booking?.customer?.email}</p>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-mono text-primary-600">
-                      {payment.booking?.public_id || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      {CURRENCIES[payment.currency]?.symbol || '₹'}
-                      {(payment.amount / 100).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[payment.status] || 'bg-gray-50 text-gray-600'}`}>
-                        {payment.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-text-tertiary">
-                      {format(new Date(payment.created_at), 'MMM d, h:mm a')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <SkeletonList rows={5} />
+      ) : (
+        <DataList
+          rows={payments}
+          rowKey={(payment) => payment.id}
+          empty={
+            <EmptyState
+              icon={CreditCard}
+              title="No payments yet"
+              description="Payments appear here once a client completes a booking through your Razorpay account."
+            />
+          }
+          columns={[
+            {
+              header: 'Customer',
+              primary: true,
+              cell: (payment) => (
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-text-primary">
+                    {payment.booking?.customer?.name || '—'}
+                  </p>
+                  <p className="truncate text-xs font-normal text-text-tertiary">
+                    {payment.booking?.customer?.email}
+                  </p>
+                </div>
+              ),
+            },
+            {
+              header: 'Amount',
+              trailing: true,
+              align: 'right',
+              cell: (payment) => (
+                <span className="font-semibold tabular-nums text-text-primary">
+                  {CURRENCIES[payment.currency]?.symbol || '₹'}
+                  {(payment.amount / 100).toLocaleString()}
+                </span>
+              ),
+            },
+            {
+              header: 'Status',
+              trailing: true,
+              cell: (payment) => (
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    statusColors[payment.status] || 'bg-gray-50 text-gray-600'
+                  }`}
+                >
+                  {payment.status}
+                </span>
+              ),
+            },
+            {
+              header: 'Booking',
+              cell: (payment) => (
+                <span className="font-mono text-xs text-primary-600">
+                  {payment.booking?.public_id || '—'}
+                </span>
+              ),
+            },
+            {
+              header: 'Order ID',
+              collapse: true,
+              cell: (payment) => (
+                <span className="break-all font-mono text-xs">{payment.razorpay_order_id}</span>
+              ),
+            },
+            {
+              header: 'Payment ID',
+              collapse: true,
+              cell: (payment) => (
+                <span className="break-all font-mono text-xs">
+                  {payment.razorpay_payment_id || '—'}
+                </span>
+              ),
+            },
+            {
+              header: 'Date',
+              cell: (payment) => (
+                <span className="text-xs text-text-tertiary">
+                  {format(new Date(payment.created_at), 'MMM d, h:mm a')}
+                </span>
+              ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

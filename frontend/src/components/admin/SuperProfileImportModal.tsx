@@ -251,13 +251,13 @@ export const SuperProfileImportModal: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto p-6 rounded-3xl bg-white">
+      <DialogContent className="admin-sheet max-h-[92dvh] w-[calc(100%-1.5rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-3xl sm:rounded-3xl sm:p-6">
         <DialogHeader>
-          <DialogTitle className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
+          <DialogTitle className="text-xl font-extrabold text-text-primary flex items-center gap-2">
             <Download className="w-5 h-5 text-indigo-600" />
             Import from SuperProfile
           </DialogTitle>
-          <DialogDescription className="text-xs text-slate-500">
+          <DialogDescription className="text-xs text-text-tertiary">
             Paste your public SuperProfile URL. Nothing is changed until you review what was
             found and choose what to import.
           </DialogDescription>
@@ -274,7 +274,7 @@ export const SuperProfileImportModal: React.FC<{
         {(phase === 'url' || phase === 'loading') && (
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-slate-700">Your public SuperProfile URL</Label>
+              <Label className="text-xs font-semibold text-text-secondary">Your public SuperProfile URL</Label>
               <Input
                 value={sourceUrl}
                 onChange={(e) => setSourceUrl(e.target.value)}
@@ -287,7 +287,7 @@ export const SuperProfileImportModal: React.FC<{
 
             {pasteMode && (
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Page source</Label>
+                <Label className="text-xs font-semibold text-text-secondary">Page source</Label>
                 <Textarea
                   value={pageHtml}
                   onChange={(e) => setPageHtml(e.target.value)}
@@ -306,7 +306,7 @@ export const SuperProfileImportModal: React.FC<{
               </div>
             )}
 
-            <p className="text-[11px] text-slate-500 leading-relaxed">
+            <p className="text-[11px] text-text-tertiary leading-relaxed">
               Only import content you have permission to reuse. This reads the public page
               only — it does not sign in to SuperProfile, and it does not work around any
               access control. Your booking link, payment settings and calendar connection are
@@ -317,7 +317,7 @@ export const SuperProfileImportModal: React.FC<{
               <button
                 type="button"
                 onClick={() => setPasteMode(true)}
-                className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
+                className="text-[11px] font-semibold text-text-tertiary hover:text-text-secondary hover:underline cursor-pointer"
               >
                 SuperProfile blocking the import? Paste the page source instead
               </button>
@@ -352,17 +352,17 @@ export const SuperProfileImportModal: React.FC<{
 
             {/* Profile preview */}
             <section className="space-y-3">
-              <h3 className="text-sm font-black text-slate-900">Profile preview</h3>
+              <h3 className="text-sm font-black text-text-primary">Profile preview</h3>
 
-              <div className="flex items-start gap-4 p-4 rounded-2xl border border-slate-200 bg-slate-50">
+              <div className="flex items-start gap-4 p-4 rounded-2xl border border-border bg-surface-secondary">
                 {profile.profile_image_url ? (
                   <div className="space-y-1.5 shrink-0">
                     <img
                       src={profile.profile_image_url}
                       alt="Imported profile"
-                      className="w-16 h-16 rounded-xl object-cover border border-slate-200"
+                      className="w-16 h-16 rounded-xl object-cover border border-border"
                     />
-                    <p className="text-[9px] text-slate-400 w-16 text-center">preview only</p>
+                    <p className="text-[9px] text-text-tertiary w-16 text-center">preview only</p>
                   </div>
                 ) : null}
 
@@ -381,7 +381,7 @@ export const SuperProfileImportModal: React.FC<{
                           className="mt-1 cursor-pointer"
                         />
                         <span className="min-w-0">
-                          <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                          <span className="block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">
                             {field.label}
                           </span>
                           <span className="block text-xs text-slate-800 break-words">{value}</span>
@@ -399,7 +399,7 @@ export const SuperProfileImportModal: React.FC<{
                         className="mt-1 cursor-pointer"
                       />
                       <span>
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <span className="block text-[10px] font-bold uppercase tracking-wide text-text-tertiary">
                           Social links
                         </span>
                         <span className="block text-xs text-slate-800 break-all">
@@ -410,7 +410,7 @@ export const SuperProfileImportModal: React.FC<{
                   )}
 
                   {!PROFILE_FIELDS.some((f) => f.get(profile)) && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-text-tertiary">
                       No public profile information could be imported from that page.
                     </p>
                   )}
@@ -418,8 +418,8 @@ export const SuperProfileImportModal: React.FC<{
               </div>
 
               {profile.profile_image_url && (
-                <div className="p-3 rounded-xl border border-slate-200 space-y-2">
-                  <label className="flex items-start gap-2 text-[11px] text-slate-700 cursor-pointer">
+                <div className="p-3 rounded-xl border border-border space-y-2">
+                  <label className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importImage}
@@ -449,11 +449,11 @@ export const SuperProfileImportModal: React.FC<{
             {/* Sessions preview */}
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-900">
+                <h3 className="text-sm font-black text-text-primary">
                   Imported sessions {sessions.length > 0 && `(${sessions.length})`}
                 </h3>
                 {sessions.length > 1 && (
-                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-text-secondary cursor-pointer">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -468,7 +468,7 @@ export const SuperProfileImportModal: React.FC<{
               </div>
 
               {sessions.length === 0 && (
-                <p className="text-xs text-slate-500 p-4 rounded-2xl border border-dashed border-slate-200">
+                <p className="text-xs text-text-tertiary p-4 rounded-2xl border border-dashed border-border">
                   No sessions were found on this page.
                 </p>
               )}
@@ -476,7 +476,7 @@ export const SuperProfileImportModal: React.FC<{
               {sessions.map((session, index) => {
                 const duplicate = duplicateFor.get(index);
                 return (
-                  <div key={index} className="p-4 rounded-2xl border border-slate-200 space-y-3">
+                  <div key={index} className="p-4 rounded-2xl border border-border space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <label className="flex items-start gap-2 cursor-pointer min-w-0 flex-1">
                         <input
@@ -496,16 +496,16 @@ export const SuperProfileImportModal: React.FC<{
                           href={session.booking_url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center gap-1 shrink-0 mt-2"
+                          className="text-[10px] text-text-tertiary hover:text-text-secondary flex items-center gap-1 shrink-0 mt-2"
                         >
                           source <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 pl-6">
+                    <div className="grid grid-cols-1 gap-3 pl-6 sm:grid-cols-2">
                       <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <Label className="text-[10px] font-bold uppercase tracking-wide text-text-tertiary">
                           Duration (minutes)
                         </Label>
                         <Input
@@ -521,7 +521,7 @@ export const SuperProfileImportModal: React.FC<{
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        <Label className="text-[10px] font-bold uppercase tracking-wide text-text-tertiary">
                           Price {session.currency ? `(${session.currency})` : ''}
                         </Label>
                         <Input
@@ -536,13 +536,13 @@ export const SuperProfileImportModal: React.FC<{
                           className="text-xs rounded-lg"
                         />
                         {session.price !== null && (
-                          <p className="text-[10px] text-slate-400">{formatPrice(session.price)}</p>
+                          <p className="text-[10px] text-text-tertiary">{formatPrice(session.price)}</p>
                         )}
                       </div>
                     </div>
 
                     <div className="space-y-1 pl-6">
-                      <Label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      <Label className="text-[10px] font-bold uppercase tracking-wide text-text-tertiary">
                         Description (editable)
                       </Label>
                       <Textarea
@@ -580,7 +580,7 @@ export const SuperProfileImportModal: React.FC<{
                               className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer border ${
                                 session.action === action
                                   ? 'bg-amber-600 text-white border-amber-600'
-                                  : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
+                                  : 'bg-surface text-amber-800 border-amber-300 hover:bg-amber-100'
                               }`}
                             >
                               {label}
@@ -596,10 +596,10 @@ export const SuperProfileImportModal: React.FC<{
 
             {/* Mode */}
             <section className="space-y-2">
-              <h3 className="text-sm font-black text-slate-900">How should this be applied?</h3>
+              <h3 className="text-sm font-black text-text-primary">How should this be applied?</h3>
               <div className="space-y-1.5">
                 {(Object.keys(MODE_LABELS) as ImportMode[]).map((value) => (
-                  <label key={value} className="flex items-start gap-2 text-[11px] text-slate-700 cursor-pointer">
+                  <label key={value} className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
                     <input
                       type="radio"
                       name="import-mode"
@@ -634,7 +634,7 @@ export const SuperProfileImportModal: React.FC<{
               )}
             </section>
 
-            <div className="flex items-center justify-end gap-2.5 pt-1">
+            <div className="flex flex-col-reverse gap-2.5 pt-1 sm:flex-row sm:items-center sm:justify-end">
               <Button type="button" variant="outline" onClick={close} className="rounded-xl text-xs cursor-pointer">
                 Cancel
               </Button>
@@ -673,7 +673,7 @@ export const SuperProfileImportModal: React.FC<{
                 {result.image_note && <p className="text-amber-800">{result.image_note}</p>}
               </div>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-text-tertiary">
               Your public booking URL and payment settings are unchanged — imported sessions
               are sold through your own connected Razorpay account.
             </p>

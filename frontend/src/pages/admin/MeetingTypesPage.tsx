@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageHeader } from '@/components/common/PageHeader';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -222,9 +223,9 @@ export function MeetingTypesPage() {
   if (loading) {
     return (
       <div className="space-y-4 animate-pulse">
-        <div className="h-10 bg-white rounded-lg w-48" />
+        <div className="h-10 bg-surface rounded-lg w-48" />
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-28 bg-white rounded-xl border border-border" />
+          <div key={i} className="h-28 bg-surface rounded-xl border border-border" />
         ))}
       </div>
     );
@@ -232,18 +233,16 @@ export function MeetingTypesPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Meeting Types</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Configure the services you offer
-          </p>
-        </div>
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4" />
-          New Meeting Type
-        </Button>
-      </div>
+      <PageHeader
+        title="Meeting Types"
+        description="Configure the services you offer"
+        actions={
+          <Button onClick={openCreate} size="touch" className="w-full sm:w-auto">
+            <Plus className="w-4 h-4" />
+            New Meeting Type
+          </Button>
+        }
+      />
 
       {meetingTypes.length === 0 ? (
         <Card>
@@ -271,7 +270,7 @@ export function MeetingTypesPage() {
               }`}
             >
               <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <div className="flex items-start gap-4 min-w-0 flex-1">
                     <div className="flex items-center gap-2 shrink-0 pt-1">
                       <GripVertical className="w-4 h-4 text-text-tertiary cursor-grab" />
@@ -332,14 +331,14 @@ export function MeetingTypesPage() {
                     />
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-touch"
                       onClick={() => openEdit(meeting)}
                     >
                       <Edit2 className="w-4 h-4" />
                     </Button>
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-touch"
                       onClick={() => handleDelete(meeting.id)}
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
@@ -398,7 +397,7 @@ export function MeetingTypesPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mt-duration">Duration (minutes)</Label>
                 <Select
@@ -478,7 +477,7 @@ export function MeetingTypesPage() {
 
             <Separator />
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mt-buffer-before">Buffer before (min)</Label>
                 <Input
@@ -511,7 +510,7 @@ export function MeetingTypesPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mt-advance">Min advance notice (hours)</Label>
                 <Input
@@ -544,7 +543,7 @@ export function MeetingTypesPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mt-cancel-window">Cancellation window (hours)</Label>
                 <Input

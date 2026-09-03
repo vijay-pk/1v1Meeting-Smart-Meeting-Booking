@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // Applies the saved admin theme before first paint, so the dashboard never flashes
+      // light before switching to dark. Deliberately scoped to admin routes: the public
+      // booking pages must always render in their own light theme, whatever the admin
+      // chose for their dashboard on this device.
+      (function () {
+        try {
+          var path = location.pathname;
+          if (path.indexOf('/admin') !== 0 && path.indexOf('/super-admin') !== 0) return;
+          var pref = localStorage.getItem('bmm_theme') || 'system';
+          var dark = pref === 'dark' ||
+            (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+        } catch (e) {}
+      })();
+    </script>
     <meta name="description" content="Book a consultation — professional meeting scheduling with Google Calendar and Razorpay" />
     <meta property="og:title" content="BookMyMeet — Appointment Scheduling" />
     <meta property="og:description" content="Schedule paid Google Meet consultations effortlessly" />

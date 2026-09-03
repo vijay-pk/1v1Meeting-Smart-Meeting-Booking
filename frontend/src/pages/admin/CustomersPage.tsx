@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { format } from 'date-fns';
+import { Search, Users } from 'lucide-react';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { SkeletonList } from '@/components/common/Skeleton';
+import { DataList } from '@/components/common/DataList';
+import { ErrorNote } from '@/components/common/ErrorNote';
 
 interface CustomerRow {
   id: string;
@@ -17,6 +23,7 @@ export function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     if (user) fetchCustomers();
@@ -34,7 +41,12 @@ export function CustomersPage() {
       .eq('bookings.admin_id', user!.id)
       .order('created_at', { ascending: false });
 
+    if (error) {
+      // Was silent: a failed request rendered as "no records".
+      setLoadError('We could not load your customers just now.');
+    }
     if (!error && data) {
+      setLoadError('');
       // Deduplicate and count bookings
       const customerMap = new Map<string, CustomerRow>();
       for (const row of data as any[]) {
@@ -58,79 +70,78 @@ export function CustomersPage() {
   );
 
   return (
-    <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Customers</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            {customers.length} customer{customers.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-      </div>
+    <div className="animate-fade-in space-y-5">
+      <PageHeader
+        title="Customers"
+        description={`${customers.length} customer${customers.length !== 1 ? 's' : ''}`}
+      />
 
-      {/* Search */}
-      <div className="mb-6">
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary"
+          aria-hidden="true"
+        />
         <input
-          type="text"
+          type="search"
           placeholder="Search by name, email, or phone..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full max-w-md px-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          aria-label="Search customers"
+          className="h-11 w-full max-w-md rounded-xl border border-border bg-surface pl-9 pr-4 text-sm text-text-primary focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-border shadow-card overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center">
-            <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="text-4xl mb-3">👥</div>
-            <h3 className="text-lg font-medium">No customers found</h3>
-            <p className="text-sm text-text-secondary mt-1">
-              {search ? 'Try adjusting your search' : 'Customers will appear here when they make bookings'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-surface-secondary">
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Name</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Email</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Phone</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Bookings</th>
-                  <th className="text-left text-xs font-medium text-text-tertiary uppercase px-4 py-3">Since</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-surface-secondary/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-sm font-medium">
-                          {customer.name.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="text-sm font-medium text-text-primary">{customer.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-text-secondary">{customer.email}</td>
-                    <td className="px-4 py-3 text-sm text-text-secondary">{customer.phone}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-text-primary">
-                      {customer.booking_count || 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-text-tertiary">
-                      {format(new Date(customer.created_at), 'MMM d, yyyy')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {loadError && <ErrorNote message={loadError} onRetry={fetchCustomers} />}
+
+      {loading ? (
+        <SkeletonList rows={5} />
+      ) : (
+        <DataList
+          rows={filtered}
+          rowKey={(customer) => customer.id}
+          empty={
+            <EmptyState
+              icon={Users}
+              title="No customers found"
+              description={
+                search
+                  ? 'No customer matches that search. Try a different name, email or phone number.'
+                  : 'Customers appear here once someone books a session with you.'
+              }
+            />
+          }
+          columns={[
+            {
+              header: 'Name',
+              primary: true,
+              cell: (customer) => (
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-medium text-primary-700">
+                    {customer.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="truncate font-medium text-text-primary">{customer.name}</span>
+                </div>
+              ),
+            },
+            {
+              header: 'Bookings',
+              trailing: true,
+              cell: (customer) => (
+                <span className="font-semibold text-text-primary">
+                  {customer.booking_count || 0}
+                </span>
+              ),
+            },
+            { header: 'Email', cell: (customer) => <span className="break-all">{customer.email}</span> },
+            { header: 'Phone', cell: (customer) => customer.phone || '—' },
+            {
+              header: 'Since',
+              collapse: true,
+              cell: (customer) => format(new Date(customer.created_at), 'MMM d, yyyy'),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

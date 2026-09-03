@@ -224,7 +224,7 @@ export function GoogleCallbackPage() {
                 onChange={(e) => setUsername(e.target.value.toLowerCase())}
                 autoFocus
                 disabled={phase === 'creating'}
-                className="flex-1 bg-transparent px-1 py-2.5 text-sm text-white outline-none disabled:opacity-60"
+                className="min-w-0 flex-1 bg-transparent px-1 py-3 text-base text-white outline-none disabled:opacity-60 sm:text-sm"
                 placeholder="yourname"
               />
             </div>

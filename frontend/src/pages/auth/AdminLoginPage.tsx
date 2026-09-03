@@ -164,9 +164,7 @@ export const AdminLoginPage: React.FC = () => {
                   <Label htmlFor="login-pass" className="text-xs text-slate-300 font-semibold">
                     Password
                   </Label>
-                  <span className="text-[11px] text-slate-500 hover:text-slate-400 cursor-pointer">
-                    Forgot Password?
-                  </span>
+                  <span className="text-[11px] text-slate-500">Contact your admin to reset</span>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
@@ -181,7 +179,7 @@ export const AdminLoginPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition cursor-pointer"
+                    className="press absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:text-slate-300"
                     title={showPassword ? "Hide password" : "View password"}
                     aria-label={showPassword ? "Hide password" : "View password"}
                   >

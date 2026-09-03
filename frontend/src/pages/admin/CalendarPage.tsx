@@ -92,34 +92,43 @@ export function CalendarPage() {
   return (
     <div className="space-y-6 animate-fade-in font-sans pb-16">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-border shadow-xs">
+      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Calendar & Appointments</h1>
+            <h1 className="text-xl font-black tracking-tight text-text-primary sm:text-2xl">Calendar</h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold border border-blue-200">
               1:1 Sessions
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mt-1 text-xs text-text-secondary">
             View scheduled client calls, synchronized Google Meet invitations, and upcoming sessions for {currentAdmin?.full_name || 'Admin'}.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          {/* View Mode Toggle */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* View mode. The month grid is unreadable on a narrow phone, so below sm the
+              toggle is hidden and the agenda list is shown instead (see below). */}
+          <div
+            role="tablist"
+            aria-label="Calendar view"
+            className="hidden items-center rounded-xl border border-border bg-surface-tertiary p-1 sm:flex"
+          >
             <button
+              role="tab"
+              aria-selected={viewMode === 'month'}
               onClick={() => setViewMode('month')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === 'month' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              className={`press h-9 rounded-lg px-3 text-xs font-bold transition cursor-pointer ${
+                viewMode === 'month' ? 'bg-surface text-text-primary shadow-xs' : 'text-text-tertiary hover:text-text-primary'
               }`}
             >
               Month Grid
             </button>
             <button
+              role="tab"
+              aria-selected={viewMode === 'agenda'}
               onClick={() => setViewMode('agenda')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === 'agenda' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              className={`press h-9 rounded-lg px-3 text-xs font-bold transition cursor-pointer ${
+                viewMode === 'agenda' ? 'bg-surface text-text-primary shadow-xs' : 'text-text-tertiary hover:text-text-primary'
               }`}
             >
               Agenda List
@@ -128,22 +137,25 @@ export function CalendarPage() {
 
           <Link
             to="/admin/settings"
-            className="px-3 py-2 rounded-xl text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition flex items-center gap-1.5"
+            className="press inline-flex h-11 items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-bold text-orange-700 transition hover:bg-orange-100 sm:h-9"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span>Google Calendar Sync</span>
           </Link>
         </div>
       </div>
 
-      {/* Main Calendar View */}
-      {viewMode === 'month' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Main calendar view.
+          `hidden sm:block` on the month branch: a 7-column grid inside a 272px phone column
+          gives ~33px cells holding a date, a count and two booking chips — illegible and
+          untappable. Phones get the agenda list, which is the same data in a readable form. */}
+      {viewMode === 'month' && (
+        <div className="hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-12">
           {/* Month Grid */}
-          <div className="lg:col-span-8 bg-white rounded-2xl border border-border p-5 shadow-xs space-y-4">
+          <div className="space-y-4 rounded-2xl border border-border bg-surface p-4 shadow-xs sm:p-5 lg:col-span-8">
             {/* Month Navigation */}
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-black text-slate-900">
+              <h2 className="text-lg font-black text-text-primary">
                 {format(currentDate, 'MMMM yyyy')}
               </h2>
               <div className="flex items-center gap-1.5">
@@ -175,7 +187,7 @@ export function CalendarPage() {
             </div>
 
             {/* Days of the Week Header */}
-            <div className="grid grid-cols-7 gap-1 text-center font-bold text-[11px] uppercase tracking-wider text-slate-400 py-1 border-b border-slate-100">
+            <div className="grid grid-cols-7 gap-1 text-center font-bold text-[11px] uppercase tracking-wider text-text-tertiary py-1 border-b border-border">
               <span>Sun</span>
               <span>Mon</span>
               <span>Tue</span>
@@ -205,8 +217,8 @@ export function CalendarPage() {
                         : isTodayDate
                         ? 'border-blue-400 bg-blue-50/30'
                         : isCurrentMonth
-                        ? 'border-slate-100 hover:bg-slate-50'
-                        : 'border-transparent text-slate-300 bg-slate-50/40'
+                        ? 'border-border hover:bg-surface-secondary'
+                        : 'border-transparent text-slate-300 bg-surface-secondary/40'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -216,7 +228,7 @@ export function CalendarPage() {
                             ? 'bg-blue-600 text-white'
                             : isSelected
                             ? 'bg-orange-600 text-white'
-                            : 'text-slate-700'
+                            : 'text-text-secondary'
                         }`}
                       >
                         {format(day, 'd')}
@@ -243,7 +255,7 @@ export function CalendarPage() {
                         </div>
                       ))}
                       {dayBookings.length > 2 && (
-                        <span className="text-[9px] text-slate-400 font-bold pl-1">
+                        <span className="text-[9px] text-text-tertiary font-bold pl-1">
                           +{dayBookings.length - 2} more
                         </span>
                       )}
@@ -256,13 +268,13 @@ export function CalendarPage() {
 
           {/* Selected Date Details Sidebar */}
           <div className="lg:col-span-4 space-y-4">
-            <div className="bg-white rounded-2xl border border-border p-5 shadow-xs space-y-4">
-              <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+            <div className="bg-surface rounded-2xl border border-border p-5 shadow-xs space-y-4">
+              <div className="border-b border-border pb-3 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-black text-slate-900">
+                  <h3 className="text-sm font-black text-text-primary">
                     {format(selectedDate, 'EEEE, MMMM d, yyyy')}
                   </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-text-tertiary">
                     {selectedDateBookings.length} session(s) scheduled
                   </p>
                 </div>
@@ -274,10 +286,10 @@ export function CalendarPage() {
               </div>
 
               {selectedDateBookings.length === 0 ? (
-                <div className="p-8 text-center space-y-2 border border-dashed border-slate-200 rounded-xl">
+                <div className="p-8 text-center space-y-2 border border-dashed border-border rounded-xl">
                   <CalendarDays className="w-8 h-8 text-slate-300 mx-auto" />
-                  <p className="text-xs font-semibold text-slate-600">No appointments scheduled</p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-xs font-semibold text-text-secondary">No appointments scheduled</p>
+                  <p className="text-[11px] text-text-tertiary">
                     Share your personal link to start accepting bookings on this date.
                   </p>
                 </div>
@@ -287,7 +299,7 @@ export function CalendarPage() {
                     <div
                       key={booking.id || idx}
                       onClick={() => setSelectedBooking(booking)}
-                      className="p-3.5 rounded-xl border border-slate-200 hover:border-orange-300 hover:bg-orange-50/30 transition cursor-pointer space-y-2"
+                      className="p-3.5 rounded-xl border border-border hover:border-orange-300 hover:bg-orange-50/30 transition cursor-pointer space-y-2"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
@@ -307,10 +319,10 @@ export function CalendarPage() {
                           {booking.customer_name?.charAt(0).toUpperCase() || 'C'}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-900 truncate">
+                          <p className="text-xs font-bold text-text-primary truncate">
                             {booking.customer_name}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">
+                          <p className="text-[11px] text-text-tertiary truncate">
                             {booking.customer_email}
                           </p>
                         </div>
@@ -335,13 +347,19 @@ export function CalendarPage() {
             </div>
           </div>
         </div>
-      ) : (
-        /* Agenda List View */
-        <div className="bg-white rounded-2xl border border-border p-6 shadow-xs space-y-4">
-          <h2 className="text-base font-black text-slate-900">Upcoming 1:1 Sessions Agenda</h2>
+      )}
+
+      {/* Agenda list. Always rendered on phones -- where it replaces the month grid -- and
+          on every size when the admin explicitly picks the agenda view. */}
+      <div
+        className={`space-y-4 rounded-2xl border border-border bg-surface p-4 shadow-xs sm:p-6 ${
+          viewMode === 'month' ? 'sm:hidden' : ''
+        }`}
+      >
+          <h2 className="text-base font-black text-text-primary">Upcoming 1:1 Sessions</h2>
           {myBookings.length === 0 ? (
-            <div className="p-12 text-center text-xs text-slate-400">
-              No upcoming appointments found.
+            <div className="p-10 text-center text-xs text-text-tertiary">
+              No upcoming appointments yet. Share your booking page to receive one.
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -349,15 +367,15 @@ export function CalendarPage() {
                 <div key={b.id || idx} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">
+                      <span className="text-xs font-bold text-text-primary">
                         {format(parseISO(b.start_time), 'EEEE, MMMM d, yyyy')}
                       </span>
-                      <span className="text-xs text-slate-500">•</span>
+                      <span className="text-xs text-text-tertiary">•</span>
                       <span className="text-xs font-mono font-bold text-orange-600">
                         {format(parseISO(b.start_time), 'hh:mm a')} – {format(parseISO(b.end_time), 'hh:mm a')}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <div className="flex items-center gap-2 text-xs text-text-secondary">
                       <span className="font-semibold">{b.customer_name}</span>
                       <span>({b.customer_email})</span>
                     </div>
@@ -375,13 +393,13 @@ export function CalendarPage() {
                         <span>Google Meet</span>
                       </a>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">No Meet link</span>
+                      <span className="text-xs text-text-tertiary italic">No Meet link</span>
                     )}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setSelectedBooking(b)}
-                      className="text-xs h-8"
+                      className="h-11 text-xs sm:h-9"
                     >
                       View Details
                     </Button>
@@ -390,27 +408,26 @@ export function CalendarPage() {
               ))}
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Booking Details Modal */}
       {selectedBooking && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl border border-slate-200 p-6 space-y-4 shadow-2xl animate-fade-in">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-900">Appointment Details</h3>
+          <div className="bg-surface w-full max-w-md rounded-2xl border border-border p-6 space-y-4 shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="text-base font-black text-text-primary">Appointment Details</h3>
               <button
                 onClick={() => setSelectedBooking(null)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer"
+                className="text-text-tertiary hover:text-text-secondary text-sm font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
-                <p className="text-slate-500 font-semibold">Scheduled Date & Time</p>
-                <p className="font-bold text-slate-900 text-sm">
+              <div className="p-3 bg-surface-secondary rounded-xl space-y-1">
+                <p className="text-text-tertiary font-semibold">Scheduled Date & Time</p>
+                <p className="font-bold text-text-primary text-sm">
                   {format(parseISO(selectedBooking.start_time), 'EEEE, MMMM d, yyyy')}
                 </p>
                 <p className="font-mono text-orange-600 font-bold">
@@ -421,20 +438,20 @@ export function CalendarPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-slate-400" />
-                  <span className="font-semibold text-slate-700">Client:</span>
-                  <span className="font-bold text-slate-900">{selectedBooking.customer_name}</span>
+                  <User className="w-4 h-4 text-text-tertiary" />
+                  <span className="font-semibold text-text-secondary">Client:</span>
+                  <span className="font-bold text-text-primary">{selectedBooking.customer_name}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-slate-400" />
-                  <span className="font-semibold text-slate-700">Email:</span>
-                  <span className="text-slate-900">{selectedBooking.customer_email}</span>
+                  <Mail className="w-4 h-4 text-text-tertiary" />
+                  <span className="font-semibold text-text-secondary">Email:</span>
+                  <span className="text-text-primary">{selectedBooking.customer_email}</span>
                 </div>
                 {selectedBooking.customer_phone && (
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-slate-400" />
-                    <span className="font-semibold text-slate-700">Phone:</span>
-                    <span className="text-slate-900">{selectedBooking.customer_phone}</span>
+                    <Phone className="w-4 h-4 text-text-tertiary" />
+                    <span className="font-semibold text-text-secondary">Phone:</span>
+                    <span className="text-text-primary">{selectedBooking.customer_phone}</span>
                   </div>
                 )}
               </div>

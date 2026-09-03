@@ -3,6 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { Spinner } from '@/components/common/Skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
@@ -200,7 +203,7 @@ export function AvailabilityPage() {
     return (
       <div className="space-y-4 animate-pulse">
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-20 bg-white rounded-xl border border-border" />
+          <div key={i} className="h-20 bg-surface rounded-xl border border-border" />
         ))}
       </div>
     );
@@ -208,16 +211,13 @@ export function AvailabilityPage() {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Availability</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Set your weekly schedule and timezone
-          </p>
-        </div>
-        <Button onClick={handleSave} disabled={saving}>
+      <PageHeader
+        title="Availability"
+        description="Set your weekly schedule and timezone"
+        actions={
+          <Button onClick={handleSave} disabled={saving} size="touch" className="w-full sm:w-auto">
           {saving ? (
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <Spinner />
           ) : saved ? (
             <>
               <Check className="w-4 h-4" />
@@ -229,8 +229,9 @@ export function AvailabilityPage() {
               Save Changes
             </>
           )}
-        </Button>
-      </div>
+          </Button>
+        }
+      />
 
       {/* Timezone */}
       <Card>
@@ -269,7 +270,7 @@ export function AvailabilityPage() {
             <div
               key={dc.day}
               className={`p-4 rounded-lg border transition-colors ${
-                dc.isActive ? 'border-border bg-white' : 'border-border bg-slate-50'
+                dc.isActive ? 'border-border bg-surface' : 'border-border bg-surface-secondary'
               }`}
             >
               <div className="flex items-center justify-between mb-3">
@@ -301,30 +302,35 @@ export function AvailabilityPage() {
               </div>
 
               {dc.isActive && (
-                <div className="space-y-2 ml-12">
+                <div className="space-y-2 sm:ml-12">
                   {dc.windows.map((window, wi) => (
+                    // The two time fields now share the row and flex down, instead of each
+                    // holding a fixed 128px and forcing ~330px into a 272px column.
                     <div key={wi} className="flex items-center gap-2">
                       <Input
                         type="time"
+                        aria-label="Start time"
                         value={window.start}
                         onChange={(e) => updateWindow(dc.day, wi, 'start', e.target.value)}
-                        className="w-32 h-8 text-sm"
+                        className="h-11 min-w-0 flex-1 text-sm sm:h-9 sm:w-32 sm:flex-none"
                       />
-                      <span className="text-text-tertiary text-sm">to</span>
+                      <span className="shrink-0 text-sm text-text-tertiary">to</span>
                       <Input
                         type="time"
+                        aria-label="End time"
                         value={window.end}
                         onChange={(e) => updateWindow(dc.day, wi, 'end', e.target.value)}
-                        className="w-32 h-8 text-sm"
+                        className="h-11 min-w-0 flex-1 text-sm sm:h-9 sm:w-32 sm:flex-none"
                       />
                       {dc.windows.length > 1 && (
                         <Button
                           variant="ghost"
-                          size="icon-sm"
+                          size="icon-touch"
                           onClick={() => removeWindow(dc.day, wi)}
-                          className="text-red-400 hover:text-red-600"
+                          className="shrink-0 text-red-400 hover:text-red-600"
+                          aria-label="Remove this time window"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </Button>
                       )}
                     </div>
@@ -333,7 +339,7 @@ export function AvailabilityPage() {
               )}
 
               {!dc.isActive && (
-                <p className="ml-12 text-xs text-text-tertiary">Unavailable</p>
+                <p className="text-xs text-text-tertiary sm:ml-12">Unavailable</p>
               )}
             </div>
           ))}
@@ -352,8 +358,8 @@ export function AvailabilityPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-end gap-3 mb-4">
-            <div className="space-y-1">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="space-y-1 sm:w-44 sm:shrink-0">
               <Label htmlFor="exc-date" className="text-xs">Date</Label>
               <Input
                 id="exc-date"
@@ -362,10 +368,10 @@ export function AvailabilityPage() {
                 onChange={(e) =>
                   setNewException((prev) => ({ ...prev, date: e.target.value }))
                 }
-                className="w-44 h-9"
+                className="h-11 w-full sm:h-9"
               />
             </div>
-            <div className="space-y-1 flex-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <Label htmlFor="exc-reason" className="text-xs">Reason (optional)</Label>
               <Input
                 id="exc-reason"
@@ -374,19 +380,27 @@ export function AvailabilityPage() {
                 onChange={(e) =>
                   setNewException((prev) => ({ ...prev, reason: e.target.value }))
                 }
-                className="h-9"
+                className="h-11 sm:h-9"
               />
             </div>
-            <Button size="sm" onClick={addException} disabled={!newException.date}>
+            <Button
+              size="touch"
+              onClick={addException}
+              disabled={!newException.date}
+              className="w-full sm:w-auto sm:shrink-0"
+            >
               <Plus className="w-3.5 h-3.5" />
               Add
             </Button>
           </div>
 
           {exceptions.length === 0 ? (
-            <p className="text-sm text-text-tertiary text-center py-4">
-              No date exceptions configured
-            </p>
+            <EmptyState
+              compact
+              icon={Calendar}
+              title="No date exceptions"
+              description="Add a date above to block it out for a holiday, travel, or anything else."
+            />
           ) : (
             <div className="space-y-2">
               {exceptions.map((exc) => (

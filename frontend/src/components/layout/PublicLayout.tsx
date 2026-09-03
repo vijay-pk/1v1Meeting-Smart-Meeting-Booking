@@ -5,7 +5,7 @@ export function PublicLayout() {
   return (
     <div className="min-h-screen bg-surface-secondary">
       {/* Minimal header for public pages */}
-      <header className="bg-white border-b border-border">
+      <header className="bg-surface border-b border-border">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-600 text-white font-bold text-xs">
@@ -30,7 +30,7 @@ export function PublicLayout() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border bg-white py-8 mt-12">
+      <footer className="border-t border-border bg-surface py-8 mt-12">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <p className="text-sm text-text-tertiary">
             Powered by{' '}

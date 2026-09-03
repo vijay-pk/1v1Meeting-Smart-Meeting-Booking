@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { StatsCard } from '@/components/common/StatsCard';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { SkeletonList, SkeletonStats } from '@/components/common/Skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -92,37 +95,30 @@ export function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 rounded-xl bg-white border border-border" />
-          ))}
-        </div>
-        <div className="h-96 rounded-xl bg-white border border-border" />
+      <div className="space-y-5">
+        <SkeletonStats count={4} />
+        <SkeletonList rows={4} />
       </div>
     );
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Dashboard</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Welcome back, {profile?.full_name?.split(' ')[0] || 'Admin'}
-          </p>
-        </div>
-        <Link to="/admin/bookings">
-          <Button variant="outline" size="sm">
-            View all bookings
-            <ArrowRight className="w-4 h-4" />
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description={`Welcome back, ${profile?.full_name?.split(' ')[0] || 'Admin'}`}
+        actions={
+          <Link to="/admin/bookings">
+            <Button variant="outline" size="touch">
+              View all bookings
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatsCard
           title="Today's Meetings"
           value={stats.todays_meetings}
@@ -167,30 +163,30 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           {upcomingBookings.length === 0 ? (
-            <div className="text-center py-12">
-              <CalendarDays className="w-12 h-12 text-text-tertiary mx-auto mb-3" />
-              <p className="text-text-secondary font-medium">No upcoming meetings</p>
-              <p className="text-sm text-text-tertiary mt-1">
-                Share your booking page to start receiving appointments
-              </p>
-              {profile?.username && (
-                <Link to={`/book/${profile.username}`} target="_blank">
-                  <Button variant="outline" size="sm" className="mt-4">
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    View booking page
-                  </Button>
-                </Link>
-              )}
-            </div>
+            <EmptyState
+              icon={CalendarDays}
+              title="No upcoming meetings"
+              description="Share your booking page to start receiving appointments."
+              action={
+                profile?.username ? (
+                  <Link to={`/book/${profile.username}`} target="_blank">
+                    <Button variant="outline" size="touch">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      View booking page
+                    </Button>
+                  </Link>
+                ) : undefined
+              }
+            />
           ) : (
             <div className="space-y-3">
               {upcomingBookings.map((booking) => (
                 <Link
                   key={booking.id}
                   to={`/admin/bookings/${booking.id}`}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary-200 hover:bg-primary-50/30 transition-all duration-150 group"
+                  className="press flex flex-col gap-3 rounded-xl border border-border p-4 transition-all duration-150 hover:border-primary-200 hover:bg-primary-50/30 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
                     <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary-100 text-primary-700 font-semibold text-sm shrink-0">
                       {booking.customer?.name
                         ? booking.customer.name
@@ -210,8 +206,8 @@ export function DashboardPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="text-right hidden sm:block">
+                  <div className="flex shrink-0 flex-wrap items-center gap-3 pl-13 sm:gap-4 sm:pl-0">
+                    <div className="hidden text-right sm:block">
                       <p className="text-sm font-medium text-text-primary">
                         {formatDate(booking.start_time, profile?.timezone || 'Asia/Kolkata', 'MMM d')}
                       </p>
@@ -226,8 +222,9 @@ export function DashboardPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="p-2 rounded-md text-text-secondary hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                        className="press inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-primary-50 hover:text-primary-600"
                         title="Join Google Meet"
+                        aria-label="Join Google Meet"
                       >
                         <Video className="w-4 h-4" />
                       </a>

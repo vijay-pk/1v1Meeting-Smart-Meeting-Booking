@@ -123,7 +123,7 @@ export function SignupPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 font-sans relative overflow-x-hidden flex flex-col justify-between">
       {/* Subtle background glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-b from-orange-500/15 via-amber-500/10 to-transparent blur-3xl pointer-events-none rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[900px] h-[450px] bg-gradient-to-b from-orange-500/15 via-amber-500/10 to-transparent blur-3xl pointer-events-none rounded-full" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-indigo-600/10 blur-3xl pointer-events-none rounded-full" />
 
       {/* TOP NAVIGATION BAR */}
@@ -265,7 +265,7 @@ export function SignupPage() {
                         placeholder="Enter your full name"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
-                        className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"
+                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
                         required
                       />
                     </div>
@@ -333,7 +333,7 @@ export function SignupPage() {
                         placeholder="Enter Gmail or email address"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"
+                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
                         required
                         autoComplete="email"
                       />
@@ -352,7 +352,7 @@ export function SignupPage() {
                         placeholder="Enter phone number (optional)"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"
+                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 rounded-xl text-xs"
                       />
                     </div>
                   </div>
@@ -369,7 +369,7 @@ export function SignupPage() {
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="bg-slate-950 border-slate-700 text-white pl-10 pr-10 h-10 rounded-xl text-xs"
+                        className="h-11 bg-slate-950 border-slate-700 text-white pl-10 pr-10 h-10 rounded-xl text-xs"
                         required
                         minLength={6}
                         autoComplete="new-password"

@@ -56,6 +56,57 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+
+  /* Surface that sits above the page (cards, sheets, popovers). In light mode this is
+     plain white; it exists so dark mode can lift elevated surfaces off the background
+     instead of relying on shadows, which barely read on a dark ground. */
+  --color-surface-elevated: #ffffff;
+  --color-surface-sunken: #f1f5f9;
+  --color-overlay: rgb(15 23 42 / 0.5);
+}
+
+/* ---------------------------------------------------------------------------------------
+   Dark theme — ADMIN APPLICATION ONLY.
+
+   Scoped to [data-theme="dark"] on <html>, which is set exclusively while an admin route is
+   mounted (see hooks/useAdminTheme.ts) and removed on unmount. Public booking pages read the
+   same tokens, so they must never see this attribute: a client looking at an admin's public
+   page gets that admin's configured theme, not the admin's dashboard preference.
+
+   Only surface/border/text tokens are remapped. The blue primary ramp and the status hues
+   are the product's identity and stay put.
+   --------------------------------------------------------------------------------------- */
+:root[data-theme='dark'] {
+  --color-surface: #0f172a;
+  --color-surface-secondary: #0b1220;
+  --color-surface-tertiary: #1e293b;
+  --color-surface-elevated: #131c31;
+  --color-surface-sunken: #080e1c;
+
+  --color-border: #1e293b;
+  --color-border-strong: #334155;
+
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-tertiary: #94a3b8;
+  --color-text-inverse: #0f172a;
+
+  /* Status backgrounds need far less saturation on a dark ground, or they glow. */
+  --color-success-bg: #052e23;
+  --color-warning-bg: #2e2205;
+  --color-error-bg: #300f0f;
+  --color-info-bg: #0b2545;
+
+  --color-overlay: rgb(2 6 23 / 0.7);
+
+  /* The sidebar palette was already dark; in dark mode it becomes the elevated surface so
+     the shell reads as one piece rather than a dark strip beside a darker page. */
+  --color-sidebar-bg: #0b1220;
+  --color-sidebar-hover: #1e293b;
+  --color-sidebar-active: #1e3a5f;
+
+  color-scheme: dark;
 }
 
 /* Base styles */
@@ -160,4 +211,138 @@ body {
 
 .animate-pulse-soft {
   animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Overlay motion.
+
+   dialog.tsx and select.tsx already carry `animate-in` / `slide-in-from-*` class names, but
+   tailwindcss-animate is not installed and there is no @plugin directive -- those classes
+   are dead, which is why modals currently appear with no transition at all. Rather than add
+   a dependency for a handful of keyframes, the states are driven here off Radix's
+   data-state attribute, matching how fadeIn/slideIn are already hand-authored above.
+   --------------------------------------------------------------------------------------- */
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes dialog-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}
+
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+[data-overlay][data-state='open'] { animation: overlay-in 180ms ease-out; }
+[data-overlay][data-state='closed'] { animation: overlay-out 150ms ease-in; }
+
+[data-dialog][data-state='open'] { animation: dialog-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+[data-dialog][data-state='closed'] { animation: dialog-out 140ms ease-in; }
+
+[data-sheet][data-state='open'] { animation: sheet-up 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+[data-sheet][data-state='closed'] { animation: sheet-down 180ms ease-in; }
+
+/* Skeletons: a moving sheen reads as "loading" without the jitter of a spinner. */
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-surface-tertiary) 0%,
+    var(--color-surface-secondary) 50%,
+    var(--color-surface-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Touch and interaction primitives
+   --------------------------------------------------------------------------------------- */
+
+/* Guarantees a 44px hit area without forcing the visual size of the control up. */
+.tap {
+  position: relative;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Small icon buttons that must stay visually small: the tappable area is extended past the
+   painted bounds instead of growing the icon. */
+.tap-hit::after {
+  content: '';
+  position: absolute;
+  inset: 50% 50% 50% 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  left: 50%;
+  top: 50%;
+}
+
+/* Press feedback. Deliberately small -- enough to acknowledge the tap, not enough to look
+   like the layout moved. */
+.press {
+  transition: transform 120ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.press:active {
+  transform: scale(0.975);
+}
+
+/* Safe areas. viewport-fit=cover is set in index.html, so these resolve to real values on
+   notched devices and to 0 everywhere else -- no dead space on Android or desktop. */
+.safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.safe-t { padding-top: env(safe-area-inset-top, 0px); }
+.safe-b-nav { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem); }
+
+/* Momentum scrolling for the horizontal strips (filter pills, tab rails). */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll-x::-webkit-scrollbar { display: none; }
+
+/* ---------------------------------------------------------------------------------------
+   Admin shell.
+
+   Two mobile fixes scoped here rather than in the shared ui/ components, because those
+   components are also used by the public booking pages, which must not change.
+   --------------------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  /* iOS Safari zooms the page when a focused input's font-size is under 16px. The shared
+     Input is text-sm (14px), so every admin form triggered it. */
+  .admin-shell input,
+  .admin-shell textarea,
+  .admin-shell select,
+  .admin-sheet input,
+  .admin-sheet textarea,
+  .admin-sheet select {
+    font-size: 16px;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------
+   Reduced motion. Everything above is decoration; none of it carries meaning that is lost
+   by removing it, so when the OS asks for less movement it all stops.
+   --------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .press:active { transform: none; }
+  .skeleton { animation: none; }
 }
