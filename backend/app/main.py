@@ -105,3 +105,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 def health_check():
     return {"status": "ok", "service": "BookMyMeet API", "version": settings.VERSION}
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "BookMyMeet Backend API", "frontend_url": "https://1v1-meeting-smart-meeting-booking.vercel.app", "docs": "/docs"}
+
