@@ -293,5 +293,4 @@ async def google_oauth_callback(
             conn.connection_status = "connected"
 
         db.commit()
-
-    return RedirectResponse(f"{settings.APP_URL}/admin/settings?tab=calendar&connected=true")
+        return RedirectResponse(f"{frontend_base}/admin/settings?tab=calendar&connected=true")

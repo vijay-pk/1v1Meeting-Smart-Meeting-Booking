@@ -1475,6 +1475,7 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
   const [googleEmail, setGoogleEmail] = useState(admin.google_email || '');
   const [isConnected, setIsConnected] = useState(false);
   const [isHealthy, setIsHealthy] = useState(true);
+  const [lastError, setLastError] = useState('');
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1485,6 +1486,7 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
       setIsConnected(!!status.connected);
       setIsHealthy(status.connected ? !!status.healthy : true);
       if (status.google_email) setGoogleEmail(status.google_email);
+      if (status.last_error) setLastError(status.last_error);
       if (status.connected) {
         connectGoogleCalendar(admin.id, status.google_email || '');
       } else {
@@ -1616,9 +1618,16 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
               Real-time busy slot detection is active. Clients will never be offered times when you have events or out-of-office blocks marked on this calendar.
             </p>
           ) : (
-            <p className="text-xs text-amber-900 leading-relaxed">
-              Your calendar cannot be read right now — access was most likely revoked at Google. Bookings are paused for your page until you reconnect, so no one can book over an existing event.
-            </p>
+            <div className="space-y-1.5">
+              <p className="text-xs text-amber-900 leading-relaxed">
+                Your calendar cannot be read right now. Bookings are paused for your page until you reconnect, so no one can book over an existing event.
+              </p>
+              {lastError && (
+                <div className="p-2 rounded-lg bg-amber-100/80 border border-amber-200 text-[11px] font-mono text-amber-950 break-all">
+                  <strong>Diagnostic details:</strong> {lastError}
+                </div>
+              )}
+            </div>
           )}
           <div className="pt-2 flex items-center gap-3 flex-wrap">
             {!isHealthy && (

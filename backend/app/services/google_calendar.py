@@ -89,7 +89,7 @@ async def get_google_busy_intervals(
 
     if res.status_code != 200:
         logger.error(f"Google freeBusy returned {res.status_code}: {res.text[:300]}")
-        raise GoogleCalendarUnavailable(f"FreeBusy HTTP {res.status_code}")
+        raise GoogleCalendarUnavailable(f"Google FreeBusy HTTP {res.status_code}: {res.text[:250]}")
 
     data = res.json()
     cal = data.get("calendars", {}).get(calendar_id or "primary", {})
