@@ -76,6 +76,10 @@ def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session
         db.commit()
         db.refresh(profile)
 
+    rp_conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == current_admin.id).first()
+    rp_configured = bool(rp_conn and rp_conn.connection_status == "connected")
+    rp_key_id = rp_conn.key_id if rp_configured else None
+
     return {
         "id": profile.id,
         "user_id": current_admin.id,
@@ -96,7 +100,9 @@ def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session
         "custom_description": profile.custom_description,
         "welcome_message": profile.welcome_message,
         "theme_settings": profile.theme_settings or {},
-        "social_links": profile.social_links or {}
+        "social_links": profile.social_links or {},
+        "razorpay_configured": rp_configured,
+        "razorpay_key_id": rp_key_id
     }
 
 @router.put("/me")

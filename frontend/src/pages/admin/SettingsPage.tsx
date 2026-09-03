@@ -145,6 +145,8 @@ export function SettingsPage() {
               button_color: '#D32F2F',
             },
             social_links: bp.social_links || {},
+            razorpay_configured: bp.razorpay_configured,
+            razorpay_key_id: bp.razorpay_key_id,
           };
 
           setLiveAdmin(synced);
@@ -2132,6 +2134,22 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Automatically fetch the actual server-side Razorpay status on mount / tab switch
+  useEffect(() => {
+    let active = true;
+    api.getRazorpayStatus().then((status) => {
+      if (!active) return;
+      if (status && status.configured) {
+        setIsConfigured(true);
+        if (status.key_id) setKeyId(status.key_id);
+        if (status.account_reference) setAccountRef(status.account_reference);
+        setKeySecret('••••••••••••••••');
+        setupAdminRazorpay(admin.id, status.key_id || '');
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [admin.id, setupAdminRazorpay]);
 
   // Dynamic mode detection
   const isLive = keyId.trim().startsWith('rzp_live_');
