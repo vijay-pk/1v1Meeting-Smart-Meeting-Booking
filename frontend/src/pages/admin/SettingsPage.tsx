@@ -1528,7 +1528,12 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
       // Real consent screen. We come back at /admin/settings?tab=calendar&connected=true.
       window.location.href = res.auth_url;
     } catch (e: any) {
-      setError(e?.message || 'Could not start Google authorization');
+      const raw = e?.message || '';
+      if (raw.toLowerCase().includes('user not found') || raw.toLowerCase().includes('not authenticated')) {
+        setError('Your session has expired. Please sign out and sign back in to refresh your account.');
+      } else {
+        setError(raw || 'Could not start Google authorization');
+      }
       setLoading(false);
     }
   };
