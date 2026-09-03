@@ -289,6 +289,13 @@ export const api = {
     return res.json();
   },
 
+  /** A confirmed booking, by its public reference (BK-YYYYMMDD-XXXXXX). */
+  getPublicBooking: async (publicId: string) => {
+    const res = await fetch(`${API_BASE}/bookings/public/${encodeURIComponent(publicId)}`);
+    if (!res.ok) return null;
+    return res.json();
+  },
+
   releaseHold: async (lockId: string) => {
     await fetch(`${API_BASE}/bookings/release-hold/${lockId}`, { method: 'POST' });
   },

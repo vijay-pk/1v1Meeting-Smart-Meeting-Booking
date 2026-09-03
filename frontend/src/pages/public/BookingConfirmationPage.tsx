@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { useBookingStore } from '@/stores/bookingStore';
+import { api } from '@/lib/api';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '@/lib/calendar';
 
 export const BookingConfirmationPage: React.FC = () => {
@@ -39,7 +40,39 @@ export const BookingConfirmationPage: React.FC = () => {
         return;
       }
 
-      // Check local store first
+      // The backend is asked first: a real paid booking lives there, and only there. The
+      // local store and Supabase lookups below remain for bookings made before payments
+      // went through the FastAPI flow.
+      try {
+        const remote = await api.getPublicBooking(bookingId);
+        if (remote) {
+          setBooking({
+            id: bookingId,
+            public_id: remote.public_id,
+            start_time: remote.start_time,
+            end_time: remote.end_time,
+            status: remote.status,
+            customer_timezone: remote.timezone,
+            google_meet_url: remote.google_meet_link,
+            assigned_admin_name: remote.admin_name,
+            meeting_type: {
+              name: remote.session_title,
+              duration_minutes: remote.duration_minutes,
+            },
+            customer: {
+              name: remote.client_name,
+              email: remote.client_email,
+            },
+            payment: { status: remote.payment_status },
+          } as any);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Fall through to the legacy sources below.
+      }
+
+      // Check local store next
       const localBooking = useBookingStore.getState().getBookingById(bookingId);
       if (localBooking) {
         const store = useBookingStore.getState();

@@ -4,6 +4,7 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { loadRazorpayCheckout } from '@/lib/razorpay';
 import { format, parseISO } from 'date-fns';
 import type { AdminUser } from '@/types';
 import {
@@ -185,7 +186,36 @@ export const PaymentCheckoutPage: React.FC = () => {
     ? adminRazorpayKey!
     : (import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_dummy1234567890');
 
+  /**
+   * Identifies this browser tab to the slot-lock endpoint, so the hold created here can be
+   * told apart from another visitor's hold on the same time.
+   */
+  const getSessionFingerprint = () => {
+    const KEY = 'bmm_session_fingerprint';
+    try {
+      let value = sessionStorage.getItem(KEY);
+      if (!value) {
+        value = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(KEY, value);
+      }
+      return value;
+    } catch {
+      // Private mode or blocked storage: a per-attempt value still identifies this hold.
+      return `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    }
+  };
+
   // Handle Payment & Confirmation
+  //
+  // The real flow, end to end:
+  //   hold-slot -> create-order (server, under THIS admin's Razorpay key)
+  //             -> Razorpay Checkout -> verify (server, HMAC signature)
+  //             -> confirmation
+  //
+  // This page previously did none of that: it checked `window.Razorpay` while nothing ever
+  // loaded the SDK, so the check was always false and it fell into a 1.2s setTimeout that
+  // wrote a booking straight into localStorage and navigated to "Booking Confirmed". No
+  // order, no payment, no signature, and nothing the admin could ever see.
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -195,83 +225,121 @@ export const PaymentCheckoutPage: React.FC = () => {
       return;
     }
 
-    if (!slot || !selectedMeeting) {
+    if (!slot || !selectedMeeting || !selectedAdmin?.id) {
       setErrorMessage('Please select a valid time slot before proceeding.');
       return;
     }
 
     setIsProcessing(true);
+    let lockId: string | null = null;
 
     try {
-      const isRealRazorpay =
-        typeof window !== 'undefined' &&
-        window.Razorpay &&
-        effectiveRazorpayKey &&
-        !effectiveRazorpayKey.includes('dummy');
-
-      if (isRealRazorpay) {
-        const options = {
-          key: effectiveRazorpayKey,
-          amount: selectedMeeting.price, // in paise
-          currency: selectedMeeting.currency || 'INR',
-          name: selectedAdmin?.full_name || '1:1 Session',
-          description: `${selectedMeeting.name} (${selectedMeeting.duration_minutes} mins)`,
-          image: selectedAdmin?.photo_url || DEFAULT_AVATAR,
-          prefill: {
-            name: name.trim(),
-            email: email.trim(),
-            contact: phone.trim(),
-          },
-          theme: {
-            color: selectedAdmin?.theme_settings?.button_color || '#D32F2F',
-          },
-          handler: function () {
-            finishBooking();
-          },
-          modal: {
-            ondismiss: function () {
-              setIsProcessing(false);
-            },
-          },
-        };
-
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-      } else {
-        // Fast test payment simulation for instant checkout
-        setTimeout(() => {
-          finishBooking();
-        }, 1200);
+      // 1. Load Razorpay before creating anything server-side, so a blocked or offline SDK
+      //    does not leave a pending booking behind.
+      const sdkReady = await loadRazorpayCheckout();
+      if (!sdkReady) {
+        setIsProcessing(false);
+        setErrorMessage(
+          'Could not reach the payment provider. Check your connection and try again.'
+        );
+        return;
       }
-    } catch (err: any) {
-      console.error('Payment error:', err);
-      setIsProcessing(false);
-      setErrorMessage('Payment processing failed. Please try again.');
-    }
-  };
 
-  const finishBooking = () => {
-    if (!selectedMeeting || !slot) return;
+      // 2. Hold the slot so nobody else can take it while this client pays.
+      try {
+        const lock = await api.holdSlot({
+          admin_id: selectedAdmin.id,
+          session_id: selectedMeeting.id,
+          start_time: slot.start,
+          end_time: slot.end,
+          session_fingerprint: getSessionFingerprint(),
+        });
+        lockId = lock?.lock_id || null;
+      } catch (lockErr: any) {
+        setIsProcessing(false);
+        setErrorMessage(
+          lockErr?.message || 'That time was just taken. Please choose another slot.'
+        );
+        return;
+      }
 
-    try {
-      const newBooking = createBooking({
-        meetingTypeId: selectedMeeting.id,
-        adminId: selectedAdmin?.id || null,
-        startTime: slot.start,
-        endTime: slot.end,
-        customerName: name.trim(),
-        customerEmail: email.trim(),
-        customerPhone: phone.trim() || undefined,
-        notes: notes.trim(),
-        customerTimezone:
-          Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+      // 3. Create the order under this admin's own Razorpay account. The backend refuses
+      //    (503) when the host has not connected one, rather than inventing a fake order.
+      const order = await api.createOrder({
+        admin_id: selectedAdmin.id,
+        session_id: selectedMeeting.id,
+        start_time: slot.start,
+        end_time: slot.end,
+        client_name: name.trim(),
+        client_email: email.trim(),
+        client_phone: phone.trim() || null,
+        notes: notes.trim() || null,
+        lock_id: lockId,
       });
 
-      navigate(`/booking/confirmation/${newBooking.id}`);
-    } catch (err) {
-      console.error('Failed to create booking:', err);
-      setErrorMessage('Could not record your booking. Please try again.');
+      // 4. Razorpay Checkout, keyed with the order's own key_id -- the server's answer, not
+      //    a key this page guessed at.
+      const options = {
+        key: order.key_id,
+        order_id: order.order_id,
+        amount: order.amount,
+        currency: order.currency || 'INR',
+        name: selectedAdmin?.full_name || '1:1 Session',
+        description: `${selectedMeeting.name} (${selectedMeeting.duration_minutes} mins)`,
+        image: selectedAdmin?.photo_url || DEFAULT_AVATAR,
+        prefill: {
+          name: name.trim(),
+          email: email.trim(),
+          contact: phone.trim(),
+        },
+        theme: {
+          color: selectedAdmin?.theme_settings?.button_color || '#D32F2F',
+        },
+        handler: async (response: any) => {
+          // 5. Only the server may confirm a booking: it re-checks the HMAC signature with
+          //    this admin's secret before anything is marked paid.
+          try {
+            const confirmed = await api.verifyPayment({
+              booking_id: order.booking_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            // The public reference is what the confirmation page (and the client's emailed
+            // link) can look a booking up by.
+            navigate(`/booking/confirmation/${confirmed?.public_id || order.booking_id}`);
+          } catch (verifyErr: any) {
+            setIsProcessing(false);
+            setErrorMessage(
+              verifyErr?.message ||
+                'We could not confirm that payment. If you were charged, contact your host before trying again.'
+            );
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            // Abandoned checkout: free the slot for the next person. The booking stays in
+            // pending_payment so the host can still see the attempt.
+            if (lockId) api.releaseHold(lockId).catch(() => {});
+            setIsProcessing(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', (failure: any) => {
+        setIsProcessing(false);
+        setErrorMessage(
+          failure?.error?.description || 'The payment did not go through. Please try again.'
+        );
+      });
+      rzp.open();
+    } catch (err: any) {
+      if (lockId) api.releaseHold(lockId).catch(() => {});
       setIsProcessing(false);
+      setErrorMessage(
+        err?.message || 'Payment could not be started. Please try again in a moment.'
+      );
     }
   };
 
