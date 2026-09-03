@@ -38,7 +38,8 @@ import {
   Upload,
   Image as ImageIcon,
   Film,
-  X
+  X,
+  Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1708,12 +1709,22 @@ function PricingAndSessionsSettings({
   const [newDescription, setNewDescription] = useState('');
   const [savingNew, setSavingNew] = useState(false);
 
+  const [savingAll, setSavingAll] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   const loadSessions = async () => {
     setLoading(true);
     try {
       const apiSessions = await api.getMySessions();
       if (apiSessions && apiSessions.length > 0) {
-        setSessions(apiSessions);
+        setSessions(
+          apiSessions.map((s: any) => ({
+            ...s,
+            offerRupees: s.price ? String(Math.floor(s.price / 100)) : '',
+            origRupees: s.original_price ? String(Math.floor(s.original_price / 100)) : '',
+          }))
+        );
         setLoading(false);
         return;
       }
@@ -1734,6 +1745,8 @@ function PricingAndSessionsSettings({
         original_price: m.original_price,
         description: m.description,
         is_active: m.is_active,
+        offerRupees: m.price ? String(Math.floor(m.price / 100)) : '',
+        origRupees: m.original_price ? String(Math.floor(m.original_price / 100)) : '',
       }))
     );
     setLoading(false);
@@ -1743,34 +1756,84 @@ function PricingAndSessionsSettings({
     loadSessions();
   }, [admin.id]);
 
-  const handlePriceUpdate = async (sessionId: string, field: string, value: any) => {
+  const handleFieldChange = (sessionId: string, field: string, value: any) => {
     setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sessionId) return s;
-        if (field === 'price' || field === 'original_price') {
-          const num = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
-          return { ...s, [field]: num };
-        }
-        return { ...s, [field]: value };
-      })
+      prev.map((s) => (s.id === sessionId ? { ...s, [field]: value } : s))
     );
+  };
 
-    if (field === 'price' || field === 'original_price') {
-      const num = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
-      updateMeetingType(sessionId, { [field === 'price' ? 'price' : 'original_price']: num });
-    } else if (field === 'title') {
-      updateMeetingType(sessionId, { name: value });
-    } else {
-      updateMeetingType(sessionId, { [field]: value });
+  const saveSessionItem = async (s: any) => {
+    const offerPaise = Math.round(
+      Number(String(s.offerRupees ?? (s.price ? s.price / 100 : 0)).replace(/[^0-9]/g, '') || '0') * 100
+    );
+    const origPaise =
+      s.origRupees !== undefined
+        ? s.origRupees
+          ? Math.round(Number(String(s.origRupees).replace(/[^0-9]/g, '') || '0') * 100)
+          : null
+        : (s.original_price || null);
+
+    const payload = {
+      title: s.title || '1:1 Consultation',
+      description: s.description || '',
+      duration_minutes: Number(s.duration_minutes || 30),
+      price: offerPaise,
+      original_price: origPaise,
+    };
+
+    if (s.id && !s.id.startsWith('mt-')) {
+      await api.updateSession(s.id, payload);
     }
 
+    updateMeetingType(s.id, {
+      name: s.title,
+      description: s.description || '',
+      duration_minutes: Number(s.duration_minutes || 30),
+      price: offerPaise,
+      original_price: origPaise,
+      offer_price: offerPaise,
+    });
+
+    return {
+      ...s,
+      price: offerPaise,
+      original_price: origPaise,
+      offerRupees: offerPaise ? String(Math.floor(offerPaise / 100)) : '',
+      origRupees: origPaise ? String(Math.floor(origPaise / 100)) : '',
+    };
+  };
+
+  const handleSaveSingle = async (s: any) => {
+    setSavingId(s.id);
     try {
-      let payloadVal = value;
-      if (field === 'price' || field === 'original_price') {
-        payloadVal = Math.round(Number(String(value).replace(/[^0-9]/g, '') || '0') * 100);
+      const updated = await saveSessionItem(s);
+      setSessions((prev) => prev.map((item) => (item.id === s.id ? updated : item)));
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleSaveAll = async () => {
+    setSavingAll(true);
+    setSaveSuccess(false);
+    try {
+      const updatedList = [];
+      for (const s of sessions) {
+        const updated = await saveSessionItem(s);
+        updatedList.push(updated);
       }
-      await api.updateSession(sessionId, { [field]: payloadVal });
-    } catch (e) {}
+      setSessions(updatedList);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingAll(false);
+    }
   };
 
   const handleCreateSession = async (e: React.FormEvent) => {
@@ -1796,7 +1859,14 @@ function PricingAndSessionsSettings({
       });
       if (created?.id) {
         createdId = created.id;
-        setSessions((prev) => [...prev, created]);
+        setSessions((prev) => [
+          ...prev,
+          {
+            ...created,
+            offerRupees: String(Math.floor(offerPaise / 100)),
+            origRupees: origPaise ? String(Math.floor(origPaise / 100)) : '',
+          },
+        ]);
       }
     } catch (e) {
       setSessions((prev) => [
@@ -1809,6 +1879,8 @@ function PricingAndSessionsSettings({
           original_price: origPaise,
           description: newDescription.trim(),
           is_active: true,
+          offerRupees: String(Math.floor(offerPaise / 100)),
+          origRupees: origPaise ? String(Math.floor(origPaise / 100)) : '',
         },
       ]);
     }
@@ -1859,19 +1931,49 @@ function PricingAndSessionsSettings({
             </span>
           </div>
           <p className="text-xs text-text-tertiary mt-0.5">
-            You have full authority to set your own session rates, discount pricing, and durations. Super admin cannot modify your pricing.
+            Set your own rates and durations. Click <strong className="text-text-primary">Save Pricing Changes</strong> to apply your prices live.
           </p>
         </div>
 
-        <Button
-          type="button"
-          onClick={() => setIsAddingOpen(true)}
-          className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 shadow-sm"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>+ Add 1v1 Session</span>
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            onClick={handleSaveAll}
+            disabled={savingAll || loading || sessions.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 shadow-sm transition-all"
+          >
+            {savingAll ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : saveSuccess ? (
+              <Check className="w-3.5 h-3.5" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            <span>{savingAll ? 'Saving Changes...' : saveSuccess ? 'Saved!' : 'Save Pricing Changes'}</span>
+          </Button>
+
+          <Button
+            type="button"
+            onClick={() => setIsAddingOpen(true)}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add 1v1 Session</span>
+          </Button>
+        </div>
       </div>
+
+      {saveSuccess && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>✓ All 1v1 session rates and durations have been saved successfully and are live on your booking page!</span>
+          </div>
+          <button onClick={() => setSaveSuccess(false)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer p-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50/80 to-teal-50/60 border border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-start gap-3">
@@ -1911,10 +2013,8 @@ function PricingAndSessionsSettings({
           </div>
         ) : (
           sessions.map((s, index) => {
-            const origRupees =
-              s.original_price && s.original_price > 0 ? String(Math.floor(s.original_price / 100)) : '';
-            const offerRupees =
-              s.price && s.price > 0 ? String(Math.floor(s.price / 100)) : '';
+            const offerVal = s.offerRupees !== undefined ? s.offerRupees : (s.price ? String(Math.floor(s.price / 100)) : '');
+            const origVal = s.origRupees !== undefined ? s.origRupees : (s.original_price ? String(Math.floor(s.original_price / 100)) : '');
 
             return (
               <div
@@ -1928,13 +2028,27 @@ function PricingAndSessionsSettings({
                     </span>
                     <Input
                       value={s.title || ''}
-                      onChange={(e) => handlePriceUpdate(s.id, 'title', e.target.value)}
+                      onChange={(e) => handleFieldChange(s.id, 'title', e.target.value)}
                       placeholder="Session Title"
                       className="text-xs font-bold text-slate-800 bg-surface rounded-xl h-9"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <Button
+                      type="button"
+                      onClick={() => handleSaveSingle(s)}
+                      disabled={savingId === s.id}
+                      className="h-8 px-3 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1 cursor-pointer"
+                    >
+                      {savingId === s.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Save className="w-3 h-3" />
+                      )}
+                      <span>{savingId === s.id ? 'Saving...' : 'Save'}</span>
+                    </Button>
+
                     <button
                       type="button"
                       onClick={() => handleDelete(s.id)}
@@ -1954,7 +2068,7 @@ function PricingAndSessionsSettings({
                     </Label>
                     <select
                       value={String(s.duration_minutes || 30)}
-                      onChange={(e) => handlePriceUpdate(s.id, 'duration_minutes', Number(e.target.value))}
+                      onChange={(e) => handleFieldChange(s.id, 'duration_minutes', Number(e.target.value))}
                       className="w-full text-xs font-semibold bg-surface border border-border rounded-xl px-2.5 h-9 cursor-pointer"
                     >
                       <option value="15">15 Minutes</option>
@@ -1974,8 +2088,8 @@ function PricingAndSessionsSettings({
                       <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-700">₹</span>
                       <Input
                         type="text"
-                        value={offerRupees}
-                        onChange={(e) => handlePriceUpdate(s.id, 'price', e.target.value)}
+                        value={offerVal}
+                        onChange={(e) => handleFieldChange(s.id, 'offerRupees', e.target.value)}
                         placeholder="1497"
                         className="text-xs font-bold text-emerald-700 pl-6 bg-surface rounded-xl h-9"
                       />
@@ -1991,8 +2105,8 @@ function PricingAndSessionsSettings({
                       <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-text-tertiary">₹</span>
                       <Input
                         type="text"
-                        value={origRupees}
-                        onChange={(e) => handlePriceUpdate(s.id, 'original_price', e.target.value)}
+                        value={origVal}
+                        onChange={(e) => handleFieldChange(s.id, 'origRupees', e.target.value)}
                         placeholder="4999"
                         className="text-xs font-bold text-text-tertiary line-through pl-6 bg-surface rounded-xl h-9"
                       />
@@ -2003,7 +2117,7 @@ function PricingAndSessionsSettings({
                 <div className="space-y-1">
                   <Input
                     value={s.description || ''}
-                    onChange={(e) => handlePriceUpdate(s.id, 'description', e.target.value)}
+                    onChange={(e) => handleFieldChange(s.id, 'description', e.target.value)}
                     placeholder="Brief description of what is covered in this 1v1 session..."
                     className="text-xs text-text-secondary bg-surface rounded-xl h-8"
                   />
@@ -2013,6 +2127,23 @@ function PricingAndSessionsSettings({
           })
         )}
       </div>
+
+      {sessions.length > 0 && (
+        <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-border mt-6">
+          <div className="text-xs text-text-tertiary">
+            Make sure to click <strong className="text-text-primary">Save Pricing Changes</strong> to apply your modified rates to client bookings.
+          </div>
+          <Button
+            type="button"
+            onClick={handleSaveAll}
+            disabled={savingAll || loading}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-sm transition-all self-end sm:self-auto"
+          >
+            {savingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <span>{savingAll ? 'Saving Changes...' : 'Save Pricing Changes'}</span>
+          </Button>
+        </div>
+      )}
 
       {isAddingOpen && (
         <div className="p-5 rounded-2xl border-2 border-slate-900 bg-surface space-y-4 shadow-md animate-fade-in">
