@@ -203,6 +203,12 @@ async def disconnect_google_calendar(
     db.commit()
     return {"message": "Google Calendar disconnected"}
 
+def _get_frontend_url() -> str:
+    url = (settings.APP_URL or "").rstrip("/")
+    if not url or "localhost" in url:
+        return "https://1v1-meeting-smart-meeting-booking.vercel.app"
+    return url
+
 @router.get("/callback")
 async def google_oauth_callback(
     code: str = Query(...),
@@ -210,13 +216,14 @@ async def google_oauth_callback(
     db: Session = Depends(get_db)
 ):
     """Google OAuth redirect callback. Exchanges code for tokens and encrypts refresh token."""
+    frontend_base = _get_frontend_url()
     admin_id = parse_oauth_state(state)
     if not admin_id:
-        return RedirectResponse(f"{settings.APP_URL}/admin/settings?tab=calendar&error=InvalidState")
+        return RedirectResponse(f"{frontend_base}/admin/settings?tab=calendar&error=InvalidState")
 
     admin = db.query(User).filter(User.id == admin_id).first()
     if not admin:
-        return RedirectResponse(f"{settings.APP_URL}/admin/settings?tab=calendar&error=AdminNotFound")
+        return RedirectResponse(f"{frontend_base}/admin/settings?tab=calendar&error=AdminNotFound")
 
     async with httpx.AsyncClient() as client:
         res = await client.post(
@@ -233,7 +240,7 @@ async def google_oauth_callback(
         data = res.json()
         if res.status_code != 200:
             logger.error(f"Google token exchange failed for admin {admin.id}: {data}")
-            return RedirectResponse(f"{settings.APP_URL}/admin/settings?tab=calendar&error=OAuthFailed")
+            return RedirectResponse(f"{frontend_base}/admin/settings?tab=calendar&error=OAuthFailed")
 
         access_token = data.get("access_token")
         refresh_token = data.get("refresh_token")
@@ -256,7 +263,7 @@ async def google_oauth_callback(
         if not refresh_token and not conn:
             logger.error(f"Google returned no refresh token for admin {admin.id}")
             return RedirectResponse(
-                f"{settings.APP_URL}/admin/settings?tab=calendar&error=NoRefreshToken"
+                f"{frontend_base}/admin/settings?tab=calendar&error=NoRefreshToken"
             )
 
         token_expiry = None
