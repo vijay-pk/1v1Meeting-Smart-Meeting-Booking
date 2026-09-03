@@ -159,8 +159,6 @@ export const api = {
       price?: number | null;
       currency?: string;
     }>;
-    import_image?: boolean;
-    image_permission_confirmed?: boolean;
     confirm_replace?: boolean;
   }) => {
     const res = await fetch(`${API_BASE}/profile-import/apply`, {

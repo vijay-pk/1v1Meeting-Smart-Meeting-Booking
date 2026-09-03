@@ -14,13 +14,34 @@ Two jobs, kept separate on purpose:
 
 Nothing here writes to the database. Parsed output goes into a ProfileImport row and is only
 applied to the admin's real profile after they confirm.
+
+Two rules the parser enforces at the source, not at the edges:
+
+* **No photos, ever.** Nothing in this module reads `og:image`, `profilePicture`, `image`,
+  `cover`, `thumbnail` or any other image URL into the result. There is no image field in the
+  parsed payload for the API layer to apply even by accident.
+* **Video only from YouTube or Vimeo.** Any other video host is dropped, and a page with no
+  YouTube/Vimeo video yields `video_url: None` so the admin's existing video is left alone.
+
+What the page actually looks like (verified against the live site, 2026-09):
+
+* superprofile.bio is a Next.js *pages*-router app served through Vercel. The server HTML is
+  an empty shell plus `<script id="__NEXT_DATA__">`; every visible card is rendered by the
+  browser. So the JSON is the reliable source for structure, and the rendered DOM is the only
+  source for **price** — the prices are fetched client-side and appear nowhere in the JSON.
+  Both are parsed here and merged by session title.
+* Two page shapes exist, and they nest differently:
+    - `/{handle}`           -> `prefetchedData.superProfile` (displayName, bio, socialConnects,
+                               blocks). No sessions.
+    - `/bookings/{handle}`  -> `prefetchedData` itself (name, tagline, bio, aboutMe, sessions,
+                               socialLinks, spotlight). This is the page worth importing.
 """
 import ipaddress
 import json
 import re
 import socket
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse, urljoin
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse, urljoin, parse_qs
 
 import httpx
 from bs4 import BeautifulSoup
@@ -29,8 +50,10 @@ from bs4 import BeautifulSoup
 # https://evil.example.com/?q=superprofile.bio must not pass.
 ALLOWED_HOSTS = {"superprofile.bio", "www.superprofile.bio"}
 
-MAX_RESPONSE_BYTES = 2 * 1024 * 1024        # 2 MB of HTML is already generous
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024        # 2 MB of fetched HTML is already generous
+# Pasted source is browser-rendered markup from an authenticated admin, so it is bigger than
+# the server shell but is not an outbound request; it gets its own, larger cap.
+MAX_PASTED_BYTES = 6 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10.0
 MAX_REDIRECTS = 3
 
@@ -45,6 +68,14 @@ REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
 }
 
+# The supported route when superprofile.bio's bot check refuses an automated request. It is
+# the admin's own page, opened in their own browser; nothing is bypassed on our side.
+PASTE_INSTRUCTION = (
+    "Open your SuperProfile page in your browser, right-click the page and choose "
+    '"Inspect", then right-click the top <html> element and choose "Copy > Copy outerHTML". '
+    "Paste that here instead — prices are only visible in the browser-rendered page."
+)
+
 
 class SuperProfileURLError(ValueError):
     """The URL is not an acceptable public SuperProfile URL."""
@@ -52,6 +83,10 @@ class SuperProfileURLError(ValueError):
 
 class SuperProfileFetchError(Exception):
     """The public page could not be retrieved."""
+
+
+class SuperProfileParseError(Exception):
+    """The page was retrieved but is not a readable SuperProfile page."""
 
 
 # ---------------------------------------------------------------------------------------
@@ -111,7 +146,7 @@ def validate_superprofile_url(url: str) -> str:
     if hostname not in ALLOWED_HOSTS:
         raise SuperProfileURLError(
             "That is not a SuperProfile URL. It should look like "
-            "https://superprofile.bio/your-handle"
+            "https://superprofile.bio/bookings/your-handle"
         )
 
     return parsed.geturl()
@@ -165,17 +200,18 @@ async def fetch_public_page(
                         # around the check -- an import must not bypass an access control.
                         raise SuperProfileFetchError(
                             "SuperProfile did not allow this page to be read automatically. "
-                            "Only publicly accessible pages can be imported."
+                            "Only publicly accessible pages can be imported. "
+                            + PASTE_INSTRUCTION
                         )
                     if response.status_code == 429:
-                        # Observed behaviour: superprofile.bio answers 429 to non-browser
-                        # clients. We identify ourselves honestly rather than imitating a
-                        # browser to get past it, so the admin is offered the supported
-                        # alternative instead: paste the page source themselves.
+                        # Verified behaviour: superprofile.bio sits behind Vercel's bot
+                        # check, which answers every non-browser request with 429 and a
+                        # "Vercel Security Checkpoint" JavaScript challenge. Solving that
+                        # challenge would be bypassing an anti-bot control, so we do not.
                         raise SuperProfileFetchError(
-                            "SuperProfile declined an automated request for this page. "
-                            "Open the page in your browser, copy its source, and paste it "
-                            "into the import instead."
+                            "SuperProfile blocks automated requests for this page (it is "
+                            "behind a browser security check we will not try to defeat). "
+                            + PASTE_INSTRUCTION
                         )
                     if response.status_code != 200:
                         raise SuperProfileFetchError("Unable to access this public page.")
@@ -202,41 +238,6 @@ async def fetch_public_page(
         raise SuperProfileFetchError("That page took too long to respond.") from exc
     except Exception as exc:
         raise SuperProfileFetchError("Unable to access this public page.") from exc
-
-
-async def fetch_public_image(url: str) -> tuple[bytes, str]:
-    """
-    Downloads an image the admin has confirmed they may reuse, so it can be stored in our own
-    media directory instead of being hotlinked. Same SSRF rules; any host is allowed here
-    because SuperProfile serves its images from a CDN domain.
-    """
-    parsed = urlparse((url or "").strip())
-    if parsed.scheme != "https":
-        raise SuperProfileFetchError("That image is not served over https.")
-    if not _host_resolves_to_public_ip((parsed.hostname or "").lower()):
-        raise SuperProfileFetchError("That image address is not publicly reachable.")
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=REQUEST_TIMEOUT_SECONDS) as client:
-            async with client.stream("GET", parsed.geturl(), headers={"User-Agent": REQUEST_HEADERS["User-Agent"]}) as response:
-                if response.status_code != 200:
-                    raise SuperProfileFetchError("That image could not be downloaded.")
-                content_type = (response.headers.get("content-type") or "").lower()
-                if not content_type.startswith("image/"):
-                    raise SuperProfileFetchError("That link is not an image.")
-
-                chunks: List[bytes] = []
-                total = 0
-                async for chunk in response.aiter_bytes():
-                    total += len(chunk)
-                    if total > MAX_IMAGE_BYTES:
-                        raise SuperProfileFetchError("That image is too large to import.")
-                    chunks.append(chunk)
-                return b"".join(chunks), content_type
-    except SuperProfileFetchError:
-        raise
-    except Exception as exc:
-        raise SuperProfileFetchError("That image could not be downloaded.") from exc
 
 
 # ---------------------------------------------------------------------------------------
@@ -280,8 +281,19 @@ def clean_text(value: Any, *, max_len: int = MAX_TEXT_LEN) -> Optional[str]:
     if not text:
         return None
     if "<" in text:
-        text = BeautifulSoup(text, "html.parser").get_text(separator=" ")
+        # Block-level tags become newlines first, otherwise a session description written as
+        # <p>…</p><p>…</p> collapses into one run-on paragraph.
+        soup = BeautifulSoup(text, "html.parser")
+        for tag in soup.find_all(["script", "style", "iframe", "noscript"]):
+            tag.decompose()
+        for tag in soup.find_all(["p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6"]):
+            tag.append("\n")
+        text = soup.get_text(separator=" ")
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    # Inline markup (<strong>word</strong>.) leaves a space before the punctuation once the
+    # tags are gone. Close it up so the imported copy reads as the page reads.
+    text = re.sub(r" +([,.;:!?%])", r"\1", text)
+    text = re.sub(r" ?\n ?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         return None
@@ -300,10 +312,132 @@ def clean_url(value: Any) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------------------
-# Parsing
+# Video: YouTube and Vimeo only
 # ---------------------------------------------------------------------------------------
 
-def _prefetched_data(soup: BeautifulSoup) -> Dict[str, Any]:
+YOUTUBE_HOSTS = {
+    "youtube.com", "www.youtube.com", "m.youtube.com",
+    "youtu.be", "www.youtu.be",
+    "youtube-nocookie.com", "www.youtube-nocookie.com",
+}
+VIMEO_HOSTS = {"vimeo.com", "www.vimeo.com", "player.vimeo.com"}
+
+_YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+_VIMEO_ID = re.compile(r"^\d{6,15}$")
+
+
+def normalize_video_url(value: Any) -> Optional[Dict[str, str]]:
+    """
+    Recognises a public YouTube or Vimeo video and returns it in canonical form.
+
+    Anything else — a self-hosted mp4, a Loom, a Wistia embed, a bare image, a non-video page
+    on the same host — returns None. That is deliberate: requirement is that only YouTube and
+    Vimeo can become an imported profile video, and that we never store an arbitrary
+    third-party media URL.
+
+    The returned `url` is the watch/canonical form, which is what the public profile page
+    already knows how to render; `embed_url` is provided for the preview.
+    """
+    raw = safe_extract_text(value)
+    if not raw or len(raw) > MAX_URL_LEN:
+        return None
+    if raw.startswith("//"):
+        raw = "https:" + raw
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return None
+
+    host = (parsed.hostname or "").lower()
+    segments = [s for s in (parsed.path or "").split("/") if s]
+
+    if host in YOUTUBE_HOSTS:
+        video_id: Optional[str] = None
+        if host in ("youtu.be", "www.youtu.be"):
+            video_id = segments[0] if segments else None
+        elif segments and segments[0] in ("embed", "shorts", "live", "v"):
+            video_id = segments[1] if len(segments) > 1 else None
+        elif (parsed.path or "").rstrip("/") in ("/watch", ""):
+            video_id = (parse_qs(parsed.query).get("v") or [None])[0]
+        if not video_id or not _YOUTUBE_ID.match(video_id):
+            return None
+        return {
+            "provider": "youtube",
+            "video_id": video_id,
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "embed_url": f"https://www.youtube.com/embed/{video_id}",
+        }
+
+    if host in VIMEO_HOSTS:
+        # https://vimeo.com/1130419767, https://player.vimeo.com/video/1149115590,
+        # https://vimeo.com/channels/staffpicks/1130419767 -- the id is the last numeric part.
+        video_id = next((s for s in reversed(segments) if _VIMEO_ID.match(s)), None)
+        if not video_id:
+            return None
+        return {
+            "provider": "vimeo",
+            "video_id": video_id,
+            "url": f"https://vimeo.com/{video_id}",
+            "embed_url": f"https://player.vimeo.com/video/{video_id}",
+        }
+
+    return None
+
+
+def _iter_strings(value: Any, depth: int = 0):
+    """Yields every string inside a nested JSON structure, depth-capped."""
+    if depth > 8:
+        return
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_strings(item, depth + 1)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_strings(item, depth + 1)
+
+
+_URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>\\]+")
+
+
+def find_video(*sources: Any) -> Optional[Dict[str, str]]:
+    """
+    Returns the first YouTube/Vimeo video found across the given sources, in the order given.
+
+    Each source may be a string, a nested dict/list of SuperProfile data, or a BeautifulSoup
+    tag; strings are also scanned for embedded URLs, which is how the video inside a session's
+    rich-text description (an `<iframe src="https://player.vimeo.com/video/…">`) is found.
+    """
+    for source in sources:
+        if source is None:
+            continue
+        if isinstance(source, BeautifulSoup) or hasattr(source, "find_all"):
+            for frame in source.find_all(["iframe", "embed", "source", "video"]):
+                found = normalize_video_url(frame.get("src"))
+                if found:
+                    return found
+            for anchor in source.find_all("a", href=True):
+                found = normalize_video_url(anchor["href"])
+                if found:
+                    return found
+            continue
+        for text in _iter_strings(source):
+            found = normalize_video_url(text)
+            if found:
+                return found
+            for candidate in _URL_IN_TEXT.findall(text):
+                found = normalize_video_url(candidate.replace("&amp;", "&"))
+                if found:
+                    return found
+    return None
+
+
+# ---------------------------------------------------------------------------------------
+# Structured page data
+# ---------------------------------------------------------------------------------------
+
+def _next_data(soup: BeautifulSoup) -> Dict[str, Any]:
+    """`props.pageProps.prefetchedData` from the Next.js payload, or {}."""
     script = soup.find("script", id="__NEXT_DATA__")
     if not script:
         return {}
@@ -316,69 +450,178 @@ def _prefetched_data(soup: BeautifulSoup) -> Dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         return {}
-    page_props = data.get("props", {}).get("pageProps", {})
+    page_props = data.get("props", {})
+    if not isinstance(page_props, dict):
+        return {}
+    page_props = page_props.get("pageProps", {})
+    if not isinstance(page_props, dict):
+        return {}
     prefetched = page_props.get("prefetchedData")
     return prefetched if isinstance(prefetched, dict) else {}
 
 
+def _sub(container: Dict[str, Any], key: str) -> Dict[str, Any]:
+    value = container.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def _meta(soup: BeautifulSoup, prop: str) -> Optional[str]:
-    tag = soup.find("meta", property=prop)
+    tag = soup.find("meta", property=prop) or soup.find("meta", attrs={"name": prop})
     if tag and tag.get("content"):
         return clean_text(tag.get("content"))
     return None
 
 
+_SUPERPROFILE_SUFFIX = re.compile(r"\s*[|\-–]\s*SuperProfile\s*$", re.IGNORECASE)
+
+
+def _strip_site_suffix(value: Optional[str]) -> Optional[str]:
+    """og:title is "Adways Academy | SuperProfile"; the site name is not part of the name."""
+    if not value:
+        return None
+    cleaned = _SUPERPROFILE_SUFFIX.sub("", value).strip()
+    return cleaned or None
+
+
+# ---------------------------------------------------------------------------------------
+# Prices: rendered DOM only
+# ---------------------------------------------------------------------------------------
+
+CURRENCY_SYMBOLS = {"₹": "INR", "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY"}
+_MONEY = re.compile(r"([₹$€£¥])\s*([\d,]+(?:\.\d{1,2})?)")
+
+
+def _money(text: Optional[str]) -> Optional[Tuple[int, str]]:
+    """"₹1,497" -> (149700, "INR"). Minor units, because that is how prices are stored."""
+    if not text:
+        return None
+    match = _MONEY.search(text)
+    if not match:
+        return None
+    try:
+        amount = float(match.group(2).replace(",", ""))
+    except ValueError:
+        return None
+    if amount <= 0:
+        return None
+    return int(round(amount * 100)), CURRENCY_SYMBOLS[match.group(1)]
+
+
+def _normalize_key(title: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (title or "").casefold())
+
+
+def _rendered_session_cards(soup: BeautifulSoup) -> Dict[str, Dict[str, Any]]:
+    """
+    Reads the browser-rendered session cards, keyed by normalised title.
+
+    This exists for one reason: the displayed price is fetched client-side and is not present
+    anywhere in `__NEXT_DATA__`. Verified against the live page — the server HTML contains no
+    `.session-card` markup and no currency amounts at all.
+    """
+    cards: Dict[str, Dict[str, Any]] = {}
+    for card in soup.select(".session-card"):
+        title_el = card.select_one(".session-card-title")
+        title = clean_text(title_el.get_text() if title_el else None, max_len=MAX_TITLE_LEN)
+        if not title:
+            continue
+
+        final_el = card.select_one(".session-final-price")
+        original_el = card.select_one(".original-price")
+        final = _money(final_el.get_text() if final_el else None)
+        original = _money(original_el.get_text() if original_el else None)
+
+        duration_el = card.select_one(".session-duration")
+        duration = _parse_duration(duration_el.get_text() if duration_el else None)
+
+        description_el = card.select_one(".session-card-description")
+
+        cards[_normalize_key(title)] = {
+            "title": title,
+            "price": final[0] if final else None,
+            "currency": final[1] if final else (original[1] if original else None),
+            "original_price": original[0] if original else None,
+            "duration_minutes": duration,
+            "description": clean_text(description_el.get_text() if description_el else None),
+        }
+    return cards
+
+
+# ---------------------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------------------
+
 def _parse_duration(raw: Any) -> Optional[int]:
-    """Minutes, or None. Never a default — an invented duration books the wrong slot."""
+    """
+    Minutes, or None. Never a default — an invented duration books the wrong slot.
+
+    Real shape on the live page: {"value": 15, "unit": "min", "duration": 15,
+    "durationUnit": "min"}. The rendered card says "15 mins" / "1 hour".
+    """
     if isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)) and raw > 0:
         return int(raw)
     if isinstance(raw, dict):
+        unit = str(raw.get("unit") or raw.get("durationUnit") or "min").lower()
         for key in ("value", "duration", "minutes"):
             found = _parse_duration(raw.get(key))
             if found:
-                return found
+                return found * 60 if unit.startswith("h") else found
         return None
     if isinstance(raw, str):
         match = re.search(r"(\d+)", raw)
-        if match:
-            value = int(match.group(1))
-            return value if value > 0 else None
+        if not match:
+            return None
+        value = int(match.group(1))
+        if value <= 0:
+            return None
+        return value * 60 if re.search(r"\bh(ou)?r", raw, re.IGNORECASE) else value
     return None
 
 
-def _parse_price_paise(raw: Any) -> Optional[int]:
-    """
-    Price in paise, or None when the page displays no price.
-
-    SuperProfile reports prices in major units (₹999 -> 999). The previous implementation
-    guessed with `int(p * 100) if p < 10000 else int(p)` and, failing that, made up ₹1999 --
-    that is how sessions ended up priced at numbers nobody had ever set.
-    """
-    if isinstance(raw, bool) or raw is None:
-        return None
-    if isinstance(raw, str):
-        digits = re.sub(r"[^\d.]", "", raw)
-        if not digits:
-            return None
-        try:
-            raw = float(digits)
-        except ValueError:
-            return None
-    if not isinstance(raw, (int, float)) or raw <= 0:
-        return None
-    return int(round(float(raw) * 100))
-
-
-def _parse_sessions(prefetched: Dict[str, Any], page_url: str) -> List[Dict[str, Any]]:
-    raw_sessions = prefetched.get("sessions")
-    if not isinstance(raw_sessions, list):
+def _parse_input_fields(raw: Any) -> List[Dict[str, Any]]:
+    """The public booking form's questions, as the page declares them."""
+    if not isinstance(raw, list):
         return []
+    fields: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        label = clean_text(entry.get("fieldName") or entry.get("label"), max_len=MAX_TITLE_LEN)
+        if not label:
+            continue
+        fields.append({
+            "label": label,
+            "type": clean_text(entry.get("fieldType") or entry.get("type"), max_len=40),
+            "required": bool(entry.get("mandatory")),
+            "description": clean_text(entry.get("fieldDescription"), max_len=500),
+        })
+    return fields
 
+
+def _parse_sessions(
+    prefetched: Dict[str, Any],
+    rendered: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Merges the JSON sessions with the rendered cards.
+
+    JSON wins for everything it actually carries (title, duration, descriptions, form fields,
+    the SuperProfile session id); the rendered card supplies the price, which the JSON does
+    not contain. A session the page shows but the JSON omits is still imported from the card
+    alone rather than dropped.
+    """
     sessions: List[Dict[str, Any]] = []
-    for item in raw_sessions:
+    matched: set = set()
+
+    raw_sessions = prefetched.get("sessions")
+    for item in raw_sessions if isinstance(raw_sessions, list) else []:
         if not isinstance(item, dict):
+            continue
+
+        # status 1 is "live". A session the creator has hidden is not public information.
+        if "status" in item and item.get("status") not in (1, "1", True, None):
             continue
 
         title = clean_text(item.get("title") or item.get("name"), max_len=MAX_TITLE_LEN)
@@ -386,87 +629,193 @@ def _parse_sessions(prefetched: Dict[str, Any], page_url: str) -> List[Dict[str,
             # A session we cannot even name is not a session we can import.
             continue
 
-        currency = clean_text(item.get("currency"), max_len=10)
-        price = _parse_price_paise(item.get("price"))
-        original_price = _parse_price_paise(item.get("originalPrice") or item.get("original_price"))
+        key = _normalize_key(title)
+        card = rendered.get(key, {})
+        matched.add(key)
 
-        booking_url = clean_url(item.get("url") or item.get("bookingUrl") or item.get("slug"))
-        if not booking_url:
-            slug = safe_extract_text(item.get("slug"))
-            if slug:
-                booking_url = urljoin(page_url.rstrip("/") + "/", slug)
+        description = clean_text(item.get("description"))
+        short_description = clean_text(
+            item.get("shortDescription") or item.get("subtitle"), max_len=1000
+        )
+
+        currency = clean_text(item.get("currency") or item.get("creatorCurrency"), max_len=10)
 
         sessions.append({
-            "title": title,
             # Verbatim, only stripped of markup. Never summarised or rewritten.
-            "description": clean_text(item.get("description")),
-            "duration_minutes": _parse_duration(item.get("duration") or item.get("durationMinutes")),
-            "price": price,
-            "original_price": original_price,
-            # Currency is reported only when the page states one, and is never converted.
-            "currency": currency.upper() if currency else ("INR" if price is not None and currency is None and _looks_rupee(item) else None),
-            "category": clean_text(item.get("category") or item.get("type"), max_len=MAX_TITLE_LEN),
-            "booking_url": booking_url,
-            "availability_note": clean_text(item.get("availability") or item.get("availabilityText")),
-            "instructions": clean_text(item.get("instructions") or item.get("note")),
+            "title": title,
+            "description": description or short_description,
+            "short_description": short_description,
+            "duration_minutes": (
+                _parse_duration(item.get("duration") or item.get("durationMinutes"))
+                or card.get("duration_minutes")
+            ),
+            # Price and currency come from the rendered card, because the JSON has neither.
+            "price": card.get("price"),
+            "original_price": card.get("original_price"),
+            "currency": (currency.upper() if currency else None) or card.get("currency"),
+            "category": clean_text(
+                item.get("sessionCategory") or item.get("category"), max_len=MAX_TITLE_LEN
+            ),
+            "input_fields": _parse_input_fields(item.get("inputFields")),
+            # Only YouTube/Vimeo; the cover may also be an image, which is ignored.
+            "video_url": (find_video(item.get("cover"), description_html(item)) or {}).get("url"),
+            # SuperProfile's own id for this session, used to recognise a re-import.
+            "source_ref": clean_text(item.get("_id") or item.get("id"), max_len=64),
             "badge": clean_text(item.get("tag"), max_len=60),
         })
+
+    # Cards the JSON did not describe (a different page shape, or a pasted fragment).
+    for key, card in rendered.items():
+        if key in matched:
+            continue
+        sessions.append({
+            "title": card["title"],
+            "description": card.get("description"),
+            "short_description": card.get("description"),
+            "duration_minutes": card.get("duration_minutes"),
+            "price": card.get("price"),
+            "original_price": card.get("original_price"),
+            "currency": card.get("currency"),
+            "category": None,
+            "input_fields": [],
+            "video_url": None,
+            "source_ref": None,
+            "badge": None,
+        })
+
     return sessions
 
 
-def _looks_rupee(item: Dict[str, Any]) -> bool:
-    """True when the session's own payload marks the amount in rupees."""
-    blob = json.dumps(item, default=str)
-    return "₹" in blob or '"INR"' in blob
+def description_html(item: Dict[str, Any]) -> Optional[str]:
+    """The raw description markup, kept only so a video embedded in it can be found."""
+    raw = item.get("description")
+    return raw if isinstance(raw, str) else None
 
+
+# ---------------------------------------------------------------------------------------
+# Social links
+# ---------------------------------------------------------------------------------------
+
+# SuperProfile stores some socials as a bare handle plus a type ("Instagram" / "adways.in").
+# Rebuilding the canonical URL from the creator's own stated handle is reconstruction, not
+# invention; a type we do not recognise is skipped rather than guessed at.
+SOCIAL_URL_TEMPLATES = {
+    "instagram": "https://www.instagram.com/{handle}",
+    "youtube": "https://www.youtube.com/@{handle}",
+    "linkedin": "https://www.linkedin.com/in/{handle}",
+    "twitter": "https://twitter.com/{handle}",
+    "x": "https://x.com/{handle}",
+    "facebook": "https://www.facebook.com/{handle}",
+    "threads": "https://www.threads.net/@{handle}",
+    "telegram": "https://t.me/{handle}",
+    "tiktok": "https://www.tiktok.com/@{handle}",
+    "snapchat": "https://www.snapchat.com/add/{handle}",
+    "pinterest": "https://www.pinterest.com/{handle}",
+    "github": "https://github.com/{handle}",
+    "spotify": "https://open.spotify.com/user/{handle}",
+    "discord": "https://discord.gg/{handle}",
+}
+
+# The keys the AdminProfile.social_links JSON already uses.
+SOCIAL_KEY_BY_DOMAIN = (
+    ("instagram.com", "instagram"),
+    ("wa.me", "whatsapp"),
+    ("whatsapp.com", "whatsapp"),
+    ("linkedin.com", "linkedin"),
+    ("youtube.com", "youtube"),
+    ("youtu.be", "youtube"),
+    ("t.me", "telegram"),
+    ("telegram.me", "telegram"),
+    ("twitter.com", "twitter"),
+    ("x.com", "twitter"),
+    ("facebook.com", "facebook"),
+    ("threads.net", "threads"),
+    ("tiktok.com", "tiktok"),
+    ("github.com", "github"),
+)
+
+
+def _social_key(url: str) -> Optional[str]:
+    lowered = url.lower()
+    for domain, key in SOCIAL_KEY_BY_DOMAIN:
+        if domain in lowered:
+            return key
+    return None
+
+
+def _resolve_social(kind: Any, value: Any) -> Optional[str]:
+    """A social entry as a full URL, from either a URL or a type + handle."""
+    direct = clean_url(value)
+    if direct:
+        return direct
+    handle = safe_extract_text(value).strip().lstrip("@")
+    if not handle or " " in handle or len(handle) > 100:
+        return None
+    template = SOCIAL_URL_TEMPLATES.get(safe_extract_text(kind).strip().casefold())
+    if not template:
+        return None
+    return template.format(handle=handle)
+
+
+# ---------------------------------------------------------------------------------------
+# Parsing
+# ---------------------------------------------------------------------------------------
 
 def parse_superprofile(html: str, page_url: str) -> Dict[str, Any]:
     """
     Extracts what the public page actually exposes. Absent fields come back as None.
+
+    Raises SuperProfileParseError when the document is not a SuperProfile page at all, so the
+    admin gets "we could not read this page" rather than a silent, empty preview.
     """
-    soup = BeautifulSoup(html, "html.parser")
-    prefetched = _prefetched_data(soup)
+    soup = BeautifulSoup(html or "", "html.parser")
+    prefetched = _next_data(soup)
+    rendered = _rendered_session_cards(soup)
 
-    creator = prefetched.get("creator") if isinstance(prefetched.get("creator"), dict) else {}
-    about = creator.get("aboutMe") if isinstance(creator.get("aboutMe"), dict) else {}
-    profile = prefetched.get("profile") if isinstance(prefetched.get("profile"), dict) else {}
+    # `/{handle}` nests everything under superProfile; `/bookings/{handle}` does not.
+    super_profile = _sub(prefetched, "superProfile")
+    about = _sub(prefetched, "aboutMe")
 
-    name = clean_text(about.get("name"), max_len=MAX_TITLE_LEN)
-    if not name and (creator.get("firstname") or creator.get("lastname")):
-        name = clean_text(f"{creator.get('firstname', '')} {creator.get('lastname', '')}", max_len=MAX_TITLE_LEN)
+    name = (
+        clean_text(about.get("name"), max_len=MAX_TITLE_LEN)
+        or clean_text(prefetched.get("name"), max_len=MAX_TITLE_LEN)
+        or clean_text(super_profile.get("displayName"), max_len=MAX_TITLE_LEN)
+    )
+    if not name and (super_profile.get("firstname") or super_profile.get("lastname")):
+        name = clean_text(
+            f"{super_profile.get('firstname', '')} {super_profile.get('lastname', '')}",
+            max_len=MAX_TITLE_LEN,
+        )
     if not name:
-        name = _meta(soup, "og:title")
+        name = _strip_site_suffix(_meta(soup, "og:title"))
 
-    headline = clean_text(about.get("title") or prefetched.get("tagline"), max_len=MAX_TITLE_LEN)
-    if not headline:
+    headline = clean_text(
+        about.get("headline") or about.get("title") or prefetched.get("tagline"),
+        max_len=MAX_TITLE_LEN,
+    )
+    bio = clean_text(
+        about.get("description") or prefetched.get("bio") or super_profile.get("bio")
+    )
+    if not headline and not bio:
+        # Only as a last resort, and only into one of the two, so the same sentence is not
+        # imported twice.
         headline = _meta(soup, "og:description")
 
-    bio = clean_text(about.get("bio") or prefetched.get("bio") or prefetched.get("aboutMe"))
+    # ---- video: YouTube/Vimeo only, and only from profile-level places ----
+    # Session videos belong to their session and are reported there, never promoted into the
+    # profile video: importing a session's cover as the admin's intro video would be exactly
+    # the "unrelated video URL" the requirements rule out.
+    video = find_video(
+        _sub(prefetched, "spotlight").get("items"),
+        about,
+        super_profile.get("blocks"),
+        super_profile.get("highlights"),
+        _meta(soup, "og:video") or _meta(soup, "og:video:url"),
+        soup.find("main") or soup.find("body") or soup,
+    )
+    video_source = "profile" if video else None
 
-    image = clean_url(profile.get("imageUrl"))
-    if not image and isinstance(about.get("image"), dict):
-        image = clean_url(about["image"].get("url"))
-    if not image:
-        image = clean_url(_meta(soup, "og:image"))
-
-    cover = None
-    if isinstance(profile.get("background"), dict):
-        cover = clean_url(profile["background"].get("imageUrl") or profile["background"].get("url"))
-    if not cover:
-        cover = clean_url(profile.get("coverImageUrl"))
-
-    intro_video = None
-    spotlight = prefetched.get("spotlight")
-    items = spotlight.get("items") if isinstance(spotlight, dict) else None
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            candidate = clean_url(item.get("url") or item.get("mediaUrl"))
-            if candidate and any(k in candidate for k in ("vimeo.com", "youtube.com", "youtu.be")):
-                intro_video = candidate
-                break
-
+    # ---- social links ----
     social_links: Dict[str, str] = {}
     website: Optional[str] = None
 
@@ -474,41 +823,71 @@ def parse_superprofile(html: str, page_url: str) -> Dict[str, Any]:
         nonlocal website
         if not link:
             return
-        lowered = link.lower()
-        if "instagram.com" in lowered:
-            social_links.setdefault("instagram", link)
-        elif "wa.me" in lowered or "whatsapp.com" in lowered:
-            social_links.setdefault("whatsapp", link)
-        elif "linkedin.com" in lowered:
-            social_links.setdefault("linkedin", link)
-        elif "youtube.com" in lowered or "youtu.be" in lowered:
-            social_links.setdefault("youtube", link)
-        elif "t.me" in lowered or "telegram" in lowered:
-            social_links.setdefault("telegram", link)
-        elif "superprofile.bio" not in lowered and website is None:
-            website = link
+        key = _social_key(link)
+        if key:
+            social_links.setdefault(key, link)
+        elif "superprofile.bio" not in link.lower() and "cosmofeed.com" not in link.lower():
+            if website is None:
+                website = link
 
-    socials = prefetched.get("socialLinks")
-    social_items = socials.get("items") if isinstance(socials, dict) else None
-    if isinstance(social_items, list):
-        for entry in social_items:
-            if isinstance(entry, dict):
-                _record(clean_url(entry.get("url")))
+    for entry in _sub(prefetched, "socialLinks").get("items") or []:
+        if isinstance(entry, dict):
+            _record(_resolve_social(
+                entry.get("type") or entry.get("socialType") or entry.get("title"),
+                entry.get("url") or entry.get("link") or entry.get("socialURL") or entry.get("value"),
+            ))
+
+    for entry in super_profile.get("socialConnects") or []:
+        if isinstance(entry, dict) and entry.get("enabled"):
+            _record(_resolve_social(entry.get("socialType"), entry.get("socialURL")))
+
+    for entry in about.get("socials") or []:
+        if isinstance(entry, dict):
+            _record(_resolve_social(
+                entry.get("type") or entry.get("socialType"),
+                entry.get("url") or entry.get("socialURL") or entry.get("value"),
+            ))
 
     for anchor in soup.find_all("a", href=True):
         _record(clean_url(anchor["href"]))
 
+    # ---- public link sections ----
     public_links: List[Dict[str, str]] = []
-    links_section = prefetched.get("links")
-    link_items = links_section.get("items") if isinstance(links_section, dict) else None
-    if isinstance(link_items, list):
-        for entry in link_items:
+    for entry in _sub(prefetched, "links").get("items") or []:
+        if not isinstance(entry, dict):
+            continue
+        label = clean_text(entry.get("title") or entry.get("label"), max_len=MAX_TITLE_LEN)
+        href = clean_url(entry.get("url"))
+        if label and href:
+            public_links.append({"label": label, "url": href})
+
+    faqs: List[Dict[str, str]] = []
+    faq_section = _sub(prefetched, "faqs")
+    if faq_section.get("isEnabled"):
+        for entry in faq_section.get("items") or []:
             if not isinstance(entry, dict):
                 continue
-            label = clean_text(entry.get("title") or entry.get("label"), max_len=MAX_TITLE_LEN)
-            href = clean_url(entry.get("url"))
-            if label and href:
-                public_links.append({"label": label, "url": href})
+            question = clean_text(entry.get("question") or entry.get("title"), max_len=MAX_TITLE_LEN)
+            answer = clean_text(entry.get("answer") or entry.get("description"))
+            if question and answer:
+                faqs.append({"question": question, "answer": answer})
+
+    sessions = _parse_sessions(prefetched, rendered)
+
+    if not video:
+        # Nothing profile-level, so fall back to the first video attached to a session on the
+        # same page. It is still a video the creator published on this page, and the preview
+        # labels where it came from -- but it is never applied without the admin ticking it.
+        first = next((s for s in sessions if s.get("video_url")), None)
+        if first:
+            video = normalize_video_url(first["video_url"])
+            video_source = "session" if video else None
+
+    if not prefetched and not rendered and not name:
+        raise SuperProfileParseError(
+            "That page could not be read as a SuperProfile page. Make sure the URL is a "
+            "public SuperProfile profile or booking page."
+        )
 
     return {
         "source_url": page_url,
@@ -516,16 +895,18 @@ def parse_superprofile(html: str, page_url: str) -> Dict[str, Any]:
             "name": name,
             "headline": headline,
             "bio": bio,
-            # Image URLs are for preview only. Nothing downloads or stores them unless the
-            # admin confirms they have permission to reuse the image.
-            "profile_image_url": image,
-            "cover_image_url": cover,
-            "intro_video": intro_video,
+            # Photos are never read from the page. There is deliberately no image field here.
+            "video_url": (video or {}).get("url"),
+            "video_provider": (video or {}).get("provider"),
+            "video_embed_url": (video or {}).get("embed_url"),
+            # "profile" (spotlight/about/blocks/meta) or "session" (a session's own video).
+            "video_source": video_source,
             "social_links": social_links,
             "website": website,
             "public_links": public_links,
+            "faqs": faqs,
         },
-        "sessions": _parse_sessions(prefetched, page_url),
+        "sessions": sessions,
     }
 
 
@@ -540,7 +921,7 @@ async def import_superprofile(url: str, page_html: Optional[str] = None) -> Dict
     """
     validated = validate_superprofile_url(url)
     if page_html:
-        if len(page_html) > MAX_RESPONSE_BYTES:
+        if len(page_html) > MAX_PASTED_BYTES:
             raise SuperProfileFetchError("That page source is too large to import.")
         return parse_superprofile(page_html, validated)
     html = await fetch_public_page(validated)

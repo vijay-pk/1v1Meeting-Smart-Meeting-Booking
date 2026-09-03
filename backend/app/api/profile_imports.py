@@ -13,16 +13,18 @@ What an import can never carry across, no matter what the page contains: the adm
 username (their public URL stays their own), Razorpay keys or secrets, and Google OAuth
 tokens or calendar ids. Payments keep settling into this admin's own connected Razorpay
 account and events keep landing on their own calendar.
+
+Two more things an import can never do, enforced by there being no code path for them:
+copy a photo (SuperProfile photos are not even parsed), and change the admin's username.
+An imported video is stored as a public YouTube/Vimeo link only -- never downloaded.
 """
 import difflib
-import os
 import re
 import time
-import uuid
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -36,10 +38,11 @@ from app.models.models import (
 )
 from app.services.superprofile_import import (
     import_superprofile,
-    fetch_public_image,
     clean_text,
+    normalize_video_url,
     SuperProfileURLError,
     SuperProfileFetchError,
+    SuperProfileParseError,
     MAX_TITLE_LEN,
 )
 
@@ -47,6 +50,10 @@ router = APIRouter()
 
 # Fields an admin may choose to import. `username` is deliberately absent: the imported
 # content belongs to this admin, and their public URL stays /{their-username}.
+# `profile_image` is deliberately absent and must stay absent: a SuperProfile photo is never
+# read, never downloaded and never written over the admin's own photo. `username` is absent
+# for the same reason -- the imported content belongs to this admin, and their public URL
+# stays /{their-username}.
 IMPORTABLE_PROFILE_FIELDS = {
     "name",
     "headline",
@@ -54,7 +61,6 @@ IMPORTABLE_PROFILE_FIELDS = {
     "intro_video",
     "social_links",
     "website",
-    "profile_image",
 }
 
 IMPORT_MODES = {"add", "replace", "sessions_only", "profile_only"}
@@ -86,21 +92,6 @@ _PREVIEW_WINDOW_SECONDS = 600
 _PREVIEW_MAX_IN_WINDOW = 10
 _preview_calls: Dict[str, deque] = defaultdict(deque)
 
-UPLOADS_PHOTOS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "uploads",
-    "photos",
-)
-
-IMAGE_EXTENSIONS = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-    "image/avif": ".avif",
-}
-
-
 # ---------------------------------------------------------------------------------------
 # Schemas (local to this router — they describe an import payload, not a stored entity)
 # ---------------------------------------------------------------------------------------
@@ -109,7 +100,7 @@ class ImportPreviewRequest(BaseModel):
     source_url: str = Field(..., max_length=1000)
     # Optional: the page source, pasted by the admin when SuperProfile refuses an automated
     # request for their page. Parsed and sanitized by the same code path as a fetched page.
-    page_html: Optional[str] = Field(None, max_length=2 * 1024 * 1024)
+    page_html: Optional[str] = Field(None, max_length=6 * 1024 * 1024)
 
 
 class SessionSelection(BaseModel):
@@ -128,8 +119,6 @@ class ImportApplyRequest(BaseModel):
     mode: str = "add"
     profile_fields: List[str] = []
     sessions: List[SessionSelection] = []
-    import_image: bool = False
-    image_permission_confirmed: bool = False
     confirm_replace: bool = False
 
 
@@ -154,20 +143,56 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", (title or "").casefold()).strip()
 
 
+def _already_imported_refs(db: Session, admin_id: str) -> set:
+    """
+    SuperProfile session ids this admin has already applied from an earlier import.
+
+    This is the strongest duplicate signal available: it survives the admin renaming the
+    session afterwards, which a title comparison does not. It is read from previous
+    ProfileImport rows, so no new column is needed on `sessions`.
+    """
+    refs = set()
+    previous = (
+        db.query(ProfileImport)
+        .filter(ProfileImport.admin_id == admin_id, ProfileImport.status == "applied")
+        .all()
+    )
+    for row in previous:
+        for parsed in ((row.parsed_data or {}).get("sessions") or []):
+            ref = parsed.get("source_ref")
+            if ref:
+                refs.add(ref)
+    return refs
+
+
 def _find_duplicates(db: Session, admin_id: str, sessions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Flags imported sessions that look like ones the admin already has.
 
-    A hint for the UI only — nothing is merged or skipped automatically, and the title is
-    never used as a destructive identifier.
+    A hint for the UI only -- nothing is merged, skipped or deleted automatically, and the
+    title is never used as a destructive identifier. Three signals, strongest first: the
+    SuperProfile session id from a previous applied import, an exact title match, and a close
+    title match with the same duration.
     """
     existing = db.query(SessionModel).filter(SessionModel.admin_id == admin_id).all()
-    if not existing:
-        return []
+    imported_refs = _already_imported_refs(db, admin_id)
 
     hits: List[Dict[str, Any]] = []
     for index, parsed in enumerate(sessions):
+        ref = parsed.get("source_ref")
         incoming = _normalize_title(parsed.get("title") or "")
+        duration = parsed.get("duration_minutes")
+
+        if ref and ref in imported_refs:
+            hits.append({
+                "session_index": index,
+                "existing_session_id": None,
+                "existing_title": parsed.get("title"),
+                "similarity": 1.0,
+                "reason": "source_ref",
+            })
+            continue
+
         if not incoming:
             continue
         for row in existing:
@@ -175,12 +200,14 @@ def _find_duplicates(db: Session, admin_id: str, sessions: List[Dict[str, Any]])
             if not current:
                 continue
             ratio = difflib.SequenceMatcher(None, incoming, current).ratio()
-            if current == incoming or ratio >= DUPLICATE_SIMILARITY_THRESHOLD:
+            same_duration = duration is not None and row.duration_minutes == duration
+            if current == incoming or (ratio >= DUPLICATE_SIMILARITY_THRESHOLD and same_duration):
                 hits.append({
                     "session_index": index,
                     "existing_session_id": row.id,
                     "existing_title": row.title,
                     "similarity": round(ratio, 3),
+                    "reason": "title" if current == incoming else "title_and_duration",
                 })
                 break
     return hits
@@ -189,45 +216,35 @@ def _find_duplicates(db: Session, admin_id: str, sessions: List[Dict[str, Any]])
 def _warnings_for(parsed: Dict[str, Any]) -> List[str]:
     notes: List[str] = []
     profile = parsed.get("profile", {})
+    sessions = parsed.get("sessions", [])
+
     if not any(profile.get(k) for k in ("name", "headline", "bio")):
         notes.append("No public profile text could be read from that page.")
-    if not parsed.get("sessions"):
-        notes.append("No sessions were found on this page.")
-    priceless = [s["title"] for s in parsed.get("sessions", []) if s.get("price") is None]
+
+    if not sessions:
+        notes.append(
+            "No sessions were found on this page. Session details live on the booking page "
+            "-- try the https://superprofile.bio/bookings/your-handle URL."
+        )
+
+    priceless = [s["title"] for s in sessions if s.get("price") is None]
     if priceless:
         notes.append(
-            "No price is shown publicly for: "
+            "No price could be read for: "
             + ", ".join(priceless[:5])
-            + ". These will be created as drafts — set a price before publishing."
+            + ". These will be created as drafts -- set a price before publishing."
         )
-    if profile.get("profile_image_url"):
+
+    if profile.get("video_url"):
         notes.append(
-            "The profile image is shown as a preview only. Confirm you have permission to "
-            "reuse it if you want it copied into your own media library."
+            f"A {profile.get('video_provider')} video was found and can be imported as your "
+            "intro video. The video itself is not copied -- only the public link."
         )
+    else:
+        notes.append("No YouTube or Vimeo video was found. Your current video is left as it is.")
+
+    notes.append("Photos are never imported. Your existing profile photo stays exactly as it is.")
     return notes
-
-
-async def _store_imported_image(request: Request, image_url: str) -> str:
-    """
-    Copies an image the admin has confirmed they may reuse into our own storage, and returns
-    the local URL. Never hotlinks the third-party asset.
-    """
-    content, content_type = await fetch_public_image(image_url)
-    extension = IMAGE_EXTENSIONS.get(content_type.split(";")[0].strip(), ".img")
-
-    os.makedirs(UPLOADS_PHOTOS_DIR, exist_ok=True)
-    filename = f"{uuid.uuid4().hex[:8]}_imported{extension}"
-    with open(os.path.join(UPLOADS_PHOTOS_DIR, filename), "wb") as handle:
-        handle.write(content)
-
-    # Same public-URL construction as api/upload.py, so imported and uploaded media resolve
-    # identically behind a proxy.
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    if "onrender.com" in host or "vercel.app" in host:
-        proto = "https"
-    return f"{proto}://{host}".rstrip("/") + f"/uploads/photos/{filename}"
 
 
 # ---------------------------------------------------------------------------------------
@@ -253,8 +270,25 @@ async def preview_import(
     except SuperProfileURLError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except SuperProfileFetchError as exc:
-        # A clean sentence, never an exception trace.
+        # The page could not be reached. A clean sentence, never an exception trace.
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except SuperProfileParseError as exc:
+        # The page was reached but is not readable as a SuperProfile page -- a different
+        # failure from "we could not reach it", and worth saying so.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    if not parsed.get("sessions") and not any(
+        (parsed.get("profile") or {}).get(field) for field in ("name", "headline", "bio", "video_url")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "That page was read, but it contains no importable profile text or sessions. "
+                "Check that the URL points at your public SuperProfile page."
+            ),
+        )
 
     record = ProfileImport(
         admin_id=current_admin.id,
@@ -325,7 +359,6 @@ def cancel_import(
 @router.post("/apply")
 async def apply_import(
     req: ImportApplyRequest,
-    request: Request,
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -363,7 +396,6 @@ async def apply_import(
     created_sessions: List[str] = []
     updated_sessions: List[str] = []
     skipped_sessions = 0
-    image_note: Optional[str] = None
 
     try:
         # ---------------- profile ----------------
@@ -401,7 +433,12 @@ async def apply_import(
                 _set("bio", parsed_profile.get("bio"), "bio")
                 _set("about_me_text", parsed_profile.get("bio"), "about_me_text")
             if "intro_video" in selected:
-                _set("intro_video", parsed_profile.get("intro_video"), "intro_video")
+                # Re-validated here rather than trusted from the stored preview: only a
+                # YouTube or Vimeo link can ever land in `intro_video`, and only the public
+                # link is stored -- the video itself is never downloaded or re-hosted.
+                video = normalize_video_url(parsed_profile.get("video_url"))
+                if video:
+                    _set("intro_video", video["url"], "intro_video")
 
             if "social_links" in selected or "website" in selected:
                 links = dict(profile.social_links or {})
@@ -417,23 +454,9 @@ async def apply_import(
                     profile.social_links = links
                     applied_profile_fields.append("social_links")
 
-            if "profile_image" in selected and parsed_profile.get("profile_image_url"):
-                if not req.image_permission_confirmed or not req.import_image:
-                    # Preview-only until the admin asserts they may reuse the image.
-                    image_note = (
-                        "The profile image was not imported: confirm you have permission to "
-                        "reuse it, or upload your own copy."
-                    )
-                else:
-                    try:
-                        stored_url = await _store_imported_image(
-                            request, parsed_profile["profile_image_url"]
-                        )
-                        if replace or not (profile.profile_photo or "").strip():
-                            profile.profile_photo = stored_url
-                            applied_profile_fields.append("profile_image")
-                    except SuperProfileFetchError as exc:
-                        image_note = f"The profile image could not be imported: {exc}"
+            # There is no photo branch here on purpose. A SuperProfile photo is never
+            # fetched, stored or applied, in any mode, so `profile.profile_photo` cannot be
+            # touched by an import.
 
         # ---------------- sessions ----------------
         if req.mode != "profile_only":
@@ -522,6 +545,6 @@ async def apply_import(
             1 for s in db.query(SessionModel).filter(SessionModel.id.in_(created_sessions)).all()
             if not s.is_active
         ) if created_sessions else 0,
-        "image_note": image_note,
+        "photo_note": "No photo was imported. Your profile photo is unchanged.",
         "message": "Imported into your profile. Review and publish when you are ready.",
     }

@@ -29,9 +29,11 @@ interface ParsedSession {
   original_price: number | null;
   currency: string | null;
   category: string | null;
-  booking_url: string | null;
-  availability_note: string | null;
-  instructions: string | null;
+  /** Only ever a YouTube or Vimeo link, and only shown -- sessions store no video. */
+  video_url: string | null;
+  short_description: string | null;
+  input_fields: Array<{ label: string; type: string | null; required: boolean; description: string | null }>;
+  source_ref: string | null;
   badge: string | null;
 }
 
@@ -39,18 +41,23 @@ interface ParsedProfile {
   name: string | null;
   headline: string | null;
   bio: string | null;
-  profile_image_url: string | null;
-  cover_image_url: string | null;
-  intro_video: string | null;
+  // No photo fields, deliberately: the backend never parses a SuperProfile image, so there
+  // is nothing here to render or send back, and an import cannot touch the admin's photo.
+  video_url: string | null;
+  video_provider: 'youtube' | 'vimeo' | null;
+  video_embed_url: string | null;
+  video_source: 'profile' | 'session' | null;
   social_links: Record<string, string>;
   website: string | null;
   public_links: Array<{ label: string; url: string }>;
+  faqs: Array<{ question: string; answer: string }>;
 }
 
 interface Duplicate {
   session_index: number;
-  existing_session_id: string;
+  existing_session_id: string | null;
   existing_title: string;
+  reason?: 'source_ref' | 'title' | 'title_and_duration';
 }
 
 interface SessionDraft extends ParsedSession {
@@ -63,7 +70,7 @@ const PROFILE_FIELDS: Array<{ key: string; label: string; get: (p: ParsedProfile
   { key: 'name', label: 'Display name', get: (p) => p.name },
   { key: 'headline', label: 'Headline / tagline', get: (p) => p.headline },
   { key: 'bio', label: 'Bio', get: (p) => p.bio },
-  { key: 'intro_video', label: 'Intro video', get: (p) => p.intro_video },
+  { key: 'intro_video', label: 'Intro video', get: (p) => p.video_url },
   { key: 'website', label: 'Website', get: (p) => p.website },
 ];
 
@@ -86,7 +93,7 @@ function validateUrl(value: string): string | null {
   }
   if (parsed.protocol !== 'https:') return 'Only https:// SuperProfile links can be imported.';
   if (!['superprofile.bio', 'www.superprofile.bio'].includes(parsed.hostname.toLowerCase())) {
-    return 'Invalid SuperProfile URL. It should look like https://superprofile.bio/your-handle';
+    return 'Invalid SuperProfile URL. It should look like https://superprofile.bio/bookings/your-handle';
   }
   return null;
 }
@@ -106,8 +113,6 @@ export const SuperProfileImportModal: React.FC<{
   const [warnings, setWarnings] = useState<string[]>([]);
   const [selectedProfileFields, setSelectedProfileFields] = useState<Record<string, boolean>>({});
   const [importSocials, setImportSocials] = useState(true);
-  const [importImage, setImportImage] = useState(false);
-  const [imagePermission, setImagePermission] = useState(false);
   const [mode, setMode] = useState<ImportMode>('add');
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -134,8 +139,6 @@ export const SuperProfileImportModal: React.FC<{
     setWarnings([]);
     setSelectedProfileFields({});
     setImportSocials(true);
-    setImportImage(false);
-    setImagePermission(false);
     setMode('add');
     setConfirmReplace(false);
     setResult(null);
@@ -212,7 +215,6 @@ export const SuperProfileImportModal: React.FC<{
         .filter(([, on]) => on)
         .map(([key]) => key);
       if (importSocials) profileFields.push('social_links');
-      if (importImage) profileFields.push('profile_image');
 
       const data = await api.importApply({
         import_id: importId,
@@ -230,8 +232,6 @@ export const SuperProfileImportModal: React.FC<{
             price: s.price,
             currency: s.currency || undefined,
           })),
-        import_image: importImage,
-        image_permission_confirmed: imagePermission,
         confirm_replace: confirmReplace,
       });
       setResult(data);
@@ -275,10 +275,14 @@ export const SuperProfileImportModal: React.FC<{
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-text-secondary">Your public SuperProfile URL</Label>
+              <p className="text-[11px] text-text-tertiary">
+                Use your <strong>booking</strong> page (…/bookings/your-handle) — that is the
+                page your sessions live on.
+              </p>
               <Input
                 value={sourceUrl}
                 onChange={(e) => setSourceUrl(e.target.value)}
-                placeholder="https://superprofile.bio/..."
+                placeholder="https://superprofile.bio/bookings/your-handle"
                 className="text-xs rounded-xl"
                 disabled={phase === 'loading'}
                 onKeyDown={(e) => e.key === 'Enter' && phase === 'url' && handlePreview()}
@@ -292,10 +296,15 @@ export const SuperProfileImportModal: React.FC<{
                   value={pageHtml}
                   onChange={(e) => setPageHtml(e.target.value)}
                   rows={5}
-                  placeholder="Open your SuperProfile page in the browser, press Ctrl+U (View source), select all, and paste it here."
+                  placeholder="Open your SuperProfile page in the browser, press F12, right-click the top <html> element and choose Copy > Copy outerHTML, then paste it here."
                   className="text-[11px] rounded-xl font-mono"
                   disabled={phase === 'loading'}
                 />
+                <p className="text-[10px] text-text-tertiary leading-relaxed">
+                  Copy the rendered page (Inspect &rarr; right-click &lt;html&gt; &rarr; Copy
+                  outerHTML). “View source” works too, but SuperProfile draws its prices in
+                  the browser, so a view-source paste imports sessions without prices.
+                </p>
                 <button
                   type="button"
                   onClick={() => { setPasteMode(false); setPageHtml(''); setError(''); }}
@@ -355,17 +364,6 @@ export const SuperProfileImportModal: React.FC<{
               <h3 className="text-sm font-black text-text-primary">Profile preview</h3>
 
               <div className="flex items-start gap-4 p-4 rounded-2xl border border-border bg-surface-secondary">
-                {profile.profile_image_url ? (
-                  <div className="space-y-1.5 shrink-0">
-                    <img
-                      src={profile.profile_image_url}
-                      alt="Imported profile"
-                      className="w-16 h-16 rounded-xl object-cover border border-border"
-                    />
-                    <p className="text-[9px] text-text-tertiary w-16 text-center">preview only</p>
-                  </div>
-                ) : null}
-
                 <div className="min-w-0 space-y-1.5 flex-1">
                   {PROFILE_FIELDS.map((field) => {
                     const value = field.get(profile);
@@ -417,33 +415,41 @@ export const SuperProfileImportModal: React.FC<{
                 </div>
               </div>
 
-              {profile.profile_image_url && (
+              {/* Video. Only YouTube/Vimeo reaches this point; anything else was dropped
+                  server-side, and there is no photo section at all by design. */}
+              {profile.video_url ? (
                 <div className="p-3 rounded-xl border border-border space-y-2">
-                  <label className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importImage}
-                      onChange={(e) => setImportImage(e.target.checked)}
-                      className="mt-0.5 cursor-pointer"
-                    />
-                    <span>Import this profile image into my media library</span>
-                  </label>
-                  {importImage && (
-                    <label className="flex items-start gap-2 text-[11px] font-semibold text-slate-800 cursor-pointer pl-5">
-                      <input
-                        type="checkbox"
-                        checked={imagePermission}
-                        onChange={(e) => setImagePermission(e.target.checked)}
-                        className="mt-0.5 cursor-pointer"
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-text-tertiary">
+                    {profile.video_provider === 'vimeo' ? 'Vimeo' : 'YouTube'} video found
+                    {profile.video_source === 'session' && ' (on a session)'}
+                  </p>
+                  {profile.video_embed_url && (
+                    <div className="relative aspect-video w-full max-w-sm overflow-hidden rounded-lg bg-black">
+                      <iframe
+                        src={profile.video_embed_url}
+                        title="Imported video preview"
+                        className="absolute inset-0 h-full w-full"
+                        allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture"
+                        allowFullScreen
                       />
-                      <span>
-                        I confirm I have permission to reuse this image. It will be copied
-                        into this platform's storage rather than linked from SuperProfile.
-                      </span>
-                    </label>
+                    </div>
                   )}
+                  <p className="text-[11px] text-text-secondary break-all">{profile.video_url}</p>
+                  <p className="text-[10px] text-text-tertiary">
+                    Tick “Intro video” above to use it. Only the public link is saved — the
+                    video itself is not downloaded or re-hosted.
+                  </p>
                 </div>
+              ) : (
+                <p className="text-[11px] text-text-tertiary">
+                  No YouTube or Vimeo video was found on that page, so your current intro
+                  video stays as it is.
+                </p>
               )}
+
+              <p className="text-[11px] text-text-tertiary">
+                Photos are never imported. Your profile photo stays exactly as it is.
+              </p>
             </section>
 
             {/* Sessions preview */}
@@ -491,14 +497,14 @@ export const SuperProfileImportModal: React.FC<{
                           className="text-xs font-bold rounded-lg"
                         />
                       </label>
-                      {session.booking_url && (
+                      {session.video_url && (
                         <a
-                          href={session.booking_url}
+                          href={session.video_url}
                           target="_blank"
                           rel="noreferrer noopener"
                           className="text-[10px] text-text-tertiary hover:text-text-secondary flex items-center gap-1 shrink-0 mt-2"
                         >
-                          source <ExternalLink className="w-3 h-3" />
+                          video <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
                     </div>
@@ -670,7 +676,7 @@ export const SuperProfileImportModal: React.FC<{
                     ? ` Profile fields updated: ${result.profile_fields_applied.join(', ')}.`
                     : ' No profile fields were changed.'}
                 </p>
-                {result.image_note && <p className="text-amber-800">{result.image_note}</p>}
+                {result.photo_note && <p>{result.photo_note}</p>}
               </div>
             </div>
             <p className="text-[11px] text-text-tertiary">

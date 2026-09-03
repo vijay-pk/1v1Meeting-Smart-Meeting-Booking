@@ -175,30 +175,23 @@ The root path (`/`) serves as the **Admin Signup & Platform Registration Page**:
 
 ---
 
-## 7. SuperProfile One-Click Scraper & Customizer in Settings
+## 7. Import from SuperProfile
 
-Added to the Admin Settings page ([`/admin/settings`](http://localhost:5173/admin/settings)) for **every admin**:
+Available from Admin Settings ([`/admin/settings`](http://localhost:5173/admin/settings)) to every admin, as a preview-then-confirm flow: paste a public SuperProfile URL, review exactly what was found, tick what to keep, apply.
 
-- **Backend Scraper Service**:
-  - Endpoint: `POST /api/profiles/scrape-superprofile` in [`backend/app/api/admin_profiles.py`](file:///c:/Users/midhu/OneDrive/Desktop/super/backend/app/api/admin_profiles.py) and [`backend/app/services/scraper_service.py`](file:///c:/Users/midhu/OneDrive/Desktop/super/backend/app/services/scraper_service.py).
-  - Fetches and parses `__NEXT_DATA__`, OpenGraph meta tags, DraftJS blocks, and HTML from any `superprofile.bio` URL (e.g. `https://superprofile.bio/mahir6787` or `https://superprofile.bio/bookings/mahir6787`).
-  - Robust error handling and offline fallback support.
-- **Extracted Fields**:
-  - **Creator Name & Title**: Full name and professional role.
-  - **Tagline / Headline**: e.g. *"Upskilling Marketers into Top 1% Performers"*.
-  - **About Me Story & Bio**: Short bio and comprehensive background story.
-  - **Media**: Profile photo URL and Intro Video URL (Vimeo or YouTube).
-  - **Theme & Colors**: Button color and gradient theme.
-  - **Social Links**: Instagram, WhatsApp, LinkedIn, YouTube, and Website.
-  - **1:1 Session Packages**: Titles, descriptions, durations, offer prices, and original prices.
-- **Interactive Review & Selection**:
-  - Visual preview displaying scraped photo, name, and title.
-  - Field checklist with "Select All" / "Deselect All" options.
-  - Clicking **[Apply to Form!]** automatically populates the form fields and saves session packages to the admin's account.
-- **Full Customization**:
-  - Every admin can edit, tweak, rewrite, adjust theme colors, or update session prices directly in the UI before clicking **[Save Profile Customization]**.
-
----
+- **Backend**: [`app/api/profile_imports.py`](file:///c:/Users/midhu/OneDrive/Desktop/super/backend/app/api/profile_imports.py) (`/api/profile-import/preview`, `/apply`, `/{id}`, `/{id}/cancel`) over [`app/services/superprofile_import.py`](file:///c:/Users/midhu/OneDrive/Desktop/super/backend/app/services/superprofile_import.py). Admin role required. Preview writes only a `profile_imports` row -- never the admin's profile or sessions.
+- **How the page is actually read.** superprofile.bio is a Next.js *pages*-router app behind Vercel's bot check. Two consequences shape the parser, both verified against the live site rather than assumed:
+  1. The server HTML is an empty shell plus `<script id="__NEXT_DATA__">`; the visible cards are drawn in the browser. Structure comes from that JSON; **price comes only from the rendered `.session-card` markup**, because the amounts are fetched client-side and appear nowhere in the JSON. The parser reads both and merges them by session title.
+  2. Every non-browser request gets `429` and a "Vercel Security Checkpoint" JavaScript challenge. That challenge is **not** solved or worked around. The importer says so plainly and offers the supported route: the admin copies their own rendered page (Inspect -> Copy outerHTML) and pastes it, which is parsed and sanitized by the same code.
+- **Two page shapes**, nested differently and both handled: `/{handle}` puts the creator under `prefetchedData.superProfile` (displayName, bio, `socialConnects`, blocks) and has no sessions; `/bookings/{handle}` puts `name` / `tagline` / `bio` / `aboutMe` / `sessions` at the top level. Sessions live only on the booking page.
+- **Imported**: display name, headline/tagline, bio, social links (a bare handle plus its stated type is rebuilt into the canonical URL), website, public link sections, FAQs, and per session the title, both descriptions, duration, price, original price, currency, category and public booking-form fields.
+- **Photos are never imported.** No `og:image`, `profilePicture`, `image`, cover or thumbnail is parsed at all, so there is no field for the apply step to write. The admin's existing photo is untouched in every mode, including `replace`.
+- **Video is YouTube/Vimeo only**, stored as a public link -- never downloaded or re-hosted. Detected from spotlight items, `aboutMe`, profile blocks, `og:video`, page iframes/anchors, a session's `cover` links and the iframe inside a session's rich-text description. Anything else (Loom, Wistia, a raw `.mp4`) is dropped, and a page with no such video leaves the admin's current video alone. The value is re-validated at apply time, so a tampered import row cannot put an arbitrary URL in `intro_video`.
+- **Never carried across**: the SuperProfile username/slug (the admin's own public URL is unchanged), Razorpay keys, Google OAuth tokens and calendar ids. Imported sessions are sold through the admin's own connected Razorpay account.
+- **Duplicates** are flagged, never resolved automatically: by the SuperProfile session id recorded in a previous applied import (which survives a rename), by an exact title match, or by a close title with the same duration. Nothing existing is ever deleted.
+- **Safety**: https + exact-host allowlist, DNS resolution with private/loopback/link-local rejection, every redirect hop re-validated, 10s timeout, streamed body cap, per-admin rate limit on fetches only. All imported text is stripped of markup, so no SuperProfile HTML or script reaches React.
+- **Errors are distinguished**: invalid URL (400), unreachable or blocked page (502), unreadable page (422), and a page that yields nothing importable (422) -- never a silent empty preview.
+- **Tests**: `backend/test_superprofile_import.py`, 92 tests built on the real page structure.
 
 ## 8. Instant Loading Performance (0ms Lag)
 
