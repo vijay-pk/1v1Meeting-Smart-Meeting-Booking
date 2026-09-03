@@ -1276,13 +1276,30 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-700">Razorpay Key ID</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] font-semibold text-slate-700">Razorpay Key ID</Label>
+                    <a
+                      href="https://dashboard.razorpay.com/#/access/api_keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"
+                    >
+                      <span>Open Razorpay</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
                   <Input
                     value={masterRzpKey}
                     onChange={(e) => setMasterRzpKey(e.target.value)}
-                    placeholder="rzp_test_..."
+                    placeholder="rzp_live_... (Live Key ID)"
                     className="text-xs rounded-xl bg-white h-8.5 font-mono"
                   />
+                  {masterRzpKey.startsWith('rzp_live_') && (
+                    <p className="text-[10px] text-emerald-700 font-bold">● Live Mode (Real payments active)</p>
+                  )}
+                  {masterRzpKey.startsWith('rzp_test_') && (
+                    <p className="text-[10px] text-amber-700 font-medium">⚠️ Test Mode key. Use rzp_live_ for real money.</p>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -1305,7 +1322,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 onClick={handleSaveMasterProfileSettings}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold h-8.5 rounded-xl shadow-xs cursor-pointer"
               >
-                {masterIntegrationsSaved ? '✓ Credentials Saved' : 'Save Razorpay & Profile'}
+                {masterIntegrationsSaved ? '✓ Credentials Saved' : 'Connect Razorpay & Save'}
               </Button>
             </div>
           </div>

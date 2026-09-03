@@ -2094,12 +2094,13 @@ function PricingAndSessionsSettings({
 // =========================================================================
 function RazorpaySettings({ admin }: { admin: AdminUser }) {
   const { setupAdminRazorpay } = useBookingStore();
-  const [keyId, setKeyId] = useState(admin.razorpay_key_id || 'rzp_test_');
-  const [keySecret, setKeySecret] = useState('••••••••••••••••');
+  // Never default to a test key: real admins want real payments
+  const [keyId, setKeyId] = useState(admin.razorpay_key_id && admin.razorpay_key_id !== 'rzp_test_' ? admin.razorpay_key_id : '');
+  const [keySecret, setKeySecret] = useState(admin.razorpay_configured ? '••••••••••••••••' : '');
   const [accountRef, setAccountRef] = useState(admin.username || '');
   const [showSecret, setShowSecret] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
-  const [isConfigured, setIsConfigured] = useState(admin.razorpay_configured || false);
+  const [isConfigured, setIsConfigured] = useState(Boolean(admin.razorpay_configured && admin.razorpay_key_id && admin.razorpay_key_id !== 'rzp_test_'));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -2110,22 +2111,29 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
 
   const handleSave = async () => {
     setErrorMsg(null);
-    if (!keyId.trim() || keyId === 'rzp_test_') {
-      setErrorMsg('Please enter a valid Razorpay Key ID (starting with rzp_test_ or rzp_live_).');
+    const cleanKey = keyId.trim();
+    const cleanSecret = keySecret.trim();
+
+    if (!cleanKey) {
+      setErrorMsg('Please enter your Razorpay Key ID (for real payments, use rzp_live_...).');
       return;
     }
-    if (!keySecret.trim() || keySecret === '••••••••••••••••') {
+    if (!cleanKey.startsWith('rzp_live_') && !cleanKey.startsWith('rzp_test_')) {
+      setErrorMsg('Razorpay Key ID must start with "rzp_live_" (for real payments) or "rzp_test_".');
+      return;
+    }
+    if (!cleanSecret || cleanSecret === '••••••••••••••••') {
       setErrorMsg('Please enter your Razorpay Key Secret from your Razorpay Dashboard.');
       return;
     }
 
     setSaving(true);
-    setupAdminRazorpay(admin.id, keyId.trim());
+    setupAdminRazorpay(admin.id, cleanKey);
     try {
-      await api.setupRazorpay(keyId.trim(), keySecret.trim(), accountRef.trim());
+      await api.setupRazorpay(cleanKey, cleanSecret, accountRef.trim());
       setIsConfigured(true);
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      setTimeout(() => setSaved(false), 4000);
     } catch (e: any) {
       setErrorMsg(e?.message || 'Failed to save Razorpay credentials. Please verify your keys.');
     } finally {
@@ -2147,36 +2155,59 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           </span>
         </div>
         <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-          You have complete, independent authority over your payment gateway. Each admin connects their <strong>own Razorpay account</strong>.
-          Client booking payments for your sessions deposit directly into your linked bank account. The Super Admin does not manage or take a cut from your payments.
+          You have complete, independent authority over your payment gateway. Connect your <strong>own real Razorpay account</strong>.
+          Client booking payments deposit directly into your linked bank account. The platform takes 0% cut.
         </p>
       </div>
 
       {/* Connection Status Card */}
-      <div className="p-4 rounded-2xl border border-border bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm ${
-            isConfigured ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+      <div className={`p-4.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+        isConfigured && isLive
+          ? 'bg-emerald-50/60 border-emerald-200'
+          : isConfigured && isTest
+          ? 'bg-amber-50/60 border-amber-200'
+          : 'bg-slate-50 border-slate-200'
+      }`}>
+        <div className="flex items-center gap-3.5">
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-black text-lg shadow-sm ${
+            isConfigured && isLive
+              ? 'bg-emerald-600 text-white'
+              : isConfigured && isTest
+              ? 'bg-amber-500 text-white'
+              : 'bg-slate-300 text-slate-700'
           }`}>
-            {isConfigured ? '✓' : '!'}
+            {isConfigured && isLive ? '✓' : isConfigured ? '!' : '✕'}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-bold text-slate-900">
-                {isConfigured ? `Razorpay Connected for ${admin.full_name}` : 'Razorpay Not Yet Fully Configured'}
+                {isConfigured && isLive
+                  ? `Razorpay Live Connected for ${admin.full_name}`
+                  : isConfigured && isTest
+                  ? `Razorpay Test Mode (Simulated) for ${admin.full_name}`
+                  : 'Razorpay Not Yet Connected'}
               </p>
-              {isLive ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  ● Live Mode (Real Money)
+              {isConfigured && isLive ? (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                  ● Live Mode (Real Money Active)
                 </span>
-              ) : isTest ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+              ) : isConfigured && isTest ? (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
                   ● Test Mode (Simulated)
                 </span>
-              ) : null}
+              ) : (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 border border-slate-300">
+                  ● Real Payments Disabled
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-              Active Key: {keyId ? `${keyId.substring(0, 16)}...` : 'None configured'}
+              Active Key:{' '}
+              {keyId && keyId !== 'rzp_test_'
+                ? `${keyId.substring(0, 18)}...`
+                : isConfigured
+                ? 'Configured'
+                : 'None configured — follow the 2 steps below to connect'}
             </p>
           </div>
         </div>
@@ -2185,20 +2216,20 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           href="https://dashboard.razorpay.com/#/access/api_keys"
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700 transition shadow-2xs cursor-pointer self-start sm:self-auto"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
         >
-          <span>Open Razorpay Dashboard</span>
-          <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+          <span>Open Razorpay API Keys</span>
+          <ExternalLink className="w-3.5 h-3.5" />
         </a>
       </div>
 
-      {/* Written Step-by-Step Guide Section */}
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 via-white to-blue-50/40 p-5 space-y-4">
+      {/* QUICK CONNECT STEP-BY-STEP ACTION BOX */}
+      <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/50 p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-xs font-extrabold text-indigo-950 uppercase tracking-wider">
-              Written Guide: How to Connect to Razorpay & Get Your API Keys
+            <Sparkles className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-xs font-black text-indigo-950 uppercase tracking-wider">
+              How to Connect Real Razorpay in 2 Minutes
             </h3>
           </div>
           <button
@@ -2206,69 +2237,67 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             onClick={() => setShowGuide(!showGuide)}
             className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
           >
-            <span>{showGuide ? 'Collapse Guide' : 'Expand Guide'}</span>
+            <span>{showGuide ? 'Collapse' : 'Expand Guide'}</span>
             {showGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
 
         {showGuide && (
           <div className="space-y-3 pt-1 text-xs text-slate-700">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Step 1 */}
-              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">1</span>
-                  <p className="font-bold text-slate-900">Sign in to Razorpay</p>
+              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">1</span>
+                    <p className="font-bold text-slate-900">Open Razorpay Dashboard</p>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Click the button below to open your Razorpay Dashboard. Make sure you are in <strong>Live Mode</strong> (switch the toggle at top-left from "Test" to <strong>"Live"</strong>).
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
-                  Log in to your account at <a href="https://dashboard.razorpay.com" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-semibold">dashboard.razorpay.com</a>. If you don't have an account, sign up for free.
-                </p>
+                <a
+                  href="https://dashboard.razorpay.com/#/access/api_keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-[11px] border border-indigo-200 transition"
+                >
+                  <span>1. Open Razorpay</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
               {/* Step 2 */}
-              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">2</span>
-                  <p className="font-bold text-slate-900">Select Test or Live Mode</p>
+              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">2</span>
+                    <p className="font-bold text-slate-900">Generate Live Key</p>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Under <strong>API Keys</strong>, click <strong>"Generate Key"</strong>. Razorpay will show your <strong>Live Key ID</strong> (<code className="bg-emerald-50 text-emerald-800 font-bold px-1 rounded">rzp_live_...</code>) and <strong>Key Secret</strong>.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
-                  Use <strong>Test Mode</strong> (key starts with <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">rzp_test_</code>) to test bookings safely. Switch to <strong>Live Mode</strong> (<code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">rzp_live_</code>) to accept real payments.
-                </p>
+                <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                  ⚠️ Note: Copy the Key Secret immediately (shown only once).
+                </span>
               </div>
 
               {/* Step 3 */}
-              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">3</span>
-                  <p className="font-bold text-slate-900">Navigate to API Keys</p>
+              <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-black text-[11px] flex items-center justify-center">3</span>
+                    <p className="font-bold text-slate-900">Paste Below & Connect</p>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Paste the <strong>Key ID</strong> and <strong>Key Secret</strong> into the inputs below and click <strong>"Connect Razorpay to Website"</strong>. Real payments will go live immediately!
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
-                  In your Razorpay left sidebar, click <strong>Account & Settings</strong> (or <strong>Developer Controls</strong>) &rarr; select <strong>API Keys</strong> under <em>Webhooks & API Keys</em>.
-                </p>
+                <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 border border-emerald-200 rounded px-2 py-1 mt-2">
+                  ✓ Supports UPI (GPay, PhonePe, Paytm), Cards, NetBanking.
+                </span>
               </div>
-
-              {/* Step 4 */}
-              <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[11px] flex items-center justify-center">4</span>
-                  <p className="font-bold text-slate-900">Generate or Regenerate Key</p>
-                </div>
-                <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
-                  Click <strong>Generate Key</strong>. A popup will reveal your <strong>Key ID</strong> and <strong>Key Secret</strong>. <em>(Note: Key Secret is displayed only once!)</em>
-                </p>
-              </div>
-            </div>
-
-            {/* Step 5 & 6 banner */}
-            <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-[11px] text-indigo-950 space-y-1">
-              <p className="font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-indigo-600" />
-                <span>Step 5: Paste Credentials Below & Save</span>
-              </p>
-              <p className="text-indigo-800 leading-relaxed">
-                Paste your <strong>Key ID</strong> and <strong>Key Secret</strong> into the fields below, then click <strong>Save Razorpay Credentials</strong>.
-                Clients will immediately be able to book sessions with you using <strong>UPI (Google Pay, PhonePe, Paytm), Cards, and NetBanking</strong>.
-              </p>
             </div>
           </div>
         )}
@@ -2282,18 +2311,39 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
         </div>
       )}
 
+      {/* Mode hint badge when user enters key */}
+      {isLive && (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+          <span>
+            <strong>Live Key Detected (<code className="font-mono text-[11px]">{keyId.slice(0, 12)}...</code>):</strong> Client payments will be charged real money and deposited directly to your bank account.
+          </span>
+        </div>
+      )}
+
+      {isTest && (
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+          <span>
+            <strong>Test Key Entered:</strong> This key starts with <code className="font-mono font-bold">rzp_test_</code>. Payments are simulated and no real money will be charged. If you want real money, switch Razorpay to Live Mode and use <code className="font-mono font-bold">rzp_live_...</code>.
+          </span>
+        </div>
+      )}
+
       {/* Credentials Form */}
-      <div className="space-y-4">
+      <div className="space-y-4 pt-1">
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label className="text-xs font-bold text-slate-800">Razorpay Key ID</Label>
-            <span className="text-[10px] text-slate-400 font-mono">Starts with rzp_test_ or rzp_live_</span>
+            <Label className="text-xs font-bold text-slate-800">
+              Razorpay Key ID <span className="text-emerald-600 font-semibold">(Real payments use rzp_live_...)</span>
+            </Label>
+            <span className="text-[10px] text-slate-500 font-mono">Starts with rzp_live_ (Live) or rzp_test_</span>
           </div>
           <Input
             value={keyId}
             onChange={(e) => setKeyId(e.target.value)}
-            placeholder="e.g. rzp_live_1234567890abcdef or rzp_test_..."
-            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500"
+            placeholder="rzp_live_xxxxxxxxxxxxxxxx"
+            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500 h-10"
           />
         </div>
 
@@ -2313,8 +2363,8 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             type={showSecret ? 'text' : 'password'}
             value={keySecret}
             onChange={(e) => setKeySecret(e.target.value)}
-            placeholder="Enter Razorpay Secret Key"
-            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500"
+            placeholder="Paste your Razorpay Key Secret here"
+            className="text-xs font-mono rounded-xl bg-white border-slate-200 focus:border-indigo-500 h-10"
           />
           <p className="text-[11px] text-slate-500">
             Encrypted with <strong>AES-256</strong> at rest. Your secret key is never sent to the client browser and is strictly used server-side to generate and verify payment orders.
@@ -2326,7 +2376,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           <Input
             value={accountRef}
             onChange={(e) => setAccountRef(e.target.value)}
-            placeholder="e.g. your business name"
+            placeholder="e.g. My Mentorship Business"
             className="text-xs rounded-xl bg-white border-slate-200"
           />
           <p className="text-[10px] text-slate-400">
@@ -2355,9 +2405,9 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
         <Button
           onClick={handleSave}
           disabled={saving}
-          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl cursor-pointer shadow-md shadow-emerald-600/20 transition"
+          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl cursor-pointer shadow-md shadow-emerald-600/20 transition h-10"
         >
-          {saving ? 'Saving Credentials...' : saved ? '✓ Credentials Saved Successfully' : 'Save Razorpay Credentials'}
+          {saving ? 'Connecting Razorpay...' : saved ? '✓ Razorpay Connected & Saved!' : 'Connect Razorpay to Website'}
         </Button>
       </div>
     </div>

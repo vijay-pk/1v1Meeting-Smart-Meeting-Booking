@@ -404,7 +404,11 @@ export const PaymentCheckoutPage: React.FC = () => {
                 </span>
               </div>
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white border border-blue-200 text-blue-800 font-semibold">
-                {isCustomAdminKey ? `${adminRazorpayKey?.slice(0, 14)}...` : 'Test Mode Active'}
+                {isCustomAdminKey && adminRazorpayKey?.startsWith('rzp_live_')
+                  ? '● Live Secure Payment'
+                  : isCustomAdminKey
+                  ? `${adminRazorpayKey?.slice(0, 14)}...`
+                  : 'Direct Payment'}
               </span>
             </div>
 
