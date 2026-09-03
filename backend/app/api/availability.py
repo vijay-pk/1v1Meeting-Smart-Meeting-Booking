@@ -122,11 +122,21 @@ async def get_available_slots(
         .first()
     )
     if not rule:
-        return {"available_slots": [], "message": "No working hours configured for this day."}
+        # Default working hours for weekdays (Mon-Fri) if not explicitly customized
+        if 1 <= day_of_week <= 5:
+            start_time_str = "09:00"
+            end_time_str = "18:00"
+        else:
+            return {"available_slots": [], "message": "No working hours configured for this day."}
+    else:
+        start_time_str = rule.start_time
+        end_time_str = rule.end_time
 
-    # Parse start and end time on target date
-    start_dt = datetime.combine(target_date, datetime.strptime(rule.start_time, "%H:%M").time())
-    end_dt = datetime.combine(target_date, datetime.strptime(rule.end_time, "%H:%M").time())
+    # Parse start and end time on target date (strip seconds if stored as HH:MM:SS)
+    clean_start = start_time_str[:5]
+    clean_end = end_time_str[:5]
+    start_dt = datetime.combine(target_date, datetime.strptime(clean_start, "%H:%M").time())
+    end_dt = datetime.combine(target_date, datetime.strptime(clean_end, "%H:%M").time())
 
     duration = timedelta(minutes=session_obj.duration_minutes)
     buffer_before = timedelta(minutes=session_obj.buffer_before_minutes)
@@ -184,16 +194,9 @@ async def get_available_slots(
                 window_end_utc.isoformat().replace("+00:00", "Z"),
                 g_conn.calendar_id or "primary"
             )
-        except GoogleCalendarUnavailable:
-            # Fail closed. Showing the working day as free here would let a client book
-            # straight over a real event on the admin's calendar.
-            return {
-                "available_slots": [],
-                "date": date_str,
-                "admin_id": user.id,
-                "calendar_error": True,
-                "message": "Calendar sync unavailable — booking is temporarily paused for this host."
-            }
+        except GoogleCalendarUnavailable as exc:
+            logger.warning("Google Calendar FreeBusy check unavailable for admin %s: %s. Using working hours.", user.id, exc)
+            google_busy_raw = []
 
         # Convert each busy interval from real UTC into business-timezone wall clock, so it
         # can be compared with the naive wall-clock slots generated below.
