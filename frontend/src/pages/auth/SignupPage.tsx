@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,8 @@ export function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameAvailability, setUsernameAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
 
   const navigate = useNavigate();
 
@@ -44,12 +46,39 @@ export function SignupPage() {
     setUsername(sanitized);
   };
 
+  // Live real-time check to ensure each admin has their own unique username
+  useEffect(() => {
+    const clean = username.trim().toLowerCase();
+    if (clean.length < 3) {
+      setUsernameAvailability(null);
+      setCheckingUsername(false);
+      return;
+    }
+    setCheckingUsername(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await api.checkUsername(clean);
+        setUsernameAvailability(result);
+      } catch {
+        setUsernameAvailability(null);
+      } finally {
+        setCheckingUsername(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [username]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (username.length < 3) {
       setError('Username must be at least 3 characters');
+      return;
+    }
+
+    if (usernameAvailability && !usernameAvailability.available) {
+      setError(usernameAvailability.reason || 'This username is already taken. Please choose another.');
       return;
     }
 
@@ -149,7 +178,7 @@ export function SignupPage() {
                 </div>
                 <h2 className="text-sm font-bold text-white">Personal URL</h2>
                 <p className="text-xs text-slate-400">
-                  Claim your link at <code className="text-orange-400 font-mono text-[11px]">localhost:5173/:username</code> with custom themes, videos & bio.
+                  Claim your link at <code className="text-orange-400 font-mono text-[11px]">{typeof window !== 'undefined' ? window.location.host : 'bookmymeet'}/:username</code> with custom themes, videos & bio.
                 </p>
               </div>
 
@@ -224,7 +253,7 @@ export function SignupPage() {
                       <Input
                         id="signup-name"
                         type="text"
-                        placeholder="Rahul Sharma"
+                        placeholder="Enter your full name"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
                         className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"
@@ -242,20 +271,44 @@ export function SignupPage() {
                       <Input
                         id="signup-username"
                         type="text"
-                        placeholder="rahul"
+                        placeholder="Enter unique username"
                         value={username}
                         onChange={(e) => handleUsernameChange(e.target.value)}
-                        className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"
+                        className={`bg-slate-950 text-white pl-10 h-10 rounded-xl text-xs transition-colors ${
+                          usernameAvailability && !usernameAvailability.available
+                            ? 'border-red-500 focus:border-red-500'
+                            : usernameAvailability?.available
+                            ? 'border-emerald-500 focus:border-emerald-500'
+                            : 'border-slate-700'
+                        }`}
                         required
                         minLength={3}
                         maxLength={30}
                       />
                     </div>
                     {username.length >= 3 && (
-                      <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1 font-medium font-mono">
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span>localhost:5173/{username}</span>
-                      </p>
+                      <div className="mt-1 text-[11px] font-mono">
+                        {checkingUsername ? (
+                          <p className="text-slate-400 flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                            <span>Checking username availability...</span>
+                          </p>
+                        ) : usernameAvailability?.available ? (
+                          <p className="text-emerald-400 flex items-center gap-1 font-semibold">
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{window.location.host}/{username} (Available)</span>
+                          </p>
+                        ) : usernameAvailability && !usernameAvailability.available ? (
+                          <p className="text-red-400 flex items-center gap-1 font-semibold">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                            <span>{usernameAvailability.reason || 'Username is already taken'}</span>
+                          </p>
+                        ) : (
+                          <p className="text-slate-400">
+                            {window.location.host}/{username}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -287,7 +340,7 @@ export function SignupPage() {
                       <Input
                         id="signup-phone"
                         type="tel"
-                        placeholder="+91 98765 43210"
+                        placeholder="Enter phone number (optional)"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="bg-slate-950 border-slate-700 text-white pl-10 h-10 rounded-xl text-xs"

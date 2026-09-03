@@ -429,7 +429,7 @@ export const PaymentCheckoutPage: React.FC = () => {
                   <Input
                     id="cust-name"
                     required
-                    placeholder="e.g. Rahul Sharma"
+                    placeholder="Enter your full name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="pl-10 h-11 rounded-xl text-sm"
