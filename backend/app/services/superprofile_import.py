@@ -69,12 +69,38 @@ REQUEST_HEADERS = {
 }
 
 # The supported route when superprofile.bio's bot check refuses an automated request. It is
-# the admin's own page, opened in their own browser; nothing is bypassed on our side.
-PASTE_INSTRUCTION = (
-    "Open your SuperProfile page in your browser, right-click the page and choose "
-    '"Inspect", then right-click the top <html> element and choose "Copy > Copy outerHTML". '
-    "Paste that here instead — prices are only visible in the browser-rendered page."
+# the admin's own page, opened in their own browser; nothing is bypassed on our side. The
+# wording stays short because the UI shows it to an admin, not to a developer.
+BLOCKED_MESSAGE = (
+    "SuperProfile is blocking automated access to this page. You can still import your "
+    "public information by providing the page content instead."
 )
+
+# Fingerprints of an interstitial served *instead of* the page: Vercel's checkpoint (what
+# superprofile.bio uses), Cloudflare's, and generic CAPTCHA walls. A challenge can arrive with
+# a 200, so the body is checked as well as the status code -- otherwise the parser would read
+# the challenge page and report "no importable content", which is the wrong diagnosis.
+CHALLENGE_MARKERS = (
+    "vercel security checkpoint",
+    "just a moment",
+    "checking your browser",
+    "cf-browser-verification",
+    "cf_chl_opt",
+    "__cf_chl",
+    "attention required! | cloudflare",
+    "enable javascript and cookies to continue",
+    "please verify you are a human",
+    "g-recaptcha",
+    "h-captcha",
+)
+
+
+def looks_like_a_challenge_page(html: str) -> bool:
+    """True when the document is an anti-bot interstitial rather than the page asked for."""
+    if not html:
+        return False
+    head = html[:20000].lower()
+    return any(marker in head for marker in CHALLENGE_MARKERS)
 
 
 class SuperProfileURLError(ValueError):
@@ -83,6 +109,20 @@ class SuperProfileURLError(ValueError):
 
 class SuperProfileFetchError(Exception):
     """The public page could not be retrieved."""
+
+
+class SuperProfileBlockedError(SuperProfileFetchError):
+    """
+    An anti-bot control refused the request.
+
+    Distinct from every other fetch failure because it has a specific, legitimate remedy --
+    the page's owner supplies the page content themselves -- and because it must never be
+    worked around. Nothing in this module solves a challenge, retries with a browser
+    User-Agent, or otherwise tries to look like something it is not.
+    """
+
+    reason = "automated_access_blocked"
+    fallback = "html_paste"
 
 
 class SuperProfileParseError(Exception):
@@ -195,24 +235,12 @@ async def fetch_public_page(
 
                     if response.status_code == 404:
                         raise SuperProfileFetchError("That SuperProfile page could not be found.")
-                    if response.status_code in (401, 403):
-                        # The page is gated. We do not try to look like a browser or work
-                        # around the check -- an import must not bypass an access control.
-                        raise SuperProfileFetchError(
-                            "SuperProfile did not allow this page to be read automatically. "
-                            "Only publicly accessible pages can be imported. "
-                            + PASTE_INSTRUCTION
-                        )
-                    if response.status_code == 429:
-                        # Verified behaviour: superprofile.bio sits behind Vercel's bot
-                        # check, which answers every non-browser request with 429 and a
-                        # "Vercel Security Checkpoint" JavaScript challenge. Solving that
-                        # challenge would be bypassing an anti-bot control, so we do not.
-                        raise SuperProfileFetchError(
-                            "SuperProfile blocks automated requests for this page (it is "
-                            "behind a browser security check we will not try to defeat). "
-                            + PASTE_INSTRUCTION
-                        )
+                    if response.status_code in (401, 403, 429, 503):
+                        # Verified behaviour: superprofile.bio sits behind Vercel's bot check,
+                        # which answers every non-browser request with 429 and a JavaScript
+                        # challenge. Solving that challenge would be defeating an anti-bot
+                        # control, so this stops here and offers the supported alternative.
+                        raise SuperProfileBlockedError(BLOCKED_MESSAGE)
                     if response.status_code != 200:
                         raise SuperProfileFetchError("Unable to access this public page.")
 
@@ -229,7 +257,12 @@ async def fetch_public_page(
                         if total > max_bytes:
                             raise SuperProfileFetchError("That page is too large to import.")
                         chunks.append(chunk)
-                    return b"".join(chunks).decode("utf-8", errors="replace")
+                    body = b"".join(chunks).decode("utf-8", errors="replace")
+                    # A challenge can be served with a 200. Reporting it as a successful
+                    # fetch would make the parser blame the page for having no content.
+                    if looks_like_a_challenge_page(body):
+                        raise SuperProfileBlockedError(BLOCKED_MESSAGE)
+                    return body
 
             raise SuperProfileFetchError("That page redirected too many times.")
     except SuperProfileFetchError:
@@ -923,6 +956,11 @@ async def import_superprofile(url: str, page_html: Optional[str] = None) -> Dict
     if page_html:
         if len(page_html) > MAX_PASTED_BYTES:
             raise SuperProfileFetchError("That page source is too large to import.")
+        if looks_like_a_challenge_page(page_html):
+            raise SuperProfileParseError(
+                "That looks like the security-check page rather than your booking page. "
+                "Wait for the page itself to finish loading, then copy it again."
+            )
         return parse_superprofile(page_html, validated)
     html = await fetch_public_page(validated)
     return parse_superprofile(html, validated)

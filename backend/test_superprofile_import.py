@@ -457,18 +457,15 @@ def test_oversized_response_is_refused(monkeypatch):
         sp._host_resolves_to_public_ip = original_resolver
 
 
-def test_bot_check_explains_the_paste_route_instead_of_defeating_it(monkeypatch):
-    """
-    superprofile.bio answers every non-browser request with 429 and Vercel's JavaScript
-    challenge. Solving that challenge would be bypassing an anti-bot control, so the fetcher
-    stops and tells the admin to paste their own page instead.
-    """
+def _fetch_returning(status_code, body=b"", content_type="text/html"):
+    """Runs fetch_public_page against a canned HTTP response."""
     class FakeResponse:
-        status_code = 429
-        headers = {"content-type": "text/html"}
+        def __init__(self):
+            self.status_code = status_code
+            self.headers = {"content-type": content_type}
 
         async def aiter_bytes(self):
-            yield b""
+            yield body
 
     class FakeStream:
         async def __aenter__(self):
@@ -484,7 +481,7 @@ def test_bot_check_explains_the_paste_route_instead_of_defeating_it(monkeypatch)
         async def __aexit__(self, *args):
             return False
 
-        def stream(self, *args, **kwargs):
+        def stream(self, *a, **k):
             return FakeStream()
 
     import asyncio
@@ -493,13 +490,95 @@ def test_bot_check_explains_the_paste_route_instead_of_defeating_it(monkeypatch)
     httpx.AsyncClient = lambda *a, **k: FakeClient()
     sp._host_resolves_to_public_ip = lambda host: True
     try:
-        with pytest.raises(sp.SuperProfileFetchError) as excinfo:
-            asyncio.run(sp.fetch_public_page("https://superprofile.bio/bookings/handle"))
-        message = str(excinfo.value)
-        assert "blocks automated requests" in message
-        assert "Copy outerHTML" in message
+        return asyncio.run(sp.fetch_public_page("https://superprofile.bio/bookings/handle"))
     finally:
         httpx.AsyncClient, sp._host_resolves_to_public_ip = original_client, original_resolver
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 429, 503])
+def test_an_anti_bot_status_is_reported_as_blocked_not_defeated(status_code):
+    """
+    superprofile.bio sits behind Vercel's bot check, which answers every non-browser request
+    with 429 and a JavaScript challenge. Solving that challenge would be defeating an
+    anti-bot control, so the fetcher stops and says so in a form the UI can act on.
+    """
+    with pytest.raises(sp.SuperProfileBlockedError) as excinfo:
+        _fetch_returning(status_code)
+
+    assert excinfo.value.reason == "automated_access_blocked"
+    assert excinfo.value.fallback == "html_paste"
+    # The message an admin reads: no status codes, no developer instructions.
+    assert "blocking automated access" in str(excinfo.value)
+    assert "outerHTML" not in str(excinfo.value)
+    assert "F12" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("marker", [
+    "<title>Vercel Security Checkpoint</title>",
+    "<title>Just a moment...</title>",
+    "<div class=\"cf-browser-verification\">",
+    "<div class=\"g-recaptcha\"></div>",
+    "Enable JavaScript and cookies to continue",
+])
+def test_a_challenge_page_served_with_200_is_still_blocked(marker):
+    """
+    The interstitial can arrive with a 200. Treating that as a successful fetch would make
+    the parser blame the page for having no content, which is the wrong diagnosis and hides
+    the one thing the admin can actually act on.
+    """
+    body = ("<html><head>" + marker + "</head><body></body></html>").encode()
+    with pytest.raises(sp.SuperProfileBlockedError):
+        _fetch_returning(200, body)
+
+
+def test_a_normal_page_is_not_mistaken_for_a_challenge():
+    body = _one_session_page().encode()
+    assert "1:1 Digital Marketing Consultation" in _fetch_returning(200, body)
+
+
+def test_blocked_preview_returns_a_structured_fallback(monkeypatch, admin):
+    """
+    The UI needs to tell "we were blocked" apart from "that URL is wrong", because only the
+    first has a remedy it can offer. It must never look like a successful, empty import.
+    """
+    async def blocked(url: str, page_html: str | None = None):
+        raise sp.SuperProfileBlockedError(sp.BLOCKED_MESSAGE)
+
+    monkeypatch.setattr(import_api, "import_superprofile", blocked)
+
+    res = _preview(admin)
+    assert res.status_code == 502
+    detail = res.json()["detail"]
+    assert detail["status"] == "blocked"
+    assert detail["reason"] == "automated_access_blocked"
+    assert detail["fallback"] == "html_paste"
+    assert "blocking automated access" in detail["message"]
+    assert "Traceback" not in res.text
+
+
+def test_an_ordinary_fetch_failure_is_not_reported_as_blocked(monkeypatch, admin):
+    async def failing(url: str, page_html: str | None = None):
+        raise sp.SuperProfileFetchError("That page took too long to respond.")
+
+    monkeypatch.setattr(import_api, "import_superprofile", failing)
+
+    detail = _preview(admin).json()["detail"]
+    assert isinstance(detail, str), "only an anti-bot block gets the structured shape"
+
+
+def test_pasting_the_challenge_page_by_mistake_is_explained(admin, monkeypatch):
+    """An admin who copies too early gets the checkpoint page. Say so, precisely."""
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("pasted source must not trigger an outbound request")
+
+    monkeypatch.setattr(sp, "fetch_public_page", must_not_be_called)
+
+    res = client.post("/api/profile-import/preview", headers=admin["headers"], json={
+        "source_url": "https://superprofile.bio/bookings/testhandle",
+        "page_html": "<html><head><title>Vercel Security Checkpoint</title></head><body></body></html>",
+    })
+    assert res.status_code == 422
+    assert "security-check page" in res.json()["detail"]
 
 
 # ---------------------------------------------------------------------------------------

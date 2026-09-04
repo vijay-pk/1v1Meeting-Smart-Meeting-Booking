@@ -41,6 +41,7 @@ from app.services.superprofile_import import (
     clean_text,
     normalize_video_url,
     SuperProfileURLError,
+    SuperProfileBlockedError,
     SuperProfileFetchError,
     SuperProfileParseError,
     MAX_TITLE_LEN,
@@ -269,6 +270,19 @@ async def preview_import(
         parsed = await import_superprofile(req.source_url, req.page_html)
     except SuperProfileURLError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SuperProfileBlockedError as exc:
+        # Machine-readable, because the UI has a specific screen for this one case: an
+        # anti-bot control refused us, and the remedy is for the page's owner to supply the
+        # content. Never reported as a successful but empty import.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "status": "blocked",
+                "reason": exc.reason,
+                "fallback": exc.fallback,
+                "message": str(exc),
+            },
+        ) from exc
     except SuperProfileFetchError as exc:
         # The page could not be reached. A clean sentence, never an exception trace.
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

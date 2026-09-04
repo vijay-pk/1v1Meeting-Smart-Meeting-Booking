@@ -229,6 +229,18 @@ no HTML is stored, so nothing can be rendered as HTML later.
 Only then does the server download it (SSRF-guarded, `image/*`, ≤5 MB) into
 `backend/uploads/photos/` and store the local URL. Third-party images are never hotlinked.
 
+**Blocked pages are a first-class outcome, not an error string.** `fetch_public_page` raises
+`SuperProfileBlockedError` for 401/403/429/503 *and* for a 200 whose body matches
+`CHALLENGE_MARKERS` (Vercel's checkpoint, Cloudflare's, a CAPTCHA wall) — a challenge served
+with a 200 would otherwise be parsed and misreported as "no importable content". The API turns
+it into a structured `502` body, `{"status": "blocked", "reason": "automated_access_blocked",
+"fallback": "html_paste", "message": …}`, which is the only detail that is an object rather
+than a sentence. The modal has a dedicated calm screen for it: "SuperProfile blocked automated
+access", with **Try URL again** and **Advanced: paste page HTML**. URL import is always the
+front door; the paste textarea and the desktop Inspect/outerHTML steps are two levels down and
+never shown by default. Never make the paste flow primary, and never add a browser
+User-Agent retry or any other challenge workaround.
+
 **Known limitation — superprofile.bio declines our fetches.** The importer identifies itself
 honestly as `BookMyMeet-ProfileImporter/1.0`, and superprofile.bio answers **429** to it
 while serving 200 to a browser User-Agent. Spoofing a browser would be working around an

@@ -140,7 +140,21 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Unable to access this public page.');
+      const detail = err.detail;
+      // The backend reports an anti-bot block as a structured object, because the UI has a
+      // dedicated screen for it. Everything else is a plain sentence.
+      if (detail && typeof detail === 'object') {
+        const error = new Error(detail.message || 'Unable to access this public page.') as Error & {
+          status?: string;
+          reason?: string;
+          fallback?: string;
+        };
+        error.status = detail.status;
+        error.reason = detail.reason;
+        error.fallback = detail.fallback;
+        throw error;
+      }
+      throw new Error(typeof detail === 'string' ? detail : 'Unable to access this public page.');
     }
     return res.json();
   },

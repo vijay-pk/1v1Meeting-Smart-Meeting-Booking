@@ -116,10 +116,12 @@ export const SuperProfileImportModal: React.FC<{
   const [mode, setMode] = useState<ImportMode>('add');
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [result, setResult] = useState<any>(null);
-  // Shown only after an automated fetch is declined: SuperProfile answers 429 to
-  // non-browser clients, and imitating a browser to get around that is not something this
-  // feature does. The page owner can paste their own page source instead.
-  const [pasteMode, setPasteMode] = useState(false);
+  // Set only when the backend reports an anti-bot block. Pasting the page is the fallback,
+  // never the front door: SuperProfile refuses non-browser clients, and imitating a browser
+  // to get around that is not something this feature does.
+  const [blocked, setBlocked] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showDesktopSteps, setShowDesktopSteps] = useState(false);
   const [pageHtml, setPageHtml] = useState('');
 
   const duplicateFor = useMemo(() => {
@@ -142,7 +144,9 @@ export const SuperProfileImportModal: React.FC<{
     setMode('add');
     setConfirmReplace(false);
     setResult(null);
-    setPasteMode(false);
+    setBlocked(false);
+    setShowAdvanced(false);
+    setShowDesktopSteps(false);
     setPageHtml('');
   };
 
@@ -161,14 +165,14 @@ export const SuperProfileImportModal: React.FC<{
       setError(invalid);
       return;
     }
-    if (pasteMode && !pageHtml.trim()) {
-      setError('Paste the page source, or switch back to importing by URL.');
+    if (showAdvanced && !pageHtml.trim()) {
+      setError('Paste the page content, or try the URL again.');
       return;
     }
     setError('');
     setPhase('loading');
     try {
-      const data = await api.importPreview(sourceUrl.trim(), pasteMode ? pageHtml : undefined);
+      const data = await api.importPreview(sourceUrl.trim(), showAdvanced ? pageHtml : undefined);
       setImportId(data.import_id);
       setProfile(data.profile);
       setDuplicates(data.duplicates || []);
@@ -192,13 +196,16 @@ export const SuperProfileImportModal: React.FC<{
         preselected[f.key] = !!f.get(data.profile);
       });
       setSelectedProfileFields(preselected);
+      setBlocked(false);
       setPhase('preview');
     } catch (e: any) {
-      const message = e?.message || 'Unable to access this public page.';
-      setError(message);
-      // The backend tells the admin to paste the source when the fetch is declined; open
-      // that path for them rather than leaving them stuck on a dead end.
-      if (message.toLowerCase().includes('paste')) setPasteMode(true);
+      if (e?.status === 'blocked') {
+        // Its own screen, not a red error: nothing is wrong with what the admin typed.
+        setBlocked(true);
+        setError('');
+      } else {
+        setError(e?.message || 'Unable to access this public page.');
+      }
       setPhase('url');
     }
   };
@@ -274,77 +281,134 @@ export const SuperProfileImportModal: React.FC<{
         {(phase === 'url' || phase === 'loading') && (
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-text-secondary">Your public SuperProfile URL</Label>
-              <p className="text-[11px] text-text-tertiary">
-                Use your <strong>booking</strong> page (…/bookings/your-handle) — that is the
-                page your sessions live on.
-              </p>
+              <Label htmlFor="sp-url" className="text-xs font-semibold text-text-secondary">
+                Your public SuperProfile booking URL
+              </Label>
               <Input
+                id="sp-url"
                 value={sourceUrl}
-                onChange={(e) => setSourceUrl(e.target.value)}
+                onChange={(e) => { setSourceUrl(e.target.value); setBlocked(false); }}
                 placeholder="https://superprofile.bio/bookings/your-handle"
-                className="text-xs rounded-xl"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                // 16px under `md` so iOS does not zoom the modal on focus.
+                className="h-11 text-base sm:text-sm rounded-xl"
                 disabled={phase === 'loading'}
                 onKeyDown={(e) => e.key === 'Enter' && phase === 'url' && handlePreview()}
               />
+              <p className="text-[11px] text-text-tertiary">
+                Your sessions live on the <strong>booking</strong> page, so use that one.
+              </p>
             </div>
 
-            {pasteMode && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-text-secondary">Page source</Label>
-                <Textarea
-                  value={pageHtml}
-                  onChange={(e) => setPageHtml(e.target.value)}
-                  rows={5}
-                  placeholder="Open your SuperProfile page in the browser, press F12, right-click the top <html> element and choose Copy > Copy outerHTML, then paste it here."
-                  className="text-[11px] rounded-xl font-mono"
-                  disabled={phase === 'loading'}
-                />
-                <p className="text-[10px] text-text-tertiary leading-relaxed">
-                  Copy the rendered page (Inspect &rarr; right-click &lt;html&gt; &rarr; Copy
-                  outerHTML). “View source” works too, but SuperProfile draws its prices in
-                  the browser, so a view-source paste imports sessions without prices.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => { setPasteMode(false); setPageHtml(''); setError(''); }}
-                  className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
-                >
-                  Import by URL instead
-                </button>
+            {/* The one case with a specific remedy gets its own calm screen rather than a
+                wall of red text. Nothing the admin typed is wrong. */}
+            {blocked && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-amber-900">
+                      SuperProfile blocked automated access
+                    </p>
+                    <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                      We can&rsquo;t read this page automatically right now. You can try again,
+                      or provide the public page content yourself.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    onClick={handlePreview}
+                    disabled={phase === 'loading'}
+                    className="min-h-[44px] flex-1 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Try URL again
+                  </Button>
+                  {!showAdvanced && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAdvanced(true)}
+                      className="min-h-[44px] flex-1 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Advanced: paste page HTML
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
 
-            <p className="text-[11px] text-text-tertiary leading-relaxed">
-              Only import content you have permission to reuse. This reads the public page
-              only — it does not sign in to SuperProfile, and it does not work around any
-              access control. Your booking link, payment settings and calendar connection are
-              never changed by an import.
-            </p>
-
-            {!pasteMode && (
-              <button
-                type="button"
-                onClick={() => setPasteMode(true)}
-                className="text-[11px] font-semibold text-text-tertiary hover:text-text-secondary hover:underline cursor-pointer"
-              >
-                SuperProfile blocking the import? Paste the page source instead
-              </button>
+            {/* Advanced only, and only ever opened deliberately. */}
+            {showAdvanced && (
+              <div className="space-y-2 rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="sp-html" className="text-xs font-semibold text-text-secondary">
+                    Advanced: paste page HTML
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAdvanced(false); setPageHtml(''); setError(''); }}
+                    className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer min-h-[32px] px-1"
+                  >
+                    Back to URL
+                  </button>
+                </div>
+                <p className="text-[11px] text-text-tertiary leading-relaxed">
+                  Open your SuperProfile booking page in a browser that can show the page
+                  content, copy it, and paste it below.
+                </p>
+                <Textarea
+                  id="sp-html"
+                  value={pageHtml}
+                  onChange={(e) => setPageHtml(e.target.value)}
+                  rows={4}
+                  placeholder="Paste the page content here"
+                  className="text-[11px] rounded-xl font-mono"
+                  disabled={phase === 'loading'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowDesktopSteps((v) => !v)}
+                  aria-expanded={showDesktopSteps}
+                  className="text-[11px] font-semibold text-text-tertiary hover:text-text-secondary hover:underline cursor-pointer min-h-[32px]"
+                >
+                  {showDesktopSteps ? 'Hide' : 'Show'} desktop instructions
+                </button>
+                {showDesktopSteps && (
+                  <p className="text-[10px] text-text-tertiary leading-relaxed">
+                    On a computer: open the page, right-click &rarr; Inspect, right-click the
+                    top <code>&lt;html&gt;</code> element &rarr; Copy &rarr; Copy outerHTML.
+                    &ldquo;View source&rdquo; works too, but SuperProfile draws its prices in
+                    the browser, so a view-source copy imports sessions without prices.
+                  </p>
+                )}
+              </div>
             )}
 
             <Button
               onClick={handlePreview}
               disabled={phase === 'loading'}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl px-5 py-2.5 cursor-pointer"
+              className="w-full sm:w-auto min-h-[44px] bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl px-5 cursor-pointer"
             >
               {phase === 'loading' ? (
                 <span className="flex items-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Reading the page…
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Reading the page&hellip;
                 </span>
               ) : (
-                'Preview Import'
+                'Import'
               )}
             </Button>
+
+            <p className="text-[11px] text-text-tertiary leading-relaxed">
+              Only import content you have permission to reuse. This reads the public page
+              only &mdash; it does not sign in to SuperProfile and does not work around any
+              access control. Your booking link, photo, prices, payment settings and calendar
+              connection are never changed without your confirmation.
+            </p>
           </div>
         )}
 
