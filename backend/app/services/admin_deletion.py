@@ -77,6 +77,26 @@ def is_username_retired(db: Session, username: str) -> bool:
     )
 
 
+def _delete_storage_objects(paths: list) -> None:
+    """Removes stored media objects, never raising: the account is already deleted."""
+    if not paths:
+        return
+    import asyncio
+
+    from app.services.supabase_storage import delete_object, is_configured
+
+    if not is_configured():
+        return
+    try:
+        async def _run():
+            for path in paths:
+                await delete_object(path)
+
+        asyncio.run(_run())
+    except Exception as exc:                                    # noqa: BLE001 - best effort
+        logger.warning(f"Could not remove stored media objects {paths}: {exc}")
+
+
 def permanently_delete_admin(
     db: Session,
     admin: User,
@@ -179,9 +199,16 @@ def permanently_delete_admin(
             .filter(SessionModel.admin_id == admin_id)
             .delete(synchronize_session=False)
         )
-        # Their uploaded photos and videos go with the account. Deleted explicitly rather
+        # Their uploaded media goes with the account. The rows are deleted explicitly rather
         # than left to the foreign key, because SQLite only enforces ON DELETE CASCADE when
-        # the pragma is on, and media is the one thing that would otherwise outlive the row.
+        # the pragma is on. The stored objects are collected first and removed from Supabase
+        # Storage after the transaction commits: an object deleted inside the transaction
+        # could not be brought back if the transaction then rolled back.
+        orphaned_objects = [
+            row.storage_path
+            for row in db.query(MediaAsset).filter(MediaAsset.owner_id == admin_id).all()
+            if row.storage_path
+        ]
         db.query(MediaAsset).filter(MediaAsset.owner_id == admin_id).delete(synchronize_session=False)
         profiles_deleted = (
             db.query(AdminProfile)
@@ -199,6 +226,11 @@ def permanently_delete_admin(
         db.rollback()
         logger.error(f"Permanent deletion of admin {admin_id} failed and was rolled back: {exc}")
         raise AdminDeletionError("Deletion failed and was rolled back; no data was removed.") from exc
+
+    # The rows are gone and committed; now discard the objects they referenced. Best effort
+    # and deliberately after the commit -- an orphaned object in a bucket is untidy, while a
+    # deletion that fails here after the account is already gone would be a real problem.
+    _delete_storage_objects(orphaned_objects)
 
     summary = {
         "admin_id": admin_id,

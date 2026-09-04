@@ -32,8 +32,39 @@ from app.models.models import (
     ProfileImport,
 )
 
+from app.services import supabase_storage
+
 seed_initial_data()
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def fake_storage(monkeypatch):
+    """
+    Stands in for Supabase Storage, recording what was stored.
+
+    The real bucket is not reachable from a test run, and a test that needed it would be a
+    test of somebody else's uptime. What is asserted here is our half of the contract: the
+    object path, the bytes handed over, the reference written to the row, and the fact that
+    nothing is written to the database until the object is safely stored.
+    """
+    objects = {}
+
+    async def fake_upload(object_path, data, content_type):
+        objects[object_path] = (data, content_type)
+        return supabase_storage.public_url(object_path)
+
+    async def fake_delete(object_path):
+        objects.pop(object_path, None)
+
+    monkeypatch.setattr(supabase_storage, "upload_object", fake_upload)
+    monkeypatch.setattr(supabase_storage, "delete_object", fake_delete)
+    monkeypatch.setattr(supabase_storage, "is_configured", lambda: True)
+    # The endpoint imported these by name at module load, so patch there too.
+    from app.api import upload as upload_api
+    monkeypatch.setattr(upload_api, "upload_object", fake_upload)
+    monkeypatch.setattr(upload_api, "is_configured", lambda: True)
+    return objects
 
 PASSWORD = "TestPassw0rd!123"
 PNG_BYTES = (
@@ -424,36 +455,97 @@ def test_unrelated_actions_never_change_the_photo_or_profile(tracked, admin, db,
 # Photo storage
 # =======================================================================================
 
-def test_an_uploaded_photo_is_stored_in_the_database(admin, db):
+def test_an_uploaded_photo_goes_to_supabase_storage(admin, db, fake_storage):
+    """The bytes go to the bucket; the row keeps the reference, not the image."""
     url = _upload_photo(admin)
-    asset_id = url.rsplit("/", 1)[-1]
 
-    row = db.query(MediaAsset).filter(MediaAsset.id == asset_id).one()
+    assert len(fake_storage) == 1
+    object_path, (stored_bytes, content_type) = next(iter(fake_storage.items()))
+    assert stored_bytes == PNG_BYTES
+    assert content_type == "image/png"
+
+    row = db.query(MediaAsset).filter(MediaAsset.public_url == url).one()
     assert row.owner_id == admin["id"]
-    assert row.data == PNG_BYTES
-    assert row.content_type == "image/png"
+    assert row.storage_provider == "supabase"
+    assert row.storage_path == object_path
+    assert row.public_url == url
+    # The image itself is not in the database.
+    assert row.data is None
 
 
-def test_an_uploaded_photo_is_readable_by_an_unauthenticated_client(admin):
+def test_the_object_path_is_built_from_the_admin_not_the_filename(admin, fake_storage):
+    """
+    The uploader's filename never reaches the path, so it cannot contain "..", a leading
+    slash, or anything else that would escape this admin's own prefix.
+    """
+    _upload_photo(admin, name="../../../etc/passwd.png")
+
+    object_path = next(iter(fake_storage))
+    assert object_path.startswith("profile/" + admin["id"] + "/avatar/")
+    assert object_path.endswith(".png")
+    assert ".." not in object_path
+    assert "passwd" not in object_path
+
+
+def test_two_uploads_never_collide(admin, fake_storage):
+    first = _upload_photo(admin)
+    second = _upload_photo(admin)
+    assert first != second
+    assert len(fake_storage) == 2
+
+
+def test_the_public_profile_returns_the_storage_url(admin, fake_storage):
     url = _upload_photo(admin)
-    asset_id = url.rsplit("/", 1)[-1]
+    _set_profile(admin, profile_photo=url)
 
-    res = client.get(f"/api/media/{asset_id}")
+    body = _public(admin["username"]).json()
+    assert body["profile_photo"] == url
+    assert "/storage/v1/object/public/profile-media/" in body["profile_photo"]
+
+
+def test_media_endpoint_redirects_to_the_stored_object(admin):
+    url = _upload_photo(admin)
+    session = SessionLocal()
+    try:
+        asset_id = session.query(MediaAsset).filter(MediaAsset.public_url == url).one().id
+    finally:
+        session.close()
+
+    res = client.get("/api/media/" + asset_id, follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"] == url
+
+
+def test_media_endpoint_still_serves_rows_from_the_old_bytes_storage(admin, db):
+    """Rows written before the move to object storage must keep working."""
+    legacy = MediaAsset(
+        owner_id=admin["id"],
+        filename="legacy.png",
+        content_type="image/png",
+        byte_size=len(PNG_BYTES),
+        storage_provider="database",
+        data=PNG_BYTES,
+    )
+    db.add(legacy)
+    db.commit()
+
+    res = client.get("/api/media/" + legacy.id)
     assert res.status_code == 200
     assert res.content == PNG_BYTES
-    assert res.headers["content-type"].startswith("image/png")
 
 
-def test_a_photo_survives_a_restart(admin):
+def test_a_photo_survives_a_restart(admin, fake_storage):
     """
-    The point of moving the bytes into the database. On the old filesystem storage this is
-    where the photo disappeared: the row still held the URL, the file did not exist.
+    The object lives outside this process entirely, so a restart cannot touch it. Both of
+    the previous storage locations failed exactly here.
     """
     url = _upload_photo(admin)
-    asset_id = url.rsplit("/", 1)[-1]
+    _set_profile(admin, profile_photo=url)
 
     from app.main import app as rebuilt_app
-    assert TestClient(rebuilt_app).get(f"/api/media/{asset_id}").content == PNG_BYTES
+    body = TestClient(rebuilt_app).get("/api/profiles/public/" + admin["username"]).json()
+    assert body["profile_photo"] == url
+    assert next(iter(fake_storage.values()))[0] == PNG_BYTES
 
 
 def test_uploading_requires_authentication():
@@ -461,16 +553,54 @@ def test_uploading_requires_authentication():
     assert res.status_code == 401
 
 
-def test_replacing_a_photo_keeps_the_old_one_readable_until_the_new_one_is_stored(admin, db):
+def test_upload_is_refused_when_storage_is_not_configured(admin, monkeypatch):
+    """
+    No silent local fallback. A fallback that works in development and loses files in
+    production is worse than a refusal, because nobody finds out until the photos are gone.
+    """
+    from app.api import upload as upload_api
+    monkeypatch.setattr(upload_api, "is_configured", lambda: False)
+
+    res = client.post(
+        "/api/upload",
+        headers=admin["headers"],
+        files={"file": ("me.png", io.BytesIO(PNG_BYTES), "image/png")},
+    )
+    assert res.status_code == 503
+    assert "not configured" in res.json()["detail"]
+
+
+def test_a_storage_failure_leaves_the_current_photo_alone(admin, db, monkeypatch):
+    existing = _upload_photo(admin)
+    _set_profile(admin, profile_photo=existing)
+
+    async def failing(object_path, data, content_type):
+        raise supabase_storage.SupabaseStorageError("The file could not be stored.")
+
+    from app.api import upload as upload_api
+    monkeypatch.setattr(upload_api, "upload_object", failing)
+
+    res = client.post(
+        "/api/upload",
+        headers=admin["headers"],
+        files={"file": ("new.png", io.BytesIO(PNG_BYTES), "image/png")},
+    )
+    assert res.status_code == 502
+    # Nothing was written, and the saved photo is exactly as it was.
+    assert _stored(admin, db).profile_photo == existing
+    assert _public(admin["username"]).json()["profile_photo"] == existing
+
+
+def test_replacing_a_photo_keeps_the_old_one_until_the_new_one_is_stored(admin, db, fake_storage):
     first = _upload_photo(admin, "old.png")
     _set_profile(admin, profile_photo=first)
 
     second = _upload_photo(admin, "new.png")
     assert second != first
-    # The new file exists before anything points at it, and the old one is still readable --
-    # a failed save can never leave the profile pointing at nothing.
-    assert client.get(f"/api/media/{first.rsplit('/', 1)[-1]}").status_code == 200
-    assert client.get(f"/api/media/{second.rsplit('/', 1)[-1]}").status_code == 200
+    # Both objects exist: the new one is stored before anything points at it, and the old one
+    # is never removed on the way.
+    assert len(fake_storage) == 2
+    assert _stored(admin, db).profile_photo == first
 
     _set_profile(admin, profile_photo=second)
     assert _stored(admin, db).profile_photo == second
@@ -478,37 +608,57 @@ def test_replacing_a_photo_keeps_the_old_one_readable_until_the_new_one_is_store
 
 
 def test_an_oversized_image_is_refused(admin):
-    big = b"\x00" * (9 * 1024 * 1024)
+    big = PNG_BYTES + b"\x00" * (9 * 1024 * 1024)
     res = client.post(
         "/api/upload",
         headers=admin["headers"],
         files={"file": ("huge.png", io.BytesIO(big), "image/png")},
-        data={"file_type": "photo"},
     )
     assert res.status_code == 413
 
 
-def test_an_unsupported_file_type_is_refused(admin):
+@pytest.mark.parametrize("name,content_type,body", [
+    ("payload.exe", "application/x-msdownload", b"MZ\x90\x00"),
+    # An executable wearing an image name and Content-Type. Neither is trusted.
+    ("avatar.png", "image/png", b"MZ\x90\x00this is a windows binary"),
+    ("script.svg", "image/svg+xml", b"<svg onload=alert(1)></svg>"),
+    ("notes.txt", "text/plain", b"just text"),
+    ("empty.png", "image/png", b""),
+])
+def test_only_real_images_are_accepted(admin, name, content_type, body):
     res = client.post(
         "/api/upload",
         headers=admin["headers"],
-        files={"file": ("payload.exe", io.BytesIO(b"MZ"), "application/x-msdownload")},
-        data={"file_type": "auto"},
+        files={"file": (name, io.BytesIO(body), content_type)},
     )
-    assert res.status_code == 400
+    assert res.status_code in (400, 413), name + " was not rejected"
 
 
-def test_deleting_an_admin_removes_their_media(tracked, db):
+def test_a_real_image_wearing_the_wrong_name_is_accepted(admin, fake_storage):
+    """The bytes decide, in both directions: a genuine PNG called .txt is still a PNG."""
+    res = client.post(
+        "/api/upload",
+        headers=admin["headers"],
+        files={"file": ("notes.txt", io.BytesIO(PNG_BYTES), "text/plain")},
+    )
+    assert res.status_code == 200, res.text
+    assert next(iter(fake_storage)).endswith(".png")
+
+
+def test_deleting_an_admin_removes_their_media(tracked, db, fake_storage):
     from app.services.admin_deletion import permanently_delete_admin
 
     victim = _make_admin(tracked, "m")
-    url = _upload_photo(victim)
-    asset_id = url.rsplit("/", 1)[-1]
-    assert client.get(f"/api/media/{asset_id}").status_code == 200
+    _upload_photo(victim)
+    row = db.query(MediaAsset).filter(MediaAsset.owner_id == victim["id"]).one()
+    asset_id, object_path = row.id, row.storage_path
+    assert client.get("/api/media/" + asset_id, follow_redirects=False).status_code == 307
+    assert object_path in fake_storage
 
     permanently_delete_admin(db, db.query(User).filter(User.id == victim["id"]).one())
 
-    assert client.get(f"/api/media/{asset_id}").status_code == 404
+    assert client.get("/api/media/" + asset_id).status_code == 404
+    assert object_path not in fake_storage, "the stored object must go with the account"
 
 
 # =======================================================================================
@@ -542,3 +692,53 @@ def test_the_video_persists_until_the_admin_changes_it(admin, db):
 
     _set_profile(admin, intro_video="https://vimeo.com/1130419767")
     assert _stored(admin, db).intro_video == "https://vimeo.com/1130419767"
+
+
+def test_a_superprofile_import_never_changes_the_photo(admin, db, monkeypatch, fake_storage):
+    """
+    The import parses no image at all, so there is no field for apply to write. Asserted
+    end to end anyway, because "the import replaced my photo" is the failure this rule
+    exists to prevent.
+    """
+    photo = _upload_photo(admin)
+    _set_profile(admin, profile_photo=photo)
+
+    from app.services import superprofile_import as sp
+
+    page = (
+        '<html><head>'
+        '<meta property="og:image" content="https://media-cdn.cosmofeed.com/og.png">'
+        '<script id="__NEXT_DATA__" type="application/json">'
+        + '{"props":{"pageProps":{"prefetchedData":{'
+          '"name":"Someone Else",'
+          '"image":"https://media-cdn.cosmofeed.com/their-photo.png",'
+          '"bio":"Imported bio","sessions":[]}}}}'
+        + '</script></head><body></body></html>'
+    )
+
+    async def fake_import(url, page_html=None):
+        return sp.parse_superprofile(page, sp.validate_superprofile_url(url))
+
+    from app.api import profile_imports as import_api
+    monkeypatch.setattr(import_api, "import_superprofile", fake_import)
+
+    preview = client.post("/api/profile-import/preview", headers=admin["headers"], json={
+        "source_url": "https://superprofile.bio/bookings/someone",
+    })
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    # No image reaches the preview at all.
+    assert "cosmofeed" not in preview.text
+    assert "profile_image" not in preview.text
+
+    applied = client.post("/api/profile-import/apply", headers=admin["headers"], json={
+        "import_id": body["import_id"],
+        "mode": "replace",
+        "profile_fields": ["name", "bio", "profile_image"],
+        "sessions": [],
+        "confirm_replace": True,
+    })
+    assert applied.status_code == 200, applied.text
+
+    assert _stored(admin, db).profile_photo == photo
+    assert _public(admin["username"]).json()["profile_photo"] == photo

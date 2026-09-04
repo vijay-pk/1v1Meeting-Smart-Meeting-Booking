@@ -1,96 +1,68 @@
 """
 Uploads for profile media.
 
-Bytes go into the database (`media_assets`), not onto the server's disk. The previous
-implementation wrote into `backend/uploads/` and handed back a filesystem URL: on a container
-host that directory does not survive a deploy or a restart, so an admin's stored
-`profile_photo` kept pointing at a file that no longer existed. Nothing had reset the profile
--- the row was fine, the bytes were gone -- but the effect was a photo that disappeared on its
-own, which is exactly what must never happen.
+The object goes to Supabase Storage; the database keeps the reference. Two earlier locations
+both lost data and are worth naming so neither comes back:
 
-`/uploads/...` is still mounted in main.py so URLs stored before this change keep resolving
-for as long as those files exist; new uploads are addressed as `/api/media/{id}`.
+* `backend/uploads/` on the server's own filesystem — wiped by every deploy on a container
+  host, leaving `admin_profiles.profile_photo` pointing at a file that no longer existed.
+* a bytes column in Postgres — durable, but multi-megabyte blobs in the application's own
+  table space, and every read went through the API process.
+
+There is deliberately **no local-filesystem fallback**. If Storage is not configured the
+upload fails with a clear message rather than quietly writing somewhere that will not survive:
+a fallback that works in development and loses files in production is worse than an honest
+refusal, because nobody finds out until the photos are gone.
+
+`/uploads` stays mounted in main.py, and `/api/media/{id}` still serves rows written by the
+bytes implementation, so nothing already stored breaks.
 """
-import os
+import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin
 from app.core.database import get_db
 from app.models.models import MediaAsset, User
+from app.services.supabase_storage import (
+    build_object_path,
+    is_configured,
+    sniff_image_type,
+    upload_object,
+    SupabaseStorageError,
+    SupabaseStorageNotConfigured,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 # Serving is its own router so it can be mounted at /api/media rather than under /api/upload.
 media_router = APIRouter()
 
-ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".avif"}
-ALLOWED_VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogv"}
-
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_VIDEO_BYTES = 25 * 1024 * 1024
-
-# Read in chunks so an oversized file is refused while streaming rather than after the whole
-# thing is already in memory.
 CHUNK_BYTES = 256 * 1024
 
-CONTENT_TYPE_BY_EXT = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-    ".svg": "image/svg+xml",
-    ".bmp": "image/bmp",
-    ".avif": "image/avif",
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mov": "video/quicktime",
-    ".m4v": "video/x-m4v",
-    ".mkv": "video/x-matroska",
-    ".avi": "video/x-msvideo",
-    ".ogv": "video/ogg",
-}
-
-
-def _public_base_url(request: Request) -> str:
-    """The externally visible origin, respecting the proxy in front of us."""
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    if "onrender.com" in host or "vercel.app" in host:
-        proto = "https"
-    return f"{proto}://{host}".rstrip("/")
+STORAGE_UNAVAILABLE = (
+    "Photo storage is not configured on this server, so the upload was not saved. "
+    "Set SUPABASE_URL and a valid SUPABASE_SERVICE_ROLE_KEY and try again."
+)
 
 
 @router.post("")
 async def upload_file(
-    request: Request,
     file: UploadFile = File(...),
     file_type: str = Form("auto"),
-    # Authenticated: this endpoint used to accept a file from anyone at all, which is an
-    # open invitation to fill the host's storage.
+    # Authenticated: this endpoint used to accept a file from anyone at all.
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    original_name = file.filename or "media_file"
-    ext = os.path.splitext(original_name)[1].lower()
-    content_type = (file.content_type or "").lower()
+    if not is_configured():
+        raise HTTPException(status_code=503, detail=STORAGE_UNAVAILABLE)
 
-    is_video = file_type == "video" or ext in ALLOWED_VIDEO_EXTS or "video" in content_type
-    is_image = file_type == "photo" or ext in ALLOWED_IMAGE_EXTS or "image" in content_type
-
-    if not is_video and not is_image:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Unsupported file format. Please choose an image "
-                f"({', '.join(sorted(ALLOWED_IMAGE_EXTS))}) or video "
-                f"({', '.join(sorted(ALLOWED_VIDEO_EXTS))})."
-            ),
-        )
-
-    limit = MAX_VIDEO_BYTES if is_video else MAX_IMAGE_BYTES
+    # Read with a hard cap, so an oversized upload is refused while streaming rather than
+    # after the whole thing is already in memory.
     chunks: list[bytes] = []
     total = 0
     while True:
@@ -98,29 +70,47 @@ async def upload_file(
         if not chunk:
             break
         total += len(chunk)
-        if total > limit:
+        if total > MAX_IMAGE_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"That file is larger than {limit // (1024 * 1024)}MB.",
+                detail=f"That file is larger than {MAX_IMAGE_BYTES // (1024 * 1024)}MB.",
             )
         chunks.append(chunk)
 
     if total == 0:
         raise HTTPException(status_code=400, detail="That file is empty.")
 
-    resolved_type = (
-        content_type
-        if content_type.startswith(("image/", "video/"))
-        else CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
-    )
+    content = b"".join(chunks)
 
-    clean_name = "".join(c for c in original_name if c.isalnum() or c in "._-").strip()
+    # What the file *is*, decided by its own bytes. The filename and the browser-supplied
+    # Content-Type are both attacker-controlled and neither is trusted: a .png called
+    # payload.exe is rejected, and so is an executable called avatar.png.
+    sniffed = sniff_image_type(content[:32])
+    if not sniffed:
+        raise HTTPException(
+            status_code=400,
+            detail="That file is not a supported image. Please upload a JPEG, PNG, WebP, GIF or AVIF.",
+        )
+    content_type, extension = sniffed
+
+    object_path = build_object_path(current_admin.id, extension)
+    try:
+        url = await upload_object(object_path, content, content_type)
+    except SupabaseStorageNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=STORAGE_UNAVAILABLE) from exc
+    except SupabaseStorageError as exc:
+        # The stored profile is untouched: nothing is written to the database until the
+        # object is safely in the bucket, so a failed upload cannot lose the current photo.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     asset = MediaAsset(
         owner_id=current_admin.id,
-        filename=clean_name or f"upload{ext}",
-        content_type=resolved_type,
+        filename=(file.filename or f"upload{extension}")[:255],
+        content_type=content_type,
         byte_size=total,
-        data=b"".join(chunks),
+        storage_provider="supabase",
+        storage_path=object_path,
+        public_url=url,
     )
     db.add(asset)
     db.commit()
@@ -128,10 +118,11 @@ async def upload_file(
 
     return {
         "success": True,
-        "url": f"{_public_base_url(request)}/api/media/{asset.id}",
-        "filename": original_name,
+        # The public bucket URL, served by Supabase's CDN rather than by this process.
+        "url": url,
+        "filename": file.filename,
         "saved_as": asset.id,
-        "type": "video" if is_video else "photo",
+        "type": "photo",
         "size": total,
     }
 
@@ -139,23 +130,30 @@ async def upload_file(
 @media_router.get("/{asset_id}")
 def get_media(asset_id: str, db: Session = Depends(get_db)):
     """
-    Serves an uploaded file. Deliberately public and unauthenticated: a host's profile photo
-    has to load for a client opening their booking link on any device, signed in or not.
+    Resolves an uploaded file. Public and unauthenticated: a host's profile photo has to load
+    for a client opening their booking link on any device, signed in or not.
 
-    Only the stored bytes and their content type are returned -- never the owner, and nothing
-    else about the account.
+    For anything stored in Supabase this redirects to the object's public URL rather than
+    proxying the bytes -- the row holds a reference, and pretending otherwise would mean
+    streaming every image through the API process for no reason. Rows written by the previous
+    bytes-in-Postgres implementation are still served directly, so old links keep working.
     """
     asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="File not found")
 
-    return Response(
-        content=asset.data,
-        media_type=asset.content_type,
-        headers={
-            # Ids are unique per upload and content never changes under one, so this is safe
-            # to cache hard. Replacing a photo mints a new id and therefore a new URL.
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "Content-Length": str(asset.byte_size),
-        },
-    )
+    if asset.public_url:
+        return RedirectResponse(asset.public_url, status_code=307)
+
+    if asset.data is not None:
+        return Response(
+            content=asset.data,
+            media_type=asset.content_type,
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Content-Length": str(asset.byte_size),
+            },
+        )
+
+    logger.error("Media asset %s has neither a public URL nor stored bytes.", asset_id)
+    raise HTTPException(status_code=404, detail="File not found")

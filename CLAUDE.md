@@ -167,13 +167,25 @@ admin or client calling it gets 403; an unauthenticated caller gets 401.
 `backend/test_public_profile.py` (33 tests) guards the host's page, which is the thing they
 actually share with clients.
 
-- **Uploaded media lives in the database** (`media_assets`), served by the public
-  `GET /api/media/{id}`. It used to be written to `backend/uploads/` and referenced by a
-  filesystem URL: on a container host that directory is wiped by every deploy, so
-  `admin_profiles.profile_photo` kept pointing at a file that no longer existed and the photo
-  looked like it had reset itself. `/uploads` stays mounted for URLs stored before the change.
-  `POST /api/upload` now requires an admin (it accepted a file from anyone), caps images at
-  8MB and video at 25MB, and `permanently_delete_admin` removes the owner's assets.
+- **Uploaded media lives in Supabase Storage**, in a public bucket named `profile-media` that
+  `supabase_storage.ensure_bucket()` creates on the first upload. `media_assets` holds the
+  reference (`storage_path`, `public_url`), not the image; its `data` column is nullable and
+  serves only rows written by the previous bytes-in-Postgres implementation. Two earlier
+  locations both lost files and must not come back: `backend/uploads/` on the server's disk
+  (wiped by every deploy, leaving `profile_photo` pointing at nothing) and bytes in Postgres.
+  **There is deliberately no local-filesystem fallback** — without
+  `SUPABASE_SERVICE_ROLE_KEY` the upload returns 503 and says so, because a fallback that
+  works in development and loses files in production is worse than a refusal.
+  `GET /api/media/{id}` redirects (307) to the object URL for stored objects and still serves
+  bytes for legacy rows. `POST /api/upload` requires an admin (it accepted a file from
+  anyone), caps at 8MB, and decides the file type from its **own magic bytes** — never the
+  filename or Content-Type. SVG is rejected: it can carry script and these objects are public.
+  Paths are `profile/{admin_id}/avatar/{uuid}{ext}`, built server-side, so an uploader's
+  filename cannot influence them. `permanently_delete_admin` removes the rows and then the
+  objects, after the transaction commits.
+- Schema change: `backend/migrations/003_media_storage.sql`, applied with
+  `python scripts/apply_media_storage_migration.py` (handles PostgreSQL and SQLite, idempotent,
+  deletes nothing). `create_all` cannot add columns to a table that already exists.
 - **`GET /api/profiles/me` used `GoogleConnection` without importing it** and raised
   `NameError` -> 500 for every admin. Nothing tested it, so the suite stayed green. Settings
   swallowed that failure, fell back to a placeholder identity (`username: 'admin'`, every text

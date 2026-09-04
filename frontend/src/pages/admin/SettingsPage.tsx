@@ -915,7 +915,9 @@ function ProfileCustomizer({
             <input
               type="file"
               ref={photoInputRef}
-              accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml"
+              // SVG is deliberately absent: it can carry script, and these files are served from a
+              // public bucket. The server decides from the bytes regardless of what is offered here.
+              accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/avif"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

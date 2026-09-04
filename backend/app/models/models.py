@@ -266,17 +266,20 @@ class ProfileImport(Base):
 
 class MediaAsset(Base):
     """
-    An uploaded image or video, stored in the database rather than on the server's disk.
+    One admin-uploaded image or video: the metadata, and where the object actually lives.
 
-    Uploads used to be written to `backend/uploads/` and referenced by a filesystem URL. On a
-    container host that directory is ephemeral: every deploy and every restart wiped it, while
-    `admin_profiles.profile_photo` kept pointing at the now-missing file. From the admin's
-    side that looked exactly like "my photo reset itself" -- the row was intact, the bytes
-    were gone.
+    History matters here, because two storage locations came before this one and both lost
+    data. Files were first written to `backend/uploads/` and referenced by a filesystem URL --
+    a container host wipes that directory on every deploy, so the row kept pointing at a file
+    that no longer existed. They were then held as bytes in `data`, which is durable but puts
+    multi-megabyte blobs in the application's own table space.
 
-    The bytes live here so they last as long as the row that references them, and are served
-    by a public GET so a client on any device can load a host's photo. `owner_id` cascades, so
-    a permanently deleted admin's media goes with them and nothing else.
+    Now the object goes to Supabase Storage and this row holds the reference:
+    `storage_path` is the key inside the `profile-media` bucket, and `public_url` is the
+    stable URL a client's browser fetches. `data` remains nullable **only** so rows written by
+    the previous implementation keep serving; nothing new writes to it.
+
+    `owner_id` cascades, so a permanently deleted admin's media goes with them.
     """
     __tablename__ = "media_assets"
 
@@ -285,5 +288,13 @@ class MediaAsset(Base):
     filename = Column(String(255), nullable=False)
     content_type = Column(String(100), nullable=False)
     byte_size = Column(Integer, nullable=False)
-    data = Column(LargeBinary, nullable=False)
+
+    # Where the object lives now.
+    storage_provider = Column(String(30), default="supabase", nullable=False)
+    storage_path = Column(String(500), nullable=True)
+    public_url = Column(Text, nullable=True)
+
+    # Legacy only: rows created while bytes were held in the database. Never written now.
+    data = Column(LargeBinary, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
