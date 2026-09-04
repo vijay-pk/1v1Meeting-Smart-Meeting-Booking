@@ -183,6 +183,11 @@ actually share with clients.
   Paths are `profile/{admin_id}/avatar/{uuid}{ext}`, built server-side, so an uploader's
   filename cannot influence them. `permanently_delete_admin` removes the rows and then the
   objects, after the transaction commits.
+- Objects are cached `public, max-age=86400` rather than the year an immutable,
+  content-addressed URL would justify: **deleting an object does not purge Supabase's CDN**,
+  and a photo outliving a permanently deleted account by a year is not "permanently deleted".
+  `scripts/check_supabase_storage.py` verifies a whole environment (create bucket, upload,
+  read back publicly, delete) and prints no secrets.
 - Schema change: `backend/migrations/003_media_storage.sql`, applied with
   `python scripts/apply_media_storage_migration.py` (handles PostgreSQL and SQLite, idempotent,
   deletes nothing). `create_all` cannot add columns to a table that already exists.

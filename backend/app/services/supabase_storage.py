@@ -162,7 +162,12 @@ async def upload_object(object_path: str, data: bytes, content_type: str) -> str
                 # Paths carry a fresh uuid, so a collision means something is wrong; fail
                 # rather than silently replacing whatever is already there.
                 "x-upsert": "false",
-                "cache-control": "public, max-age=31536000, immutable",
+                # A day, not a year. The URL is content-addressed so the bytes behind it never
+                # change, which argues for caching forever -- but deleting an object does not
+                # purge Supabase's CDN, and a photo that outlives a permanently deleted
+                # account by a year is not "permanently deleted". A day is still long enough
+                # that a booking page costs one revalidation between visitors.
+                "cache-control": "public, max-age=86400",
             },
             content=data,
         )
