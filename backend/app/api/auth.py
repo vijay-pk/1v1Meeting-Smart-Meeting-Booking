@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.security import (
     verify_password, get_password_hash, create_access_token, normalize_email,
 )
-from app.models.models import User, AdminProfile, AvailabilityRule, Session as SessionModel
+from app.models.models import User, AdminProfile, AvailabilityRule
 from app.schemas.schemas import (
     UserLogin, UserSignup, Token, AdminProfileResponse,
     GoogleAuthRequest, GoogleAuthCompleteRequest, GoogleAuthResponse, UsernameAvailability,
@@ -177,40 +177,11 @@ def provision_admin(
             is_active=True
         ))
 
-    default_sessions = [
-        SessionModel(
-            admin_id=new_user.id,
-            title=f"1:1 Clarity Call with {new_user.name}",
-            description=f"Get clarity and strategic direction in a 1-on-1 private advisory call with {new_user.name}.",
-            duration_minutes=15,
-            price=149700,
-            original_price=499900,
-            currency="INR",
-            sort_order=1
-        ),
-        SessionModel(
-            admin_id=new_user.id,
-            title=f"30-Min Strategy Consultation with {new_user.name}",
-            description=f"In-depth 30-minute private consultation session with {new_user.name}.",
-            duration_minutes=30,
-            price=599400,
-            original_price=999900,
-            currency="INR",
-            sort_order=2
-        ),
-        SessionModel(
-            admin_id=new_user.id,
-            title=f"60-Min Intensive Growth Session with {new_user.name}",
-            description=f"Comprehensive roadmap and high-impact revenue scaling intensive call with {new_user.name}.",
-            duration_minutes=60,
-            price=1975000,
-            original_price=2499900,
-            currency="INR",
-            sort_order=3
-        ),
-    ]
-    for s in default_sessions:
-        db.add(s)
+    # No seeded sessions, and above all no seeded prices. This used to create three
+    # sessions priced at 149700 / 599400 / 1975000 paise -- amounts lifted from a demo
+    # SuperProfile account, active and sellable, on the public page of every admin who had
+    # never set a price. An admin creates their own sessions in Meeting Types; until then
+    # their page honestly shows none.
 
     return new_user
 

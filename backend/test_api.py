@@ -164,8 +164,15 @@ def test_super_admin_management_and_disable(admin_account, super_admin_headers):
 
 def test_slot_lock_double_booking_protection(admin_account):
     """The double-booking guard: a second hold on the same slot must be refused."""
+    # Signup seeds no sessions, so this test creates the one it locks a slot against.
+    created = client.post("/api/sessions/", headers=admin_account["headers"], json={
+        "title": "Slot Lock Session", "description": "", "duration_minutes": 15,
+        "price": 99900, "currency": "INR", "is_active": True,
+    })
+    assert created.status_code == 200, created.text
+    session_id = created.json()["id"]
+
     profile = client.get(f"/api/profiles/public/{admin_account['username']}").json()
-    session_id = profile["sessions"][0]["id"]
     admin_id = profile["id"]
 
     slot = {

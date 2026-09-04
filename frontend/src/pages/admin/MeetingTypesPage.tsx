@@ -19,7 +19,6 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/authStore';
-import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
 import { CURRENCIES, CALENDAR_COLORS } from '@/lib/constants';
@@ -40,7 +39,10 @@ const DEFAULT_MEETING: Partial<MeetingType> = {
   name: '',
   description: '',
   duration_minutes: 30,
-  price: 99900,
+  // No suggested price. A prefilled amount is a price nobody chose, and the admin has to
+  // notice and overwrite it; an empty field plus the "must be greater than 0" check makes
+  // every price an explicit decision.
+  price: 0,
   currency: 'INR',
   is_active: true,
   buffer_before_minutes: 0,
@@ -64,10 +66,16 @@ export function MeetingTypesPage() {
   const [error, setError] = useState('');
 
   const fetchMeetingTypes = async () => {
+    setLoading(true);
+    setError('');
     try {
+      // The FastAPI `sessions` table is the only source of truth for prices. This used to
+      // fall back to the Supabase `meeting_types` table whenever the API returned nothing or
+      // threw, and every save wrote to both -- so the two could hold different prices and the
+      // page showed whichever answered first.
       const apiSessions = await api.getMySessions();
-      if (apiSessions && apiSessions.length > 0) {
-        setMeetingTypes(apiSessions.map((s: any) => ({
+      setMeetingTypes(
+        (Array.isArray(apiSessions) ? apiSessions : []).map((s: any) => ({
           id: s.id,
           admin_id: s.admin_id || profile?.id || '',
           name: s.title,
@@ -88,23 +96,14 @@ export function MeetingTypesPage() {
           sort_order: s.sort_order || 1,
           created_at: s.created_at || new Date().toISOString(),
           updated_at: s.updated_at || new Date().toISOString(),
-        })));
-        setLoading(false);
-        return;
-      }
-    } catch (e) {}
-
-    if (!profile?.id) {
+        })) as MeetingType[]
+      );
+    } catch (e: any) {
+      setError(e?.message || 'Could not load your meeting types. Your saved prices are unchanged.');
+      setMeetingTypes([]);
+    } finally {
       setLoading(false);
-      return;
     }
-    const { data } = await supabase
-      .from('meeting_types')
-      .select('*')
-      .eq('admin_id', profile.id)
-      .order('sort_order', { ascending: true });
-    if (data) setMeetingTypes(data as MeetingType[]);
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -139,62 +138,27 @@ export function MeetingTypesPage() {
 
     try {
       const payload = {
-        admin_id: profile?.id || 'admin',
-        name: editingMeeting.name!.trim(),
+        title: editingMeeting.name!.trim(),
         description: editingMeeting.description || '',
         duration_minutes: editingMeeting.duration_minutes || 30,
         price: editingMeeting.price!,
+        original_price: editingMeeting.original_price || null,
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
-        buffer_before_minutes: editingMeeting.buffer_before_minutes || 0,
-        buffer_after_minutes: editingMeeting.buffer_after_minutes || 0,
-        min_advance_hours: editingMeeting.min_advance_hours || 2,
-        max_advance_days: editingMeeting.max_advance_days || 60,
-        cancellation_window_hours: editingMeeting.cancellation_window_hours || 24,
-        reschedule_allowed: editingMeeting.reschedule_allowed ?? true,
-        max_bookings_per_day: editingMeeting.max_bookings_per_day || null,
-        color_id: editingMeeting.color_id || 7,
-        sort_order: editingMeeting.sort_order || meetingTypes.length,
       };
 
-      // Sync to backend sessions API
+      // Not swallowed: a rejected save must be shown, not hidden behind a refetch that
+      // redisplays the old price as though the edit had never been made.
       if (editingMeeting.id) {
-        await api.updateSession(editingMeeting.id, {
-          title: editingMeeting.name!.trim(),
-          description: editingMeeting.description || '',
-          duration_minutes: editingMeeting.duration_minutes || 30,
-          price: editingMeeting.price!,
-          original_price: editingMeeting.original_price || null,
-          currency: editingMeeting.currency || 'INR',
-          is_active: editingMeeting.is_active ?? true,
-        }).catch(() => {});
-
-        try {
-          await supabase
-            .from('meeting_types')
-            .update(payload)
-            .eq('id', editingMeeting.id);
-        } catch (e) {}
+        await api.updateSession(editingMeeting.id, payload);
       } else {
-        await api.createSession({
-          title: editingMeeting.name!.trim(),
-          description: editingMeeting.description || '',
-          duration_minutes: editingMeeting.duration_minutes || 30,
-          price: editingMeeting.price!,
-          original_price: editingMeeting.original_price || null,
-          currency: editingMeeting.currency || 'INR',
-          is_active: editingMeeting.is_active ?? true,
-        }).catch(() => {});
-
-        try {
-          await supabase.from('meeting_types').insert(payload);
-        } catch (e) {}
+        await api.createSession(payload);
       }
 
       setDialogOpen(false);
       await fetchMeetingTypes();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(err instanceof Error ? err.message : 'Failed to save. Your saved price is unchanged.');
     } finally {
       setSaving(false);
     }
@@ -202,21 +166,23 @@ export function MeetingTypesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this meeting type?')) return;
-    await api.deleteSession(id).catch(() => {});
+    setError('');
     try {
-      await supabase.from('meeting_types').delete().eq('id', id);
-    } catch (e) {}
+      await api.deleteSession(id);
+    } catch (e: any) {
+      setError(e?.message || 'Could not delete that meeting type.');
+    }
     await fetchMeetingTypes();
   };
 
   const toggleActive = async (meeting: MeetingType) => {
-    await api.updateSession(meeting.id, { is_active: !meeting.is_active }).catch(() => {});
+    setError('');
     try {
-      await supabase
-        .from('meeting_types')
-        .update({ is_active: !meeting.is_active })
-        .eq('id', meeting.id);
-    } catch (e) {}
+      // Only `is_active` is sent. A partial update cannot disturb the stored price.
+      await api.updateSession(meeting.id, { is_active: !meeting.is_active });
+    } catch (e: any) {
+      setError(e?.message || 'Could not change that meeting type.');
+    }
     await fetchMeetingTypes();
   };
 
@@ -243,6 +209,15 @@ export function MeetingTypesPage() {
           </Button>
         }
       />
+
+      {/* A load failure must be visible on the page, not only inside the edit dialog:
+          otherwise an empty list reads as "you have no meeting types". */}
+      {error && !dialogOpen && (
+        <div className="flex items-start gap-2 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {meetingTypes.length === 0 ? (
         <Card>

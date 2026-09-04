@@ -107,12 +107,19 @@ def _make_admin(tracked, tag="a"):
     finally:
         session.close()
 
-    profile = client.get(f"/api/profiles/public/{username}").json()
+    headers = {"Authorization": f"Bearer {data['access_token']}"}
+    # Signup deliberately seeds no sessions and no prices, so each test creates its own.
+    created = client.post("/api/sessions/", headers=headers, json={
+        "title": "Test Consultation", "description": "", "duration_minutes": 30,
+        "price": 99900, "currency": "INR", "is_active": True,
+    })
+    assert created.status_code == 200, created.text
+
     return {
         "id": data["user_id"],
         "email": email,
-        "headers": {"Authorization": f"Bearer {data['access_token']}"},
-        "session_id": profile["sessions"][0]["id"],
+        "headers": headers,
+        "session_id": created.json()["id"],
     }
 
 

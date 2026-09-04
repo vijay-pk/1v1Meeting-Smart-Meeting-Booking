@@ -3,7 +3,7 @@ import hmac
 import logging
 import secrets
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
@@ -18,6 +18,7 @@ from app.schemas.schemas import (
 )
 from app.api.deps import get_current_admin
 from app.services.razorpay_service import (
+    check_razorpay_credentials,
     create_razorpay_order, verify_razorpay_signature,
     RazorpayConfigurationError, RazorpayOrderError,
     SIMULATED_PROVIDER, REAL_PROVIDER,
@@ -30,19 +31,78 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/admin/status")
-def get_payment_setup_status(
+async def get_payment_setup_status(
+    probe: bool = Query(False, description="Ask Razorpay whether the stored keys still work"),
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
+    """
+    Reports the stored connection, and optionally whether it still works.
+
+    `configured` reflects the database row and nothing else. `healthy` reflects a live,
+    read-only check against Razorpay. They diverge when the admin regenerated their keys at
+    Razorpay -- the row stays connected and the credentials stay stored, and the admin is
+    shown a "needs attention" state so they can update the keys themselves.
+
+    This endpoint never writes. A failing probe is a report, not a disconnect.
+    """
     conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == current_admin.id).first()
     if not conn:
-        return {"configured": False, "key_id": None, "account_reference": None}
+        return {
+            "configured": False,
+            "key_id": None,
+            "account_reference": None,
+            "healthy": False,
+            "needs_attention": False,
+            "last_error": None,
+        }
 
-    return {
-        "configured": conn.connection_status == "connected",
+    configured = conn.connection_status == "connected"
+    payload = {
+        "configured": configured,
+        # Public half only. The secret is encrypted at rest and is never returned.
         "key_id": conn.key_id,
-        "account_reference": conn.account_reference
+        "account_reference": conn.account_reference,
+        "connected_at": conn.created_at.isoformat() if conn.created_at else None,
+        "healthy": False,
+        "needs_attention": False,
+        "last_error": None,
     }
+
+    if not configured or not probe:
+        return payload
+
+    status_result = await check_razorpay_credentials(conn.key_id, conn.encrypted_key_secret)
+    payload["healthy"] = status_result.healthy
+    payload["last_error"] = status_result.reason
+    # Only a definitive rejection from Razorpay asks the admin to act. A network blip does not.
+    payload["needs_attention"] = status_result.permanent
+    return payload
+
+
+@router.post("/admin/disconnect")
+def disconnect_admin_razorpay(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    The only path that ends a Razorpay connection.
+
+    Nothing else in the codebase sets connection_status to anything but "connected": a
+    failed payment, a rejected signature, a gateway outage, a re-login or a profile save all
+    leave the stored credentials exactly as they were.
+
+    The row itself is kept, so a payment whose order was created before the disconnect can
+    still be verified against the secret it was created with. Sessions, prices, bookings and
+    profile data are untouched.
+    """
+    conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == current_admin.id).first()
+    if not conn:
+        return {"message": "Razorpay disconnected", "configured": False}
+
+    conn.connection_status = "disconnected"
+    db.commit()
+    return {"message": "Razorpay disconnected", "configured": False}
 
 @router.post("/admin/setup")
 def setup_admin_razorpay(
@@ -111,7 +171,9 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
     # 2. Get this Admin's own Razorpay Connection. There is no shared/platform fallback
     #    credential: an admin with no connected account simply cannot take payments.
     razorpay_conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin.id).first()
-    if razorpay_conn:
+    # A row the admin has explicitly disconnected must not take new payments, even though it
+    # is kept so already-created orders can still be verified.
+    if razorpay_conn and razorpay_conn.connection_status == "connected":
         key_id = razorpay_conn.key_id
         enc_secret = razorpay_conn.encrypted_key_secret
     elif settings.PAYMENTS_ALLOW_SIMULATION:

@@ -168,48 +168,9 @@ export const useBookingStore = create<BookingStoreState>()(
         get().addScheduleBlock(id, 4, '09:00', '17:00');
         get().addScheduleBlock(id, 5, '09:00', '17:00');
 
-        // Give default meeting types with customizable pricing for this new admin
-        get().addMeetingType({
-          admin_id: id,
-          name: `Quick Advisory with ${data.full_name.split(' ')[0]}`,
-          description: `15-minute quick strategy review with ${data.full_name}`,
-          duration_minutes: 15,
-          price: 29900,
-          original_price: 49900,
-          offer_price: 29900,
-          currency: 'INR',
-          is_active: true,
-          buffer_before_minutes: 5,
-          buffer_after_minutes: 5,
-          min_advance_hours: 1,
-          max_advance_days: 30,
-          cancellation_window_hours: 24,
-          reschedule_allowed: true,
-          max_bookings_per_day: 8,
-          color_id: 1,
-          sort_order: 1,
-        });
-
-        get().addMeetingType({
-          admin_id: id,
-          name: `1-on-1 Consultation with ${data.full_name.split(' ')[0]}`,
-          description: `30-minute private consultation session with ${data.full_name}`,
-          duration_minutes: 30,
-          price: 59900,
-          original_price: 119900,
-          offer_price: 59900,
-          currency: 'INR',
-          is_active: true,
-          buffer_before_minutes: 5,
-          buffer_after_minutes: 10,
-          min_advance_hours: 2,
-          max_advance_days: 30,
-          cancellation_window_hours: 24,
-          reschedule_allowed: true,
-          max_bookings_per_day: 6,
-          color_id: 2,
-          sort_order: 2,
-        });
+        // No seeded meeting types. This used to create two sessions priced at 29900 and
+        // 59900 paise -- amounts nobody chose, which then sat in localStorage and could be
+        // written over the admin's real prices by any save that read from the store.
 
         return newAdmin;
       },
@@ -293,13 +254,15 @@ export const useBookingStore = create<BookingStoreState>()(
 
       addMeetingType: (newMeeting) => {
         const id = `mt-${Date.now()}`;
-        const offer = newMeeting.offer_price || newMeeting.price || 49900;
+        // Whatever the caller passed, never a made-up amount: the old defaults here (49900,
+        // and an "original price" of offer * 1.5) were prices no admin had ever set.
+        const offer = newMeeting.offer_price ?? newMeeting.price ?? 0;
         const fullMeeting: MeetingType = {
           ...newMeeting,
           id,
           price: offer,
           offer_price: offer,
-          original_price: newMeeting.original_price || offer * 1.5,
+          original_price: newMeeting.original_price ?? null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -317,12 +280,12 @@ export const useBookingStore = create<BookingStoreState>()(
       getMeetingTypesForAdmin: (adminId) => {
         const state = get();
         if (!adminId) {
-          // General / Super Admin meetings
           return state.meetingTypes;
         }
-        const adminMeetings = state.meetingTypes.filter((m) => m.admin_id === adminId);
-        // Fallback to general meeting types if admin doesn't have custom ones
-        return adminMeetings.length > 0 ? adminMeetings : state.meetingTypes;
+        // Strictly this admin's own. The old "fall back to the general list" branch returned
+        // every admin's meeting types whenever this one had none, so Admin A could be shown
+        // Admin B's sessions and prices.
+        return state.meetingTypes.filter((m) => m.admin_id === adminId);
       },
 
       addScheduleBlock: (adminId, dayOfWeek, startTime, endTime) => {

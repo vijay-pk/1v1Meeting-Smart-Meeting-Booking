@@ -81,13 +81,20 @@ def _make_admin(tracked, tag="a"):
     data = res.json()
     tracked.append(data["user_id"])
 
-    profile = client.get(f"/api/profiles/public/{username}").json()
+    headers = {"Authorization": f"Bearer {data['access_token']}"}
+    # Signup seeds no sessions and no prices, so the test owns the one it books against.
+    created = client.post("/api/sessions/", headers=headers, json={
+        "title": "Test Consultation", "description": "", "duration_minutes": 30,
+        "price": 99900, "currency": "INR", "is_active": True,
+    })
+    assert created.status_code == 200, created.text
+
     return {
         "id": data["user_id"],
         "email": email,
         "username": username,
-        "headers": {"Authorization": f"Bearer {data['access_token']}"},
-        "session_id": profile["sessions"][0]["id"],
+        "headers": headers,
+        "session_id": created.json()["id"],
     }
 
 

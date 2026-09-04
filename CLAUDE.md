@@ -112,7 +112,10 @@ the public-profile 404 are enforced server-side; the frontend only presents them
 **No fake data, ever.** `main.seed_initial_data()` creates exactly one thing: the Super Admin,
 from `SUPER_ADMIN_*` env vars, and only when no super admin exists. No demo staff admins, no
 sample sessions, no placeholder availability, no connection rows holding placeholder
-credentials. `frontend/src/stores/bookingStore.ts` ships no seeded admins, sessions or
+credentials. `auth.provision_admin()` likewise seeds **no sessions**: it used to create three
+priced at 149700 / 599400 / 1975000 paise -- amounts copied from a demo SuperProfile account,
+active and sellable on the page of every admin who had never set a price. Tests that need a
+session create their own. `frontend/src/stores/bookingStore.ts` ships no seeded admins, sessions or
 bookings. Do not reintroduce any of it: a fake "connected" Razorpay or Google row is worse
 than none, because availability now fails closed on a calendar it cannot read.
 `backend/scripts/cleanup_demo_data.py` lists (and, with `--delete`, removes) demo/test
@@ -158,6 +161,37 @@ and never reaches the username step — the check is on the backend, not in the 
 request; a role sent by the client is never trusted. The delete endpoint additionally refuses
 any target whose `role != "admin"` (403), and refuses the caller's own id (403). A normal
 admin or client calling it gets 403; an unauthenticated caller gets 401.
+
+## Connection and price persistence
+
+Three things an admin configures once must survive everything except an explicit action of
+theirs. `backend/test_persistence.py` (44 tests) is the guard.
+
+- **Only `POST /api/payments/admin/disconnect` and `POST /api/google/admin/disconnect` end a
+  connection.** Nothing else in the codebase writes a `connection_status` other than
+  `"connected"`. A failed payment, a forged signature, a gateway outage, a revoked Google
+  grant, a re-login, a profile save and a backend restart all leave both rows exactly as they
+  were.
+- **Health is reported, never acted on.** Both status endpoints take `probe`: `connected` /
+  `configured` comes from the row, `healthy` from a live read-only check
+  (`check_razorpay_credentials` lists one payment; Google does a 5-minute FreeBusy). When they
+  diverge, the UI shows "needs attention" and the admin updates the credentials themselves.
+  Only a definitive 401/403 from Razorpay sets `needs_attention` -- a network error does not.
+- **Disconnect keeps the row.** Razorpay's key id and encrypted secret are retained so an
+  order created before the disconnect can still be verified; `create-order` refuses while
+  `connection_status != "connected"` (503). Sessions, prices, bookings and profile data are
+  untouched by either disconnect.
+- **Prices change only through `POST`/`PUT /api/sessions`.** `PUT /profiles/me` writes a fixed
+  allowlist of profile columns and cannot reach a price; `PUT /sessions/{id}` uses
+  `exclude_unset`, so toggling `is_active` leaves `price` alone.
+- **The frontend must never decide connectedness or price from cached state.** The failure
+  mode this replaced: `getRazorpayStatus` returned `{configured: false}` on any HTTP error, so
+  a blip read as "not connected"; `SettingsPage` and `MeetingTypesPage` fell back to the
+  persisted zustand store / the Supabase `meeting_types` table when the API call failed, and
+  saving then wrote those stale prices over the real ones; and both pages swallowed save
+  errors with `.catch(() => {})`, so a rejected price save looked like the price had reset
+  itself. All three are gone -- the API is the only source, and load and save failures are
+  shown.
 
 ## Import from SuperProfile
 

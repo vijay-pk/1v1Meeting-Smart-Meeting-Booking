@@ -1629,43 +1629,31 @@ function PricingAndSessionsSettings({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
+
   const loadSessions = async () => {
     setLoading(true);
+    setLoadError('');
     try {
+      // The database is the only source of truth for prices. There used to be a fallback to
+      // the persisted zustand store here: when this call failed, the page rendered whatever
+      // stale prices localStorage happened to hold, and saving then wrote those over the
+      // real ones. An empty list now means "no sessions yet"; a failure says so.
       const apiSessions = await api.getMySessions();
-      if (apiSessions && apiSessions.length > 0) {
-        setSessions(
-          apiSessions.map((s: any) => ({
-            ...s,
-            offerRupees: s.price ? String(Math.floor(s.price / 100)) : '',
-            origRupees: s.original_price ? String(Math.floor(s.original_price / 100)) : '',
-          }))
-        );
-        setLoading(false);
-        return;
-      }
-    } catch (e) {}
-
-    // Fallback to store
-    const storeMeetings = meetingTypes.filter(
-      (m) =>
-        m.admin_id === admin.id ||
-        (admin.role === 'super_admin' && !m.admin_id)
-    );
-    setSessions(
-      storeMeetings.map((m) => ({
-        id: m.id,
-        title: m.name,
-        duration_minutes: m.duration_minutes,
-        price: m.price,
-        original_price: m.original_price,
-        description: m.description,
-        is_active: m.is_active,
-        offerRupees: m.price ? String(Math.floor(m.price / 100)) : '',
-        origRupees: m.original_price ? String(Math.floor(m.original_price / 100)) : '',
-      }))
-    );
-    setLoading(false);
+      setSessions(
+        (Array.isArray(apiSessions) ? apiSessions : []).map((s: any) => ({
+          ...s,
+          offerRupees: s.price ? String(Math.floor(s.price / 100)) : '',
+          origRupees: s.original_price ? String(Math.floor(s.original_price / 100)) : '',
+        }))
+      );
+    } catch (e: any) {
+      setLoadError(e?.message || 'Could not load your sessions. Your saved prices are safe — please retry.');
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -1679,9 +1667,13 @@ function PricingAndSessionsSettings({
   };
 
   const saveSessionItem = async (s: any) => {
-    const offerPaise = Math.round(
-      Number(String(s.offerRupees ?? (s.price ? s.price / 100 : 0)).replace(/[^0-9]/g, '') || '0') * 100
-    );
+    const rawOffer = String(s.offerRupees ?? (s.price ? s.price / 100 : '')).replace(/[^0-9]/g, '');
+    // A blank price used to fall through `|| '0'` and silently save the session at zero.
+    // Refuse instead: the stored price stays exactly as the admin last set it.
+    if (!rawOffer || Number(rawOffer) <= 0) {
+      throw new Error('Enter a price greater than 0 before saving this session.');
+    }
+    const offerPaise = Math.round(Number(rawOffer) * 100);
     const origPaise =
       s.origRupees !== undefined
         ? s.origRupees
@@ -1698,6 +1690,8 @@ function PricingAndSessionsSettings({
     };
 
     if (s.id && !s.id.startsWith('mt-')) {
+      // Not caught here: a failed price save must surface, not be swallowed and then hidden
+      // by a refetch that shows the old value as though nothing had happened.
       await api.updateSession(s.id, payload);
     }
 
@@ -1719,15 +1713,19 @@ function PricingAndSessionsSettings({
     };
   };
 
+  // Both handlers report failures. They used to console.error and show the success banner's
+  // absence as the only signal, so a rejected price save looked like the price had "reset
+  // itself" on the next load.
   const handleSaveSingle = async (s: any) => {
     setSavingId(s.id);
+    setSaveError('');
     try {
       const updated = await saveSessionItem(s);
       setSessions((prev) => prev.map((item) => (item.id === s.id ? updated : item)));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Could not save that session. Your saved price is unchanged.');
     } finally {
       setSavingId(null);
     }
@@ -1736,6 +1734,7 @@ function PricingAndSessionsSettings({
   const handleSaveAll = async () => {
     setSavingAll(true);
     setSaveSuccess(false);
+    setSaveError('');
     try {
       const updatedList = [];
       for (const s of sessions) {
@@ -1745,8 +1744,10 @@ function PricingAndSessionsSettings({
       setSessions(updatedList);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Could not save your pricing. Your saved prices are unchanged.');
+      // Re-read the database so the form shows what is actually stored, not a half-applied edit.
+      await loadSessions();
     } finally {
       setSavingAll(false);
     }
@@ -1878,6 +1879,13 @@ function PricingAndSessionsSettings({
           </Button>
         </div>
       </div>
+
+      {(loadError || saveError) && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-bold flex items-start gap-2 shadow-xs">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{loadError || saveError}</span>
+        </div>
+      )}
 
       {saveSuccess && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between animate-fade-in shadow-xs">
@@ -2173,32 +2181,68 @@ function PricingAndSessionsSettings({
 // =========================================================================
 function RazorpaySettings({ admin }: { admin: AdminUser }) {
   const { setupAdminRazorpay } = useBookingStore();
-  // Never default to a test key: real admins want real payments
-  const [keyId, setKeyId] = useState(admin.razorpay_key_id && admin.razorpay_key_id !== 'rzp_test_' ? admin.razorpay_key_id : '');
-  const [keySecret, setKeySecret] = useState(admin.razorpay_configured ? '••••••••••••••••' : '');
+  // The razorpay_connections row is the only source of truth for connectedness. Local state
+  // is a cache of it, never the decider: deriving it from the persisted store is what made a
+  // live account read "Not Yet Connected" after a reload or a failed status call.
+  const [keyId, setKeyId] = useState('');
+  const [keySecret, setKeySecret] = useState('');
   const [accountRef, setAccountRef] = useState(admin.username || '');
   const [showSecret, setShowSecret] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
-  const [isConfigured, setIsConfigured] = useState(Boolean(admin.razorpay_configured && admin.razorpay_key_id && admin.razorpay_key_id !== 'rzp_test_'));
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [needsAttention, setNeedsAttention] = useState(false);
+  const [attentionReason, setAttentionReason] = useState('');
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Automatically fetch the actual server-side Razorpay status on mount / tab switch
-  useEffect(() => {
-    let active = true;
-    api.getRazorpayStatus().then((status) => {
-      if (!active) return;
-      if (status && status.configured) {
-        setIsConfigured(true);
-        if (status.key_id) setKeyId(status.key_id);
-        if (status.account_reference) setAccountRef(status.account_reference);
+  const refreshStatus = React.useCallback(async () => {
+    try {
+      // probe=true asks the backend to check the keys against Razorpay. It is read-only:
+      // a failing probe reports "needs attention", it never disconnects anything.
+      const status = await api.getRazorpayStatus(true);
+      setIsConfigured(!!status.configured);
+      if (status.key_id) setKeyId(status.key_id);
+      if (status.account_reference) setAccountRef(status.account_reference);
+      if (status.configured) {
+        // The secret lives encrypted on the server and is never sent to the browser. This
+        // is a placeholder so the field reads as "already set", not the value.
         setKeySecret('••••••••••••••••');
         setupAdminRazorpay(admin.id, status.key_id || '');
       }
-    }).catch(() => {});
-    return () => { active = false; };
+      setNeedsAttention(!!status.needs_attention);
+      setAttentionReason(status.needs_attention ? (status.last_error || '') : '');
+    } catch {
+      // A failed status call is not a disconnect. Keep the last known state.
+    } finally {
+      setStatusLoaded(true);
+    }
   }, [admin.id, setupAdminRazorpay]);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const handleDisconnect = async () => {
+    if (!confirm(
+      'Disconnect Razorpay? Clients will not be able to pay until you connect an account again. ' +
+      'Your sessions, prices and bookings are not affected.'
+    )) return;
+    setDisconnecting(true);
+    setErrorMsg(null);
+    try {
+      await api.disconnectRazorpay();
+      setIsConfigured(false);
+      setNeedsAttention(false);
+      setKeySecret('');
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'Could not disconnect Razorpay.');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   // Dynamic mode detection
   const isLive = keyId.trim().startsWith('rzp_live_');
@@ -2223,12 +2267,16 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
     }
 
     setSaving(true);
-    setupAdminRazorpay(admin.id, cleanKey);
     try {
       await api.setupRazorpay(cleanKey, cleanSecret, accountRef.trim());
+      // Only after the server confirms. Marking the store connected first meant a failed
+      // save still left the UI claiming a connection the database did not have.
+      setupAdminRazorpay(admin.id, cleanKey);
       setIsConfigured(true);
       setSaved(true);
       setTimeout(() => setSaved(false), 4000);
+      // Adopt what the server actually stored, including a fresh health check.
+      await refreshStatus();
     } catch (e: any) {
       setErrorMsg(e?.message || 'Failed to save Razorpay credentials. Please verify your keys.');
     } finally {
@@ -2280,7 +2328,9 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
                   ? `Razorpay Live Connected for ${admin.full_name}`
                   : isConfigured && isTest
                   ? `Razorpay Test Mode (Simulated) for ${admin.full_name}`
-                  : 'Razorpay Not Yet Connected'}
+                  : statusLoaded
+                  ? 'Razorpay Not Yet Connected'
+                  : 'Checking your saved connection…'}
               </p>
               {isConfigured && isLive ? (
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
@@ -2307,16 +2357,39 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           </div>
         </div>
 
-        <a
-          href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
-        >
-          <span>Sign Up for Razorpay (Free)</span>
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
+        {isConfigured ? (
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl border border-red-200 bg-white text-red-700 hover:bg-red-50 text-xs font-bold transition cursor-pointer shrink-0 disabled:opacity-60"
+          >
+            {disconnecting ? 'Disconnecting…' : 'Disconnect Razorpay'}
+          </button>
+        ) : (
+          <a
+            href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
+          >
+            <span>Sign Up for Razorpay (Free)</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
       </div>
+
+      {/* Razorpay itself rejected the stored keys. The connection is kept and the secret
+          stays encrypted on the server -- the admin updates the keys when they choose. */}
+      {isConfigured && needsAttention && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-900">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            Razorpay connection needs attention. {attentionReason} Your saved configuration has
+            not been removed — enter your current Key ID and Key Secret below to update it.
+          </span>
+        </div>
+      )}
 
       {/* Educational Callout explaining Razorpay Sign-up requirement */}
       <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex items-start gap-2.5">

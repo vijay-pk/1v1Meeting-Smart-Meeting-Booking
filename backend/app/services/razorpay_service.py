@@ -133,3 +133,70 @@ def verify_razorpay_signature(
     ).hexdigest()
 
     return hmac.compare_digest(generated_signature, signature)
+
+
+class RazorpayCredentialStatus:
+    """Outcome of a read-only credential check. Never mutates a stored connection."""
+
+    def __init__(self, healthy: bool, *, reason: str | None = None, permanent: bool = False):
+        self.healthy = healthy
+        self.reason = reason
+        # True only when Razorpay itself said the credentials are wrong (401/403). A network
+        # error or a 5xx is temporary and must never be reported as "your keys are invalid".
+        self.permanent = permanent
+
+
+async def check_razorpay_credentials(key_id: str, encrypted_key_secret: str) -> RazorpayCredentialStatus:
+    """
+    Asks Razorpay whether the stored credentials still work, without creating anything.
+
+    Read-only by construction: it lists at most one existing payment. The caller reports the
+    result; nothing here writes to the database, so a failing check can never disconnect an
+    admin's account.
+    """
+    try:
+        secret = decrypt_secret(encrypted_key_secret)
+    except Exception as exc:                                    # noqa: BLE001 - reported, not raised
+        logger.error("Cannot decrypt stored Razorpay secret: %s", exc)
+        return RazorpayCredentialStatus(
+            False,
+            reason="The stored key secret could not be read on this server.",
+        )
+
+    if not _has_usable_credentials(key_id, secret):
+        return RazorpayCredentialStatus(
+            False,
+            reason="These credentials are placeholders, not a real Razorpay key pair.",
+            permanent=True,
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                "https://api.razorpay.com/v1/payments",
+                auth=(key_id, secret),
+                params={"count": 1},
+                timeout=10.0,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("Razorpay credential check could not reach the gateway: %s", exc)
+        return RazorpayCredentialStatus(
+            False,
+            reason="Could not reach Razorpay to check these keys. This is usually temporary.",
+        )
+
+    if res.status_code == 200:
+        return RazorpayCredentialStatus(True)
+
+    if res.status_code in (401, 403):
+        return RazorpayCredentialStatus(
+            False,
+            reason="Razorpay rejected these keys. They may have been regenerated or revoked.",
+            permanent=True,
+        )
+
+    logger.warning("Razorpay credential check returned %s", res.status_code)
+    return RazorpayCredentialStatus(
+        False,
+        reason="Razorpay did not answer the check. This is usually temporary.",
+    )

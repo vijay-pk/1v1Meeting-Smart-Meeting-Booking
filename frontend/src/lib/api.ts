@@ -392,9 +392,32 @@ export const api = {
   },
 
   // Razorpay
-  getRazorpayStatus: async () => {
-    const res = await fetch(`${API_BASE}/payments/admin/status`, { headers: getAuthHeaders() });
-    if (!res.ok) return { configured: false };
+  // `probe` asks the backend to check the stored keys against Razorpay. It never changes the
+  // stored connection -- the answer is only used to show a "needs attention" hint.
+  //
+  // This throws on failure rather than returning { configured: false }. Reporting an
+  // unreachable API as "not connected" is what made a live Razorpay account look disconnected
+  // after a blip; the caller must keep its last known state instead.
+  getRazorpayStatus: async (probe = false) => {
+    const res = await fetch(`${API_BASE}/payments/admin/status${probe ? '?probe=true' : ''}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to fetch Razorpay status');
+    }
+    return res.json();
+  },
+
+  disconnectRazorpay: async () => {
+    const res = await fetch(`${API_BASE}/payments/admin/disconnect`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to disconnect Razorpay');
+    }
     return res.json();
   },
 
