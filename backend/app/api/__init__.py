@@ -17,5 +17,7 @@ api_router.include_router(google_calendar.router, prefix="/google", tags=["Googl
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["Super Admin"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])
+# Public: a host's profile photo has to load for a client on any device.
+api_router.include_router(upload.media_router, prefix="/media", tags=["Media Upload"])
 api_router.include_router(profile_imports.router, prefix="/profile-import", tags=["Profile Import"])
 

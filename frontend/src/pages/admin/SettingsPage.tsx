@@ -123,6 +123,11 @@ export function SettingsPage() {
   const isSuperAdmin = storedRole === 'super_admin' || profile?.role === 'super_admin';
 
   const [liveAdmin, setLiveAdmin] = useState<AdminUser | null>(null);
+  // Whether the database has answered yet. Until it has, this page must not save: the
+  // fallback identity below is a placeholder for rendering, and writing it back would
+  // overwrite the admin's real name, bio, photo and slug with empty strings.
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState('');
 
   // Synchronize profile directly from backend API for authenticated admin
   useEffect(() => {
@@ -199,8 +204,18 @@ export function SettingsPage() {
               ],
             };
           });
+          if (isMounted) {
+            setProfileLoaded(true);
+            setProfileLoadError('');
+          }
         }
-      } catch (e) {}
+      } catch (e: any) {
+        if (isMounted) {
+          setProfileLoadError(
+            e?.message || 'Could not load your saved profile. Nothing has been changed.'
+          );
+        }
+      }
     };
     syncBackend();
     return () => { isMounted = false; };
@@ -402,7 +417,12 @@ export function SettingsPage() {
         {/* Tab Content */}
         <div className="flex-1 max-w-3xl">
           {activeTab === 'profile' && (
-            <ProfileCustomizer admin={currentAdmin} onUpdate={(updated) => setLiveAdmin(updated)} />
+            <ProfileCustomizer
+              admin={currentAdmin}
+              profileLoaded={profileLoaded}
+              profileLoadError={profileLoadError}
+              onUpdate={(updated) => setLiveAdmin(updated)}
+            />
           )}
           {activeTab === 'pricing' && (
             <PricingAndSessionsSettings
@@ -425,9 +445,14 @@ export function SettingsPage() {
 // =========================================================================
 function ProfileCustomizer({
   admin,
+  profileLoaded,
+  profileLoadError,
   onUpdate,
 }: {
   admin: AdminUser;
+  /** True once this admin's row has actually come back from the database. */
+  profileLoaded: boolean;
+  profileLoadError: string;
   onUpdate?: (updated: AdminUser) => void;
 }) {
   const { updateAdminProfile } = useBookingStore();
@@ -568,12 +593,45 @@ function ProfileCustomizer({
     setCustomSections((prev) => prev.filter((s) => s.id !== id));
   };
 
+  const [saveError, setSaveError] = useState('');
+
   const handleSave = async () => {
+    // The database is the source of truth, and this form is only a view of it. Saving a form
+    // that was populated from the placeholder identity (used while the profile is still
+    // loading, or when the request failed) would write empty strings over the admin's real
+    // name, bio, photo, video and slug -- which is exactly how a live booking link ended up
+    // pointing at nothing.
+    if (!profileLoaded) {
+      setSaveError(
+        profileLoadError ||
+        'Your saved profile has not loaded yet. Nothing was changed - please wait a moment and try again.'
+      );
+      return;
+    }
+
     setSaving(true);
-    const cleanUsername = (username || admin.username || 'admin')
+    setSaveError('');
+
+    const cleanUsername = (username || admin.username || '')
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9-_]/g, '');
+
+    if (!cleanUsername) {
+      setSaving(false);
+      setSaveError('Your booking link cannot be empty.');
+      return;
+    }
+
+    const socialLinks = {
+      whatsapp,
+      linkedin,
+      instagram,
+      youtube,
+      website,
+      super_chat: superChat.trim(),
+      telegram: telegram.trim(),
+    };
 
     const updates: Partial<AdminUser> = {
       username: cleanUsername,
@@ -590,20 +648,33 @@ function ProfileCustomizer({
         button_color: buttonColor,
         bg_gradient: bgGradient,
       },
-      social_links: {
-        whatsapp,
-        linkedin,
-        instagram,
-        youtube,
-        website,
-        super_chat: superChat.trim(),
-        telegram: telegram.trim(),
-      },
+      social_links: socialLinks,
       super_chat_url: superChat.trim(),
       custom_sections: customSections,
     };
 
-    // Update locally in store
+    // The server first. The local store and localStorage are caches, and updating them
+    // before the write is confirmed is what made a failed save look successful.
+    try {
+      await api.updateMyProfile({
+        name,
+        username: cleanUsername,
+        title,
+        heading_text: headingText,
+        welcome_message: welcomeMessage,
+        bio,
+        about_me_text: aboutMe,
+        profile_photo: photoUrl,
+        intro_video: introVideo,
+        theme_settings: { button_color: buttonColor, bg_gradient: bgGradient },
+        social_links: socialLinks,
+      });
+    } catch (e: any) {
+      setSaving(false);
+      setSaveError(e?.message || 'Could not save your profile. Nothing was changed.');
+      return;
+    }
+
     updateAdminProfile(admin.id, updates);
     localStorage.setItem('bmm_logged_username', cleanUsername);
     localStorage.setItem('bmm_logged_admin_name', name);
@@ -625,33 +696,6 @@ function ProfileCustomizer({
 
     if (profile?.id === admin.id || !profile?.id) {
       updateProfile({ username: cleanUsername, full_name: name });
-    }
-
-    // Update on backend if connected
-    try {
-      await api.updateMyProfile({
-        name,
-        username: cleanUsername,
-        title,
-        heading_text: headingText,
-        welcome_message: welcomeMessage,
-        bio,
-        about_me_text: aboutMe,
-        profile_photo: photoUrl,
-        intro_video: introVideo,
-        theme_settings: { button_color: buttonColor, bg_gradient: bgGradient },
-        social_links: {
-          whatsapp,
-          linkedin,
-          instagram,
-          youtube,
-          website,
-          super_chat: superChat.trim(),
-          telegram: telegram.trim(),
-        },
-      });
-    } catch (e) {
-      // Offline fallback already updated store
     }
 
     setSaving(false);
@@ -1372,12 +1416,25 @@ function ProfileCustomizer({
       </div>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-border flex items-center justify-between">
-        <p className="text-xs text-text-tertiary">Updates will be saved instantly to your live public profile.</p>
+      {(saveError || (profileLoadError && !profileLoaded)) && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{saveError || profileLoadError}</span>
+        </div>
+      )}
+
+      <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-xs text-text-tertiary">
+          {profileLoaded
+            ? 'Saved to your live public profile. Only what you change here changes.'
+            : 'Loading your saved profile…'}
+        </p>
         <Button
           onClick={handleSave}
-          disabled={saving}
-          className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition shadow-md shadow-orange-600/20 cursor-pointer"
+          // Disabled until the database has answered. Saving a form built from the
+          // placeholder identity would blank the real profile.
+          disabled={saving || !profileLoaded}
+          className="min-h-[44px] w-full sm:w-auto bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-6 rounded-xl transition shadow-md shadow-orange-600/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {saving ? 'Saving...' : saved ? '✓ Saved Profile' : 'Save Changes'}
         </Button>

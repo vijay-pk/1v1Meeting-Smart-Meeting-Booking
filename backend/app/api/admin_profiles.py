@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.core.database import get_db
-from app.models.models import User, AdminProfile, Session as SessionModel, RazorpayConnection
+from app.models.models import (
+    User, AdminProfile, Session as SessionModel, RazorpayConnection, GoogleConnection
+)
 from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, SessionResponse
 from app.api.deps import get_current_admin
 

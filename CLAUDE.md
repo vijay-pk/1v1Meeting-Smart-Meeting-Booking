@@ -162,6 +162,37 @@ request; a role sent by the client is never trusted. The delete endpoint additio
 any target whose `role != "admin"` (403), and refuses the caller's own id (403). A normal
 admin or client calling it gets 403; an unauthenticated caller gets 401.
 
+## Profile persistence and the public URL
+
+`backend/test_public_profile.py` (33 tests) guards the host's page, which is the thing they
+actually share with clients.
+
+- **Uploaded media lives in the database** (`media_assets`), served by the public
+  `GET /api/media/{id}`. It used to be written to `backend/uploads/` and referenced by a
+  filesystem URL: on a container host that directory is wiped by every deploy, so
+  `admin_profiles.profile_photo` kept pointing at a file that no longer existed and the photo
+  looked like it had reset itself. `/uploads` stays mounted for URLs stored before the change.
+  `POST /api/upload` now requires an admin (it accepted a file from anyone), caps images at
+  8MB and video at 25MB, and `permanently_delete_admin` removes the owner's assets.
+- **`GET /api/profiles/me` used `GoogleConnection` without importing it** and raised
+  `NameError` -> 500 for every admin. Nothing tested it, so the suite stayed green. Settings
+  swallowed that failure, fell back to a placeholder identity (`username: 'admin'`, every text
+  field `''`), and `handleSave` posted the whole placeholder back — blanking the real name,
+  bio, photo and video, and able to rename the slug to `admin`, which is what took the shared
+  link down. **The Settings form now refuses to save until the row has actually loaded**, and
+  the local store and localStorage are only written after the server confirms.
+- **`''` is not the same as absent.** `PUT /profiles/me` skips `None` fields, so an omitted
+  field is never a clear — but an empty string *is* a real value (an admin must be able to
+  clear a bio). That makes "never submit a form built from unloaded state" the actual
+  protection, not a backend heuristic. `username` is separately guarded: it can never be
+  blanked or taken from another admin.
+- **A failed request is not a missing profile.** `getPublicProfile` marks only a genuine 404
+  as `notFound`; anything else (500, CORS, unreachable) renders "Couldn't load this page" with
+  a retry, never "has been permanently removed by the platform administrator". Telling a
+  client a live host is gone, because of one blip, loses that client for good.
+- The public payload is a fixed `PublicAdminProfile` schema. `razorpay_key_id` is browser-safe
+  and needed for checkout; no secret, email or phone is in it.
+
 ## Connection and price persistence
 
 Three things an admin configures once must survive everything except an explicit action of

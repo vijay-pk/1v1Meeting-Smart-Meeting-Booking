@@ -31,6 +31,11 @@ export const SuperProfileHomePage: React.FC = () => {
   const [shareOpen, setShareOpen] = useState(false);
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // "This page does not exist" and "we could not reach the server" are different facts and
+  // must not share a screen: telling a visitor a live host has been removed, because of one
+  // failed request, sends them away for good.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // 1. Resolve the admin from the API. The backend is the only source of truth for who
   //    exists: a profile that 404s (never existed, or was permanently deleted) must not be
@@ -44,19 +49,23 @@ export const SuperProfileHomePage: React.FC = () => {
         return;
       }
       setLoading(true);
+      setLoadFailed(false);
       try {
         const data = await api.getPublicProfile(username);
         if (isMounted) setRemoteProfile(data);
-      } catch (err) {
-        // 404 or unreachable: no profile. The not-found screen below handles both.
-        if (isMounted) setRemoteProfile(null);
+      } catch (err: any) {
+        if (!isMounted) return;
+        setRemoteProfile(null);
+        // Only a 404 means the profile is genuinely not there. A 500, a CORS failure or an
+        // unreachable API is a temporary problem the visitor can retry.
+        setLoadFailed(!err?.notFound);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
     fetchRemote();
     return () => { isMounted = false; };
-  }, [username]);
+  }, [username, reloadKey]);
 
   const activeAdmin: AdminUser | null = useMemo(() => {
     if (remoteProfile) {
@@ -161,7 +170,33 @@ export const SuperProfileHomePage: React.FC = () => {
     );
   }
 
-  // 4. Status checks: Not Found / Permanently Deleted
+  // 4a. The request failed rather than answering "no such profile". Say so, and offer a
+  //     retry -- this page is what a host shares with their clients.
+  if (loadFailed) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white mb-2">
+          Couldn&rsquo;t load this page
+        </h1>
+        <p className="text-slate-400 max-w-md text-sm mb-6">
+          We could not reach the booking service just now. This page has not gone anywhere
+          &mdash; please try again in a moment.
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  // 4b. Status checks: Not Found / Permanently Deleted
   if (!activeAdmin || activeAdmin.status === 'PERMANENTLY_DELETED') {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">

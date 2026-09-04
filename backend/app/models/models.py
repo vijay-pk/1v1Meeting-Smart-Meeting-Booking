@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON
+    Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -262,3 +262,28 @@ class ProfileImport(Base):
     parsed_data = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class MediaAsset(Base):
+    """
+    An uploaded image or video, stored in the database rather than on the server's disk.
+
+    Uploads used to be written to `backend/uploads/` and referenced by a filesystem URL. On a
+    container host that directory is ephemeral: every deploy and every restart wiped it, while
+    `admin_profiles.profile_photo` kept pointing at the now-missing file. From the admin's
+    side that looked exactly like "my photo reset itself" -- the row was intact, the bytes
+    were gone.
+
+    The bytes live here so they last as long as the row that references them, and are served
+    by a public GET so a client on any device can load a host's photo. `owner_id` cascades, so
+    a permanently deleted admin's media goes with them and nothing else.
+    """
+    __tablename__ = "media_assets"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    owner_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    filename = Column(String(255), nullable=False)
+    content_type = Column(String(100), nullable=False)
+    byte_size = Column(Integer, nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

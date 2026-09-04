@@ -105,11 +105,18 @@ export const api = {
     return res.json();
   },
 
+  // Throws with `notFound` set only for a genuine 404. Everything else -- a 500, a CORS
+  // failure, the API being unreachable -- is a *transient* failure, and the public page must
+  // not tell a visitor the host's booking page "has been removed" because of one.
   getPublicProfile: async (username: string) => {
     const res = await fetch(`${API_BASE}/profiles/public/${encodeURIComponent(username)}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Profile not found');
+      const error = new Error(
+        typeof err.detail === 'string' ? err.detail : 'Could not load this profile.'
+      ) as Error & { notFound?: boolean };
+      error.notFound = res.status === 404;
+      throw error;
     }
     return res.json();
   },

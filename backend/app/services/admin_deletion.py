@@ -35,6 +35,7 @@ from app.models.models import (
     AvailabilityRule,
     AvailabilityException,
     GoogleConnection,
+    MediaAsset,
     RazorpayConnection,
     SlotLock,
     Booking,
@@ -178,6 +179,10 @@ def permanently_delete_admin(
             .filter(SessionModel.admin_id == admin_id)
             .delete(synchronize_session=False)
         )
+        # Their uploaded photos and videos go with the account. Deleted explicitly rather
+        # than left to the foreign key, because SQLite only enforces ON DELETE CASCADE when
+        # the pragma is on, and media is the one thing that would otherwise outlive the row.
+        db.query(MediaAsset).filter(MediaAsset.owner_id == admin_id).delete(synchronize_session=False)
         profiles_deleted = (
             db.query(AdminProfile)
             .filter(AdminProfile.user_id == admin_id)
