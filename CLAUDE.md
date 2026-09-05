@@ -23,7 +23,7 @@ npm run preview
 ```
 There is **no `lint` and no `test` script**, and no ESLint/Prettier/vitest config anywhere in `frontend/`. Do not invent them. Type errors surface only through `npm run build`.
 
-**Backend** (`cd backend` — this must be the CWD, since `DATABASE_URL` defaults to the relative path `sqlite:///./bookmymeet.db`):
+**Backend** (`cd backend` — this must be the CWD, since `backend/.env` sets `DATABASE_URL` to the relative path `sqlite:///./bookmymeet.db`. `DATABASE_URL` has **no default**: it is required, and startup fails with an explanatory error without it. The old silent SQLite fallback is what erased every production profile on each Render restart — see "Profile persistence and the public URL"):
 ```
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
@@ -32,7 +32,7 @@ Swagger at `http://127.0.0.1:8000/docs`, health at `/health`.
 
 **Tests** (`cd backend`):
 ```
-pytest -q                                                          # all 133
+pytest -q                                                          # all 310
 pytest test_api.py::test_slot_lock_double_booking_protection -v    # single test
 ```
 Six test files. Every one of them now builds the rows it needs and tears them down, so the
@@ -164,8 +164,28 @@ admin or client calling it gets 403; an unauthenticated caller gets 401.
 
 ## Profile persistence and the public URL
 
-`backend/test_public_profile.py` (33 tests) guards the host's page, which is the thing they
+`backend/test_public_profile.py` (49 tests) guards the host's page, which is the thing they
 actually share with clients.
+
+- **The database is the only thing that persists, and it has to be a real one.** `DATABASE_URL`
+  has no default. It used to fall back to `sqlite:///./bookmymeet.db`, a path relative to the
+  process, so a container host with the variable unset ran the whole platform on a file inside
+  the container: admins signed up, saved their profile, shared their link, and the next
+  restart / redeploy / idle spin-down deleted the file. `seed_initial_data()` then re-created
+  the super admin from the environment and nothing else, so every other admin's public URL
+  answered a genuine 404 and the page correctly — and uselessly — said the booking page had
+  been permanently removed. A missing `DATABASE_URL` is now a startup failure, the backend logs
+  which backend it is using (scheme only, never the URL), and `GET /health` returns
+  `database` and `persistent_storage` so a misconfigured deploy is visible from outside.
+- **`PUT /profiles/me` merges `theme_settings` and `social_links` instead of replacing them.**
+  The settings form sends `theme_settings` as only `{button_color, bg_gradient}`; a wholesale
+  replace dropped `show_video`, `show_stats`, `show_socials`, `card_style` and
+  `button_text_color`. A key the caller does send still wins, including `""`.
+- **The public lookup is case-insensitive** (`func.lower(username)`), so `/Ameen` and `/ameen`
+  reach the same host rather than one of them 404ing.
+- **The profile photo upload has no local fallback.** A failed upload used to fall back to
+  `FileReader`, putting a base64 `data:` URI into `photo_url`, which was then saved into the
+  profile row as the photo. A failed upload now leaves the saved photo untouched and says so.
 
 - **Uploaded media lives in Supabase Storage**, in a public bucket named `profile-media` that
   `supabase_storage.ensure_bucket()` creates on the first upload. `media_assets` holds the
@@ -303,6 +323,16 @@ against a live fetch of superprofile.bio.** Do not claim otherwise without re-te
 - **Routing** — `App.tsx`, one flat `<Routes>`, no lazy loading. Several aliases point at the same three funnel pages (`/book/:username/schedule/:meetingId`, `/:username/schedule/:meetingId`, `/schedule/:meetingId` all render `TimeAvailabilityPage`). `/:username` is a catch-all that must stay last. Admin pages sit under a pathless `<Route element={<AdminLayout/>}>`.
 - **Stores** — only two. `authStore.ts` (no persist; hydrates synchronously from localStorage, then races `supabase.auth.getSession()` against a 600ms timeout) and `bookingStore.ts` (persist, whole state, no `partialize`). There is no separate admin or super-admin store — super-admin state is `currentSuperAdmin` inside `bookingStore`.
 - **Raw localStorage keys** used outside persist: `bmm_auth_token`, `bmm_current_user_role`, `bmm_logged_admin_id`, `bmm_logged_username`, `bmm_logged_admin_name`, `bmm_logged_role`, `bmm_auth_user`.
+- **Intro video** — `src/lib/video.ts` is the single normalizer (`getVideoEmbedUrl`), used by
+  `SuperProfileHomePage`, `TimeAvailabilityPage` and the Settings preview so all three render
+  the same stored URL identically. It maps YouTube to `youtube-nocookie.com/embed/{id}` with
+  `rel=0&modestbranding=1` and Vimeo to `player.vimeo.com/video/{id}` with title/byline/portrait
+  off, and returns `null` for anything else (rendered in a plain `<video>`). **Our UI adds no
+  provider branding**: no YouTube/Vimeo logo, icon, badge or name in the video card, and the
+  label is the generic `INTRO_VIDEO_LABEL` / `INTRO_VIDEO_ARIA_LABEL`. Whatever each provider
+  draws inside its own iframe is theirs and is left alone. The video is embedded by reference
+  only — never downloaded, re-hosted, or turned into a thumbnail (a video thumbnail must never
+  become a profile photo).
 - **Tailwind v4**, wired as a Vite plugin. **There is no `tailwind.config.js` and no `postcss.config.js` — that is correct for v4; do not create them.** All theme config is CSS-first in the `@theme` block of `src/index.css` (the `--color-primary-*` ramp, sidebar and surface tokens).
 - **UI components** in `components/ui/` follow the shadcn idiom (`cn()` = clsx + tailwind-merge, `class-variance-authority`) but were added by hand. There is no `components.json`, so the shadcn CLI will not work here.
 - **No path proxy** in `vite.config.ts` — the frontend calls `localhost:8000` cross-origin and depends on the backend's CORS headers.

@@ -45,26 +45,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+// The admin preview must show exactly what a client will see, so it uses the same normalizer
+// as the public pages rather than a second copy that can drift.
+import { getVideoEmbedUrl, INTRO_VIDEO_LABEL } from '@/lib/video';
 
 type SettingsTab = 'profile' | 'pricing' | 'payment' | 'booking' | 'calendar' | 'email';
-
-function getVideoEmbedUrl(url?: string | null): string | null {
-  if (!url) return null;
-  const clean = url.trim();
-  if (clean.includes('vimeo.com')) {
-    const match = clean.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-    if (match && match[1]) {
-      return `https://player.vimeo.com/video/${match[1]}?title=0&byline=0&portrait=0&badge=0&autopause=0`;
-    }
-  }
-  if (clean.includes('youtube.com') || clean.includes('youtu.be')) {
-    const match = clean.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-    if (match && match[1]) {
-      return `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0`;
-    }
-  }
-  return null;
-}
 
 const THEME_PRESETS = [
   {
@@ -490,13 +475,17 @@ function ProfileCustomizer({
 
   const processPhotoFile = async (file: File) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setPhotoUploadError('Please select a valid image file (PNG, JPG, WEBP, GIF, SVG).');
+    // SVG is rejected by the server (it can carry script and these objects are public), so it
+    // is not offered here either.
+    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
+      setPhotoUploadError('Please select a valid image file (PNG, JPG, WEBP or GIF).');
       setTimeout(() => setPhotoUploadError(''), 5000);
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
-      setPhotoUploadError('Image file size exceeds 25MB limit.');
+    // Same 8MB cap the upload endpoint enforces, so an oversized file fails here with a clear
+    // message instead of after the round trip.
+    if (file.size > 8 * 1024 * 1024) {
+      setPhotoUploadError('Image is larger than 8MB. Please choose a smaller file.');
       setTimeout(() => setPhotoUploadError(''), 5000);
       return;
     }
@@ -507,28 +496,24 @@ function ProfileCustomizer({
 
     try {
       const res = await api.uploadMedia(file, 'photo');
-      if (res && res.url) {
-        setPhotoUrl(res.url);
-        setPhotoUploadSuccess('✓ Picture uploaded successfully from device!');
-        setTimeout(() => setPhotoUploadSuccess(''), 4000);
-      } else {
+      if (!res || !res.url) {
         throw new Error('Upload returned no URL');
       }
+      setPhotoUrl(res.url);
+      setPhotoUploadSuccess('Picture uploaded.');
+      setTimeout(() => setPhotoUploadSuccess(''), 4000);
     } catch (err: any) {
-      console.warn('Backend upload failed, fallback to local FileReader:', err);
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setPhotoUrl(reader.result);
-          setPhotoUploadSuccess('✓ Picture selected from device!');
-          setTimeout(() => setPhotoUploadSuccess(''), 4000);
-        }
-      };
-      reader.readAsDataURL(file);
-      if (err?.message && !err.message.includes('Failed to fetch')) {
-        setPhotoUploadError(err.message);
-        setTimeout(() => setPhotoUploadError(''), 5000);
-      }
+      // There is deliberately no local fallback. This used to read the file with FileReader
+      // and put the resulting base64 data: URI into photo_url, which then got saved into the
+      // profile row as the "photo" -- a megabytes-long string that is not in persistent
+      // storage, cannot be served or purged like a stored object, and silently replaced a
+      // real uploaded photo. A failed upload must leave the saved photo untouched and say so.
+      setPhotoUploadError(
+        err?.message
+          ? `Upload failed: ${err.message}. Your saved photo has not been changed.`
+          : 'Upload failed. Your saved photo has not been changed.'
+      );
+      setTimeout(() => setPhotoUploadError(''), 8000);
     } finally {
       setIsUploadingPhoto(false);
     }
@@ -1028,7 +1013,7 @@ function ProfileCustomizer({
                         {isUploadingPhoto ? 'Uploading image from device...' : 'Click to add picture from device'}
                       </p>
                       <p className="text-[10px] text-text-tertiary mt-0.5">
-                        PNG, JPG, JPEG, WEBP, GIF (up to 25MB)
+                        PNG, JPG, JPEG, WEBP, GIF (up to 8MB)
                       </p>
                     </div>
                     <Button
@@ -1113,7 +1098,7 @@ function ProfileCustomizer({
                       <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
                         <iframe
                           src={embedUrl}
-                          title="Intro Video Preview"
+                          title={`${INTRO_VIDEO_LABEL} preview`}
                           className="w-full h-full border-0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen

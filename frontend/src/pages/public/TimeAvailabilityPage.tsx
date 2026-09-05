@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
+import { getVideoEmbedUrl, INTRO_VIDEO_LABEL, INTRO_VIDEO_ARIA_LABEL } from '@/lib/video';
 import { api } from '@/lib/api';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
@@ -220,24 +221,8 @@ export const TimeAvailabilityPage: React.FC = () => {
     navigate(`/book/payment?adminId=${selectedAdminUser?.id}&username=${selectedAdminUser?.username}&meetingId=${selectedMeeting.id}`);
   };
 
-  // Video embed helper
-  const getVideoEmbedUrl = (url?: string) => {
-    if (!url) return null;
-    if (url.includes('vimeo.com')) {
-      const match = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-      if (match && match[1]) {
-        return `https://player.vimeo.com/video/${match[1]}?title=0&byline=0&portrait=0&badge=0&autopause=0`;
-      }
-    }
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-      if (match && match[1]) {
-        return `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0`;
-      }
-    }
-    return null;
-  };
-
+  // Embed URL comes from lib/video, shared with the public profile page and the admin
+  // preview, so all three render the same stored URL the same provider-neutral way.
   const videoEmbedUrl = getVideoEmbedUrl(selectedAdminUser?.intro_video);
   const profileLink = selectedAdminUser?.username ? `/${selectedAdminUser.username}` : '/';
   const buttonColor = selectedAdminUser?.theme_settings?.button_color || '#D32F2F';
@@ -335,7 +320,7 @@ export const TimeAvailabilityPage: React.FC = () => {
                       src={videoEmbedUrl}
                       className="w-full h-full border-0"
                       allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media"
-                      title={`1 to 1 call with ${selectedAdminUser.full_name}`}
+                      title={INTRO_VIDEO_ARIA_LABEL}
                       allowFullScreen
                     />
                   </div>
@@ -343,8 +328,8 @@ export const TimeAvailabilityPage: React.FC = () => {
                   {/* Video Info Badge */}
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
                     <div className="flex items-center gap-1.5">
-                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" />
-                      <span className="font-semibold text-white">Watch: 1 to 1 Call with {selectedAdminUser.full_name}</span>
+                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" aria-hidden="true" />
+                      <span className="font-semibold text-white">{INTRO_VIDEO_LABEL} &mdash; {selectedAdminUser.full_name}</span>
                     </div>
                   </div>
                 </div>
@@ -355,6 +340,8 @@ export const TimeAvailabilityPage: React.FC = () => {
                     <video
                       src={selectedAdminUser.intro_video}
                       controls
+                      playsInline
+                      aria-label={INTRO_VIDEO_ARIA_LABEL}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -362,8 +349,8 @@ export const TimeAvailabilityPage: React.FC = () => {
                   {/* Video Info Badge */}
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
                     <div className="flex items-center gap-1.5">
-                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" />
-                      <span className="font-semibold text-white">Watch: Intro Video ({selectedAdminUser.full_name})</span>
+                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" aria-hidden="true" />
+                      <span className="font-semibold text-white">{INTRO_VIDEO_LABEL} &mdash; {selectedAdminUser.full_name}</span>
                     </div>
                   </div>
                 </div>
