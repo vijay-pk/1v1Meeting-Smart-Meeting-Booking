@@ -48,6 +48,7 @@ import { Textarea } from '@/components/ui/textarea';
 // The admin preview must show exactly what a client will see, so it uses the same normalizer
 // as the public pages rather than a second copy that can drift.
 import { getVideoEmbedUrl, INTRO_VIDEO_LABEL } from '@/lib/video';
+import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 
 type SettingsTab = 'profile' | 'pricing' | 'payment' | 'booking' | 'calendar' | 'email';
 
@@ -1092,25 +1093,21 @@ function ProfileCustomizer({
               <div className="p-3 rounded-xl border border-border bg-surface-secondary/70 space-y-3">
                 {/* Embed Preview if Vimeo/YouTube, or HTML5 video */}
                 {(() => {
-                  const embedUrl = getVideoEmbedUrl(introVideo);
-                  if (embedUrl) {
+                  // Same component the public pages use, so the preview shows exactly what a
+                  // client sees: our own neutral card, with the provider's player mounted
+                  // only on an explicit press.
+                  if (
+                    getVideoEmbedUrl(introVideo) ||
+                    introVideo.endsWith('.mp4') ||
+                    introVideo.endsWith('.webm') ||
+                    introVideo.includes('/uploads/')
+                  ) {
                     return (
-                      <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
-                        <iframe
-                          src={embedUrl}
-                          title={`${INTRO_VIDEO_LABEL} preview`}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      </div>
-                    );
-                  }
-                  if (introVideo.endsWith('.mp4') || introVideo.endsWith('.webm') || introVideo.includes('/uploads/')) {
-                    return (
-                      <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-black border border-slate-300 shadow-sm">
-                        <video src={introVideo} controls className="w-full h-full object-cover" />
-                      </div>
+                      <IntroVideoPlayer
+                        url={introVideo}
+                        label={`${INTRO_VIDEO_LABEL} preview`}
+                        className="rounded-lg border border-slate-300 shadow-sm"
+                      />
                     );
                   }
                   return (

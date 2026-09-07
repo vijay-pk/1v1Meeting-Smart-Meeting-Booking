@@ -48,23 +48,41 @@ export const PaymentCheckoutPage: React.FC = () => {
   const queryAdminId = searchParams.get('adminId') || searchParams.get('username');
   const targetAdminId = queryAdminId || pendingBooking.adminId;
 
-  // Remote profile state for newly added / backend admins
+  // The host comes from the API and nowhere else. "Still loading", "we could not reach the
+  // service" and "there is no such page" are three different things to tell someone who is
+  // one step away from paying, so they are tracked separately.
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
     const fetchRemote = async () => {
-      if (!targetAdminId) return;
+      if (!targetAdminId) {
+        setRemoteProfile(null);
+        setProfileLoading(false);
+        return;
+      }
+      setProfileLoading(true);
+      setProfileLoadFailed(false);
       try {
         const data = await api.getPublicProfile(targetAdminId);
         if (isMounted) setRemoteProfile(data);
-      } catch (err) {
-        // Fall back to local store
+      } catch (err: any) {
+        if (!isMounted) return;
+        setRemoteProfile(null);
+        // Only a genuine 404 means this host does not exist. Anything else -- a 500, a CORS
+        // failure, a backend waking from a cold start -- is temporary, and telling a paying
+        // client the page is gone loses the booking outright.
+        setProfileLoadFailed(!err?.notFound);
+      } finally {
+        if (isMounted) setProfileLoading(false);
       }
     };
     fetchRemote();
     return () => { isMounted = false; };
-  }, [targetAdminId]);
+  }, [targetAdminId, reloadKey]);
 
   // The host is whoever the API says owns this page. Never a locally cached admin and
   // never admins[0]: this page picks the Razorpay key money is charged with, so resolving
@@ -342,6 +360,37 @@ export const PaymentCheckoutPage: React.FC = () => {
       );
     }
   };
+
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-10 h-10 rounded-full border-2 border-slate-700 border-t-orange-500 animate-spin mb-4" />
+        <p className="text-sm text-slate-400">Loading checkout&hellip;</p>
+      </div>
+    );
+  }
+
+  if (profileLoadFailed) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h1 className="text-2xl font-extrabold mb-2">Couldn&rsquo;t load checkout</h1>
+        <p className="text-slate-400 max-w-md text-sm mb-6">
+          We could not reach the booking service just now. Nothing has been charged and your
+          slot selection is intact &mdash; please try again in a moment.
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (!selectedMeeting || !slot) {
     return (

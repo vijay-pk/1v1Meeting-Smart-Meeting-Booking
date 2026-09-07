@@ -333,6 +333,15 @@ against a live fetch of superprofile.bio.** Do not claim otherwise without re-te
   draws inside its own iframe is theirs and is left alone. The video is embedded by reference
   only — never downloaded, re-hosted, or turned into a thumbnail (a video thumbnail must never
   become a profile photo).
+- **The card is click-to-load** — `components/ui/IntroVideoPlayer.tsx`, used by both public
+  pages and the Settings preview. A provider player mounted on page load paints the
+  provider's pre-roll chrome (logo, channel name and avatar, video title, "watch on …")
+  before anyone presses anything, and `rel=0&modestbranding=1` reduces that without removing
+  it. So the card a visitor lands on is entirely ours — our surface, our play control, the
+  generic label — and the official iframe is mounted, with `withAutoplay()`, only on that
+  press. The facade is a gradient and an icon on purpose: fetching the provider's poster
+  would put their framing back on the card and re-introduce exactly the asset that must never
+  stand in for a profile photo. Do not replace it with a plain always-mounted iframe.
 - **Tailwind v4**, wired as a Vite plugin. **There is no `tailwind.config.js` and no `postcss.config.js` — that is correct for v4; do not create them.** All theme config is CSS-first in the `@theme` block of `src/index.css` (the `--color-primary-*` ramp, sidebar and surface tokens).
 - **UI components** in `components/ui/` follow the shadcn idiom (`cn()` = clsx + tailwind-merge, `class-variance-authority`) but were added by hand. There is no `components.json`, so the shadcn CLI will not work here.
 - **No path proxy** in `vite.config.ts` — the frontend calls `localhost:8000` cross-origin and depends on the backend's CORS headers.

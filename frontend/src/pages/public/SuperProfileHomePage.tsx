@@ -4,7 +4,8 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
-import { getVideoEmbedUrl, INTRO_VIDEO_LABEL, INTRO_VIDEO_ARIA_LABEL } from '@/lib/video';
+import { INTRO_VIDEO_LABEL } from '@/lib/video';
+import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import type { AdminUser, MeetingType } from '@/types';
 import {
   Video,
@@ -249,8 +250,6 @@ export const SuperProfileHomePage: React.FC = () => {
     );
   }
 
-  const introVideoEmbedUrl = getVideoEmbedUrl(activeAdmin.intro_video);
-
   const primaryMeetings = adminMeetings.slice(0, 3);
   const secondaryMeetings = adminMeetings.slice(3);
 
@@ -441,25 +440,13 @@ export const SuperProfileHomePage: React.FC = () => {
               </span>
             </div>
 
-            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
-              {introVideoEmbedUrl ? (
-                <iframe
-                  src={introVideoEmbedUrl}
-                  className="w-full h-full border-0"
-                  allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media"
-                  title={INTRO_VIDEO_ARIA_LABEL}
-                  allowFullScreen
-                />
-              ) : (
-                <video
-                  src={activeAdmin.intro_video}
-                  controls
-                  playsInline
-                  aria-label={INTRO_VIDEO_ARIA_LABEL}
-                  className="w-full h-full object-cover"
-                />
-              )}
-            </div>
+            {/* Click-to-load: the provider's player, and therefore its logo, channel name
+                and title bar, is mounted only once the visitor presses our own play
+                control. See components/ui/IntroVideoPlayer. */}
+            <IntroVideoPlayer
+              url={activeAdmin.intro_video}
+              className="rounded-2xl border border-white/10 shadow-lg"
+            />
           </div>
         </section>
       )}

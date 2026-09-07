@@ -56,3 +56,16 @@ export function isDirectVideoUrl(url?: string | null): boolean {
  */
 export const INTRO_VIDEO_LABEL = 'Intro Video';
 export const INTRO_VIDEO_ARIA_LABEL = 'Play intro video';
+
+/**
+ * The same embed URL, asking the provider to start playing immediately.
+ *
+ * Only ever used after the visitor has clicked our own play control: the card renders a
+ * provider-neutral facade first and mounts the iframe on that click, so the provider's
+ * pre-roll chrome (its logo, the uploader's name and avatar, the video title, its own
+ * "watch on ..." control) is never what a visitor sees when the page loads. Autoplay is what
+ * makes the click still feel like one click.
+ */
+export function withAutoplay(embedUrl: string): string {
+  return `${embedUrl}${embedUrl.includes('?') ? '&' : '?'}autoplay=1`;
+}

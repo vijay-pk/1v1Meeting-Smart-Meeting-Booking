@@ -3,7 +3,8 @@ import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
-import { getVideoEmbedUrl, INTRO_VIDEO_LABEL, INTRO_VIDEO_ARIA_LABEL } from '@/lib/video';
+import { INTRO_VIDEO_LABEL } from '@/lib/video';
+import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import { api } from '@/lib/api';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
@@ -26,6 +27,7 @@ import {
   Play,
   Award,
   CreditCard,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -44,24 +46,41 @@ export const TimeAvailabilityPage: React.FC = () => {
   const queryAdminId = searchParams.get('adminId') || searchParams.get('username') || routeUsername;
   const targetAdminId = queryAdminId || pendingBooking.adminId;
 
-  // Local admin state with remote fallback support
+  // The host comes from the API and nowhere else. Three outcomes have to stay distinct,
+  // because they are three different things to tell a client who is mid-booking:
+  // still asking, the request failed, and this page genuinely does not exist.
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
     const fetchRemote = async () => {
-      if (!targetAdminId) return;
-      // If already in local store, no urgent need, but still try to get latest
+      if (!targetAdminId) {
+        setRemoteProfile(null);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setLoadFailed(false);
       try {
         const data = await api.getPublicProfile(targetAdminId);
         if (isMounted) setRemoteProfile(data);
-      } catch (err) {
-        // Fall back to local store
+      } catch (err: any) {
+        if (!isMounted) return;
+        setRemoteProfile(null);
+        // Only a genuine 404 means there is no such page. A 500, a CORS failure, or a
+        // backend still waking from a cold start is temporary and must offer a retry --
+        // this is a link a host has already shared with the client reading it.
+        setLoadFailed(!err?.notFound);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
     fetchRemote();
     return () => { isMounted = false; };
-  }, [targetAdminId]);
+  }, [targetAdminId, reloadKey]);
 
   // Resolve the host from the API only. Falling back to a locally cached admin -- or, as
   // this page used to, to admins[0] -- meant an unknown or deleted username silently
@@ -221,14 +240,43 @@ export const TimeAvailabilityPage: React.FC = () => {
     navigate(`/book/payment?adminId=${selectedAdminUser?.id}&username=${selectedAdminUser?.username}&meetingId=${selectedMeeting.id}`);
   };
 
-  // Embed URL comes from lib/video, shared with the public profile page and the admin
-  // preview, so all three render the same stored URL the same provider-neutral way.
-  const videoEmbedUrl = getVideoEmbedUrl(selectedAdminUser?.intro_video);
   const profileLink = selectedAdminUser?.username ? `/${selectedAdminUser.username}` : '/';
   const buttonColor = selectedAdminUser?.theme_settings?.button_color || '#D32F2F';
 
-  // Unknown or permanently deleted host: no scheduling page. Hooks above have all run, so
-  // this early return is safe.
+  // Hooks above have all run, so these early returns are safe.
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-10 h-10 rounded-full border-2 border-slate-700 border-t-orange-500 animate-spin mb-4" />
+        <p className="text-sm text-slate-400">Loading booking page&hellip;</p>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
+        <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h1 className="text-2xl font-extrabold mb-2">Couldn&rsquo;t load this page</h1>
+        <p className="text-slate-400 max-w-md text-sm mb-6">
+          We could not reach the booking service just now. This page has not gone anywhere
+          &mdash; please try again in a moment.
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  // Unknown or permanently deleted host: no scheduling page.
   if (!selectedAdminUser || selectedAdminUser.status === 'PERMANENTLY_DELETED') {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
@@ -312,39 +360,15 @@ export const TimeAvailabilityPage: React.FC = () => {
 
             {/* Left: Video or Profile Portrait */}
             <div className="md:col-span-5 flex flex-col items-center md:items-start">
-              {videoEmbedUrl ? (
+              {selectedAdminUser.intro_video ? (
                 <div className="relative group w-full max-w-md">
                   <div className="absolute -inset-1 bg-gradient-to-tr from-orange-500 to-indigo-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500" />
-                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border-2 border-white/20 shadow-2xl">
-                    <iframe
-                      src={videoEmbedUrl}
-                      className="w-full h-full border-0"
-                      allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media"
-                      title={INTRO_VIDEO_ARIA_LABEL}
-                      allowFullScreen
-                    />
-                  </div>
-
-                  {/* Video Info Badge */}
-                  <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
-                    <div className="flex items-center gap-1.5">
-                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" aria-hidden="true" />
-                      <span className="font-semibold text-white">{INTRO_VIDEO_LABEL} &mdash; {selectedAdminUser.full_name}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : selectedAdminUser.intro_video ? (
-                <div className="relative group w-full max-w-md">
-                  <div className="absolute -inset-1 bg-gradient-to-tr from-orange-500 to-indigo-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500" />
-                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border-2 border-white/20 shadow-2xl">
-                    <video
-                      src={selectedAdminUser.intro_video}
-                      controls
-                      playsInline
-                      aria-label={INTRO_VIDEO_ARIA_LABEL}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
+                  {/* Click-to-load, so the provider's logo, channel name and title bar are
+                      never what a visitor lands on. See components/ui/IntroVideoPlayer. */}
+                  <IntroVideoPlayer
+                    url={selectedAdminUser.intro_video}
+                    className="relative rounded-2xl border-2 border-white/20 shadow-2xl"
+                  />
 
                   {/* Video Info Badge */}
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
