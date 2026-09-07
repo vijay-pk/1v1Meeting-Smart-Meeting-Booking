@@ -484,7 +484,7 @@ export const SuperProfileImportModal: React.FC<{
               {profile.video_url ? (
                 <div className="p-3 rounded-xl border border-border space-y-2">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-text-tertiary">
-                    {profile.video_provider === 'vimeo' ? 'Vimeo' : 'YouTube'} video found
+                    Intro video found
                     {profile.video_source === 'session' && ' (on a session)'}
                   </p>
                   {profile.video_embed_url && (
@@ -506,8 +506,8 @@ export const SuperProfileImportModal: React.FC<{
                 </div>
               ) : (
                 <p className="text-[11px] text-text-tertiary">
-                  No YouTube or Vimeo video was found on that page, so your current intro
-                  video stays as it is.
+                  No supported video was found on that page, so your current intro video
+                  stays as it is.
                 </p>
               )}
 

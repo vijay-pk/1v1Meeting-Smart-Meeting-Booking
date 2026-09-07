@@ -65,10 +65,32 @@ def seed_initial_data():
     finally:
         db.close()
 
+def log_database_target() -> None:
+    """
+    Says, in the first lines of the deploy log, which database this process is about to use.
+
+    Never prints the URL: it carries the password. Only the scheme, and -- when the data is
+    in a file next to the process rather than in a managed database -- a warning, because on
+    a container host that means every restart begins with an empty database and every admin
+    profile saved since the last one is gone.
+    """
+    logger.info("Database backend: %s", settings.DATABASE_BACKEND)
+    if settings.DATABASE_IS_EPHEMERAL:
+        logger.warning(
+            "This process is using a local SQLite file (%s). That is fine for development. "
+            "On a container host (Render, Docker, Fly) the file lives in the container's "
+            "ephemeral filesystem and is DESTROYED on every restart, redeploy and idle "
+            "spin-down, taking every admin profile, session and booking with it. Set "
+            "DATABASE_URL to the managed Postgres connection string for any deployment.",
+            settings.DATABASE_URL,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing BookMyMeet backend application...")
+    log_database_target()
     seed_initial_data()
     yield
     # Shutdown
@@ -103,7 +125,20 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "BookMyMeet API", "version": settings.VERSION}
+    """
+    Liveness plus the one deployment fact that silently breaks profile persistence.
+
+    "database" is the scheme only and "persistent_storage" is false when the data lives in a
+    SQLite file inside the container -- enough to spot a misconfigured deploy from outside,
+    with no credential, host or database name in the response.
+    """
+    return {
+        "status": "ok",
+        "service": "BookMyMeet API",
+        "version": settings.VERSION,
+        "database": settings.DATABASE_BACKEND,
+        "persistent_storage": not settings.DATABASE_IS_EPHEMERAL,
+    }
 
 @app.get("/")
 def root():

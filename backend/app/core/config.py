@@ -20,8 +20,21 @@ class Settings(BaseSettings):
     # Rotating this makes every already-encrypted secret undecryptable — set it once.
     ENCRYPTION_KEY: str
 
-    # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./bookmymeet.db")
+    # Database.
+    # NO DEFAULT, on purpose. This used to fall back to "sqlite:///./bookmymeet.db" -- a
+    # relative path -- whenever DATABASE_URL was unset. On a container host (Render, Docker,
+    # Fly) that silently puts the entire platform on a SQLite file inside the container's
+    # ephemeral filesystem: everything works, admins sign up, save their profile and share
+    # their link, and then the next restart, redeploy or idle spin-down throws the file away.
+    # The app comes back up, seed_initial_data() re-creates the super admin from the
+    # environment, and every other admin -- with their profile, sessions, availability and
+    # connections -- is simply gone, so their public page answers a genuine 404 and the
+    # visitor is told the booking page "has been permanently removed".
+    #
+    # A missing database URL is now a startup failure with a message that says what to set,
+    # which is loud in the deploy log instead of silent until the first restart. Local
+    # development sets DATABASE_URL=sqlite:///./bookmymeet.db explicitly in backend/.env.
+    DATABASE_URL: str
 
     @field_validator("DATABASE_URL")
     @classmethod
@@ -31,6 +44,21 @@ class Settings(BaseSettings):
         if v.startswith("postgres://"):
             return v.replace("postgres://", "postgresql://", 1)
         return v
+
+    @property
+    def DATABASE_BACKEND(self) -> str:
+        """"postgresql", "sqlite", ... -- the scheme only. Never carries credentials."""
+        return self.DATABASE_URL.split("://", 1)[0].split("+", 1)[0].lower()
+
+    @property
+    def DATABASE_IS_EPHEMERAL(self) -> bool:
+        """
+        True when the data lives in a file next to the process rather than in a managed
+        database. Fine for local development; on a container host it means every restart
+        starts from an empty database. Surfaced at startup and on /health so a deployment
+        that is quietly losing its data says so before an admin discovers it.
+        """
+        return self.DATABASE_BACKEND == "sqlite" and ":memory:" not in self.DATABASE_URL
 
     # Super Admin initial seed credentials
     # No real person's name or address as a default. The email is required for the same
@@ -102,6 +130,10 @@ except ValidationError as exc:
     raise RuntimeError(
         "Missing required configuration: " + ", ".join(missing) + ".\n"
         "Set these in backend/.env for local development, or in the host's environment "
-        "panel (Render / Docker / CI) before starting the API. They have no defaults "
-        "because a shipped default secret is a published secret."
+        "panel (Render / Docker / CI) before starting the API. "
+        "SECRET_KEY and ENCRYPTION_KEY have no defaults because a shipped default secret is "
+        "a published secret. DATABASE_URL has no default because the old default put a "
+        "deployment on an ephemeral SQLite file that is erased on every restart. In "
+        "production set it to the Supabase Postgres connection string; locally use "
+        "sqlite:///./bookmymeet.db."
     ) from exc

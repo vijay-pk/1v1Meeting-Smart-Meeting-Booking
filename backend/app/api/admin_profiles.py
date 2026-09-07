@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from app.core.database import get_db
 from app.models.models import (
     User, AdminProfile, Session as SessionModel, RazorpayConnection, GoogleConnection
@@ -10,15 +10,44 @@ from app.api.deps import get_current_admin
 
 router = APIRouter()
 
+def _ensure_profile(db: Session, current_admin: User) -> AdminProfile:
+    """
+    Returns this admin's profile row, creating one only if it genuinely has none.
+
+    The username it falls back to used to be the raw local part of the email, which can
+    already be taken by another admin, be a reserved route word ("admin", "settings") or be
+    the retired slug of a permanently deleted admin. Any of those raised an IntegrityError or
+    a 400 out of a plain GET, the settings page reported "could not load your profile", and
+    the form then refused to save. suggest_username() picks a free, legal slug instead.
+
+    The row is created but NOT committed here for the update path; the caller commits.
+    """
+    if current_admin.profile:
+        return current_admin.profile
+
+    # Imported inside the function: app.api.auth imports from this package too.
+    from app.api.auth import suggest_username
+
+    profile = AdminProfile(
+        user_id=current_admin.id,
+        username=suggest_username(db, current_admin.name, current_admin.email),
+    )
+    db.add(profile)
+    return profile
+
+
 @router.get("/public/{username}", response_model=PublicAdminProfile)
 def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
     clean_identifier = username.strip().lower()
     raw_identifier = username.strip()
+    # Compared lowercased on both sides. Usernames are stored lowercase, but a row written
+    # before that rule -- or by a direct database edit -- must still answer its own URL, and
+    # a visitor typing /Ameen must reach the same page as /ameen.
     profile = (
         db.query(AdminProfile)
         .filter(
             or_(
-                AdminProfile.username == clean_identifier,
+                func.lower(AdminProfile.username) == clean_identifier,
                 AdminProfile.user_id == raw_identifier
             )
         )
@@ -73,8 +102,7 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
 def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     profile = current_admin.profile
     if not profile:
-        profile = AdminProfile(user_id=current_admin.id, username=current_admin.email.split("@")[0])
-        db.add(profile)
+        profile = _ensure_profile(db, current_admin)
         db.commit()
         db.refresh(profile)
 
@@ -119,10 +147,7 @@ def update_my_profile(
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    profile = current_admin.profile
-    if not profile:
-        profile = AdminProfile(user_id=current_admin.id, username=current_admin.email.split("@")[0])
-        db.add(profile)
+    profile = _ensure_profile(db, current_admin)
 
     if updates.name is not None:
         current_admin.name = updates.name.strip()
@@ -136,14 +161,35 @@ def update_my_profile(
                 raise HTTPException(status_code=400, detail=f"Username '{clean_user}' is already taken by another admin.")
             profile.username = clean_user
 
+    # Scalar columns. An omitted field (None) is left alone; "" is a real value, because an
+    # admin must be able to clear their bio.
     fields_to_update = [
         "title", "bio", "description", "profile_photo", "cover_image",
         "intro_video", "heading_text", "about_me_text", "custom_description",
-        "welcome_message", "theme_settings", "social_links"
+        "welcome_message",
     ]
     for field in fields_to_update:
         val = getattr(updates, field, None)
         if val is not None:
+            setattr(profile, field, val)
+
+    # JSON columns are MERGED, not replaced. The settings form sends theme_settings as just
+    # {button_color, bg_gradient}; replacing the column with that dropped every other key the
+    # public page reads (show_video, show_stats, show_socials, card_style,
+    # button_text_color), so changing a colour quietly turned other parts of the page off.
+    # Merging means a caller that sends one key changes one key, and a key it does send --
+    # including to "" -- still wins.
+    for field in ("theme_settings", "social_links"):
+        val = getattr(updates, field, None)
+        if val is None:
+            continue
+        if isinstance(val, dict):
+            existing = getattr(profile, field) or {}
+            merged = {**existing, **val}
+            # SQLAlchemy does not track in-place mutation of a JSON column, so assign a new
+            # dict rather than updating the existing one.
+            setattr(profile, field, merged)
+        else:
             setattr(profile, field, val)
 
     db.commit()

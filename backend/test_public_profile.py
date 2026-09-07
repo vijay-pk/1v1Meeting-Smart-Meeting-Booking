@@ -368,7 +368,51 @@ def test_changing_only_the_bio_leaves_everything_else_alone(admin, db):
     assert row.profile_photo == photo
     assert row.intro_video == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert row.title == "Growth mentor"
-    assert row.social_links == {"instagram": "https://instagram.com/me"}
+    assert row.social_links["instagram"] == "https://instagram.com/me"
+
+
+def test_a_partial_theme_update_keeps_the_rest_of_the_theme(admin, db):
+    """
+    theme_settings and social_links are merged, not replaced.
+
+    The settings form sends theme_settings as just {button_color, bg_gradient}. Replacing the
+    whole JSON column with that dropped every other key the public page reads -- show_video,
+    show_stats, show_socials, card_style, button_text_color -- so an admin who changed a
+    colour silently turned parts of their own page off.
+    """
+    _set_profile(admin, theme_settings={
+        "theme": "amber",
+        "bg_gradient": "from-a via-b to-c",
+        "button_color": "#111111",
+        "button_text_color": "#FFFFFF",
+        "show_video": True,
+        "show_stats": True,
+        "card_style": "rounded",
+    })
+    _set_profile(admin, social_links={"instagram": "https://instagram.com/me"})
+
+    # A colour-only save, exactly as the settings form sends it.
+    _set_profile(admin, theme_settings={"button_color": "#222222", "bg_gradient": "from-x via-y to-z"})
+
+    theme = _stored(admin, db).theme_settings
+    assert theme["button_color"] == "#222222"          # the change lands
+    assert theme["bg_gradient"] == "from-x via-y to-z"
+    assert theme["show_video"] is True                 # everything else survives
+    assert theme["show_stats"] is True
+    assert theme["card_style"] == "rounded"
+    assert theme["button_text_color"] == "#FFFFFF"
+    # A save that never mentioned social links cannot have touched them.
+    assert _stored(admin, db).social_links["instagram"] == "https://instagram.com/me"
+
+
+def test_a_merged_field_can_still_be_cleared(admin, db):
+    """Merging preserves untouched keys; a key the caller does send still wins, including ""."""
+    _set_profile(admin, social_links={"instagram": "https://instagram.com/me", "website": "https://me.dev"})
+    _set_profile(admin, social_links={"instagram": ""})
+
+    links = _stored(admin, db).social_links
+    assert links["instagram"] == ""
+    assert links["website"] == "https://me.dev"
 
 
 def test_an_omitted_field_is_never_treated_as_a_clear(admin, db):
@@ -742,3 +786,37 @@ def test_a_superprofile_import_never_changes_the_photo(admin, db, monkeypatch, f
 
     assert _stored(admin, db).profile_photo == photo
     assert _public(admin["username"]).json()["profile_photo"] == photo
+
+
+def test_the_public_url_is_case_insensitive(admin, db):
+    """
+    /Ameen and /ameen are the same host.
+
+    Usernames are stored lowercase, but a link typed or auto-capitalised by a phone keyboard
+    must not answer 404 -- to the visitor that is indistinguishable from "this page is gone".
+    """
+    slug = _stored(admin, db).username
+
+    assert _public(slug).status_code == 200
+    assert _public(slug.upper()).status_code == 200
+    assert _public(slug.capitalize()).json()["username"] == slug
+
+
+def test_health_reports_whether_storage_is_persistent():
+    """
+    A deployment running on an ephemeral SQLite file loses every saved profile on restart.
+
+    That used to be invisible from outside: the API answered 200, the public page answered a
+    genuine 404, and the visitor was told the booking page had been permanently removed.
+    /health now states the backend and whether it survives a restart, with no credential,
+    host or database name in the response.
+    """
+    body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    assert body["database"] in {"sqlite", "postgresql", "mysql"}
+    assert isinstance(body["persistent_storage"], bool)
+    assert body["persistent_storage"] is (body["database"] != "sqlite")
+    # No part of the connection string may leak.
+    assert "://" not in body["database"]
+    assert not any("password" in str(k).lower() for k in body)

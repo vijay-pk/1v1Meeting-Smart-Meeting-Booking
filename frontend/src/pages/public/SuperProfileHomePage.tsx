@@ -4,6 +4,8 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
+import { INTRO_VIDEO_LABEL } from '@/lib/video';
+import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import type { AdminUser, MeetingType } from '@/types';
 import {
   Video,
@@ -422,49 +424,29 @@ export const SuperProfileHomePage: React.FC = () => {
         </div>
       </header>
 
-      {/* OPTIONAL EMBEDDED INTRO VIDEO */}
+      {/* OPTIONAL EMBEDDED INTRO VIDEO
+          Provider-neutral by design: no YouTube/Vimeo logo, icon, badge or name is added by
+          this card. getVideoEmbedUrl() hides which provider hosts the video. */}
       {activeAdmin.intro_video && (
         <section className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 relative z-10">
           <div className="bg-slate-900/90 backdrop-blur-md rounded-3xl border border-white/10 p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between text-xs text-slate-300 mb-3 px-1">
               <div className="flex items-center gap-1.5 font-bold text-white">
-                <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" />
-                <span>Watch: 1-to-1 Call Overview with {activeAdmin.full_name}</span>
+                <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" aria-hidden="true" />
+                <span>{INTRO_VIDEO_LABEL} &mdash; {activeAdmin.full_name}</span>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-amber-300 font-mono">
                 Verified Mentor
               </span>
             </div>
 
-            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
-              {activeAdmin.intro_video.includes('vimeo.com') ? (
-                <iframe
-                  src={
-                    activeAdmin.intro_video.includes('player.vimeo.com')
-                      ? activeAdmin.intro_video
-                      : `https://player.vimeo.com/video/${activeAdmin.intro_video.split('/').pop()}?title=0&byline=0&portrait=0`
-                  }
-                  className="w-full h-full border-0"
-                  allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media"
-                  title="Intro Video"
-                  allowFullScreen
-                />
-              ) : activeAdmin.intro_video.includes('youtube.com') || activeAdmin.intro_video.includes('youtu.be') ? (
-                <iframe
-                  src={`https://www.youtube.com/embed/${
-                    activeAdmin.intro_video.includes('youtu.be')
-                      ? activeAdmin.intro_video.split('/').pop()
-                      : new URL(activeAdmin.intro_video).searchParams.get('v')
-                  }`}
-                  className="w-full h-full border-0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  title="Intro Video"
-                  allowFullScreen
-                />
-              ) : (
-                <video src={activeAdmin.intro_video} controls className="w-full h-full object-cover" />
-              )}
-            </div>
+            {/* Click-to-load: the provider's player, and therefore its logo, channel name
+                and title bar, is mounted only once the visitor presses our own play
+                control. See components/ui/IntroVideoPlayer. */}
+            <IntroVideoPlayer
+              url={activeAdmin.intro_video}
+              className="rounded-2xl border border-white/10 shadow-lg"
+            />
           </div>
         </section>
       )}
