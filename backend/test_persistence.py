@@ -89,6 +89,23 @@ def tracked():
         session.close()
 
 
+def _hold(admin, session_id, start_time, end_time):
+    """
+    Takes the slot hold that create-order consumes.
+
+    The checkout page has always called hold-slot first; the backend simply never verified
+    the lock_id it was given. These tests went straight to create-order, exercising a path no
+    real client takes.
+    """
+    res = client.post("/api/bookings/hold-slot", json={
+        "admin_id": admin["id"], "session_id": session_id,
+        "start_time": start_time, "end_time": end_time,
+        "session_fingerprint": f"test_{uuid.uuid4().hex[:8]}",
+    })
+    assert res.status_code == 200, res.text
+    return res.json()["lock_id"]
+
+
 def _make_admin(tracked, tag="a"):
     uid = uuid.uuid4().hex[:8]
     email = f"pers_{tag}_{uid}@testdomain.com"
@@ -249,6 +266,7 @@ def test_a_failed_payment_does_not_disconnect_razorpay(admin, db, monkeypatch):
         "admin_id": admin["id"], "session_id": session["id"],
         "start_time": "2030-09-01T10:00:00Z", "end_time": "2030-09-01T10:30:00Z",
         "client_name": "Alice", "client_email": "alice@example.com", "client_phone": "+919000000001",
+        "lock_id": _hold(admin, session["id"], "2030-09-01T10:00:00Z", "2030-09-01T10:30:00Z"),
     }).json()
 
     # A forged signature: the payment fails.
@@ -281,6 +299,7 @@ def test_a_gateway_outage_does_not_disconnect_razorpay(admin, db, monkeypatch):
         "admin_id": admin["id"], "session_id": session["id"],
         "start_time": "2030-09-02T10:00:00Z", "end_time": "2030-09-02T10:30:00Z",
         "client_name": "Alice", "client_email": "alice@example.com", "client_phone": "+919000000001",
+        "lock_id": _hold(admin, session["id"], "2030-09-02T10:00:00Z", "2030-09-02T10:30:00Z"),
     })
     assert res.status_code == 502
 
@@ -387,6 +406,7 @@ def test_manual_razorpay_disconnect_works_and_stops_new_payments(admin, db):
         "admin_id": admin["id"], "session_id": session["id"],
         "start_time": "2030-09-03T10:00:00Z", "end_time": "2030-09-03T10:30:00Z",
         "client_name": "Alice", "client_email": "alice@example.com", "client_phone": "+919000000001",
+        "lock_id": _hold(admin, session["id"], "2030-09-03T10:00:00Z", "2030-09-03T10:30:00Z"),
     })
     assert order.status_code == 503
 
@@ -658,6 +678,7 @@ def test_a_failed_payment_does_not_change_the_price(admin, monkeypatch):
         "admin_id": admin["id"], "session_id": session["id"],
         "start_time": "2030-09-04T10:00:00Z", "end_time": "2030-09-04T10:30:00Z",
         "client_name": "Alice", "client_email": "alice@example.com", "client_phone": "+919000000001",
+        "lock_id": _hold(admin, session["id"], "2030-09-04T10:00:00Z", "2030-09-04T10:30:00Z"),
     }).json()
 
     client.post("/api/payments/verify", json={
@@ -681,6 +702,7 @@ def test_a_successful_payment_does_not_change_the_price(admin, monkeypatch):
         "admin_id": admin["id"], "session_id": session["id"],
         "start_time": "2030-09-05T10:00:00Z", "end_time": "2030-09-05T10:30:00Z",
         "client_name": "Alice", "client_email": "alice@example.com", "client_phone": "+919000000001",
+        "lock_id": _hold(admin, session["id"], "2030-09-05T10:00:00Z", "2030-09-05T10:30:00Z"),
     }).json()
 
     payment_id = f"pay_{uuid.uuid4().hex[:12]}"

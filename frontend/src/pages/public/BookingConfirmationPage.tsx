@@ -20,7 +20,6 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '@/lib/calendar';
 
@@ -29,6 +28,10 @@ export const BookingConfirmationPage: React.FC = () => {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // "We could not reach the server" and "there is no such booking" are different facts and
+  // get different screens: one offers a retry, the other does not.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const tz = booking?.customer_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
 
@@ -40,9 +43,9 @@ export const BookingConfirmationPage: React.FC = () => {
         return;
       }
 
-      // The backend is asked first: a real paid booking lives there, and only there. The
-      // local store and Supabase lookups below remain for bookings made before payments
-      // went through the FastAPI flow.
+      // The backend is the only thing that can confirm a booking, because it is the only
+      // thing that saw the payment. Everything below it is a read of an older store, never a
+      // substitute for this answer.
       try {
         const remote = await api.getPublicBooking(bookingId);
         if (remote) {
@@ -68,33 +71,24 @@ export const BookingConfirmationPage: React.FC = () => {
           setLoading(false);
           return;
         }
-      } catch {
-        // Fall through to the legacy sources below.
-      }
-
-      // Check local store next
-      const localBooking = useBookingStore.getState().getBookingById(bookingId);
-      if (localBooking) {
-        const store = useBookingStore.getState();
-        const mt = store.meetingTypes.find((m) => m.id === localBooking.meeting_type_id);
-        const adm = store.admins.find((a) => a.id === localBooking.admin_id);
-        setBooking({
-          ...localBooking,
-          meeting_type: mt as any,
-          admin: adm as any,
-          customer: {
-            name: (localBooking as any).customer_name || 'Attendee',
-            email: (localBooking as any).customer_email || '',
-            phone: (localBooking as any).customer_phone,
-          } as any,
-          payment: {
-            amount: mt?.price || 0,
-            currency: mt?.currency || 'INR',
-            status: 'captured',
-          } as any,
-        });
-        setLoading(false);
-        return;
+      } catch (err: any) {
+        // A 404 is a real answer -- there is no such booking -- and the Supabase lookup below
+        // may still find a legacy row. Anything else is us failing to reach the server, and
+        // that must not be dressed up as a confirmation.
+        //
+        // What was here before: an empty `catch {}` that swallowed this error, then a read
+        // from the local zustand store which rendered the full "Booking Confirmed!" screen
+        // with payment.status hardcoded to 'captured'. A client whose payment never reached
+        // the backend was shown a confirmed booking that existed only in their own browser.
+        if (!err?.notFound) {
+          setError(
+            err?.message ||
+            'We could not load this booking right now. Your booking is not affected.'
+          );
+          setLoadFailed(true);
+          setLoading(false);
+          return;
+        }
       }
 
       try {
@@ -120,13 +114,48 @@ export const BookingConfirmationPage: React.FC = () => {
     };
 
     fetchBooking();
-  }, [bookingId]);
+  }, [bookingId, reloadKey]);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
         <p className="text-sm text-text-secondary">Loading your booking details...</p>
+      </div>
+    );
+  }
+
+  // The server could not be reached. The booking is very likely fine -- say so, and offer a
+  // retry rather than implying it does not exist.
+  if (loadFailed) {
+    return (
+      <div className="max-w-md mx-auto my-12 px-4">
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="pt-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-text-primary">Couldn&rsquo;t load your booking</h2>
+              <p className="text-sm text-text-secondary mt-1">
+                We could not reach the booking service just now. If you completed payment,
+                your booking is confirmed and your confirmation email is on its way.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="mt-2 min-h-[44px]"
+              onClick={() => {
+                setError(null);
+                setLoadFailed(false);
+                setLoading(true);
+                setReloadKey((k) => k + 1);
+              }}
+            >
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

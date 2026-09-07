@@ -35,6 +35,9 @@ export const RescheduleBookingPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
 
   const [booking, setBooking] = useState<Booking | null>(null);
+  // A load failure used to be a dead end: an error screen whose only action was a link away
+  // from the page the visitor was sent. Re-running the fetch is almost always what they want.
+  const [reloadKey, setReloadKey] = useState(0);
   const [meetingType, setMeetingType] = useState<MeetingType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +85,7 @@ export const RescheduleBookingPage: React.FC = () => {
     };
 
     fetchBooking();
-  }, [token]);
+  }, [token, reloadKey]);
 
   // Real availability for the selected date.
   //
@@ -181,11 +184,24 @@ export const RescheduleBookingPage: React.FC = () => {
               <h2 className="text-lg font-bold text-text-primary">Unable to Reschedule</h2>
               <p className="text-sm text-text-secondary mt-1">{error}</p>
             </div>
-            <Link to="/">
-              <Button variant="outline" className="mt-2">
-                Home
+            <div className="flex items-center justify-center gap-2">
+              <Button
+                variant="outline"
+                className="mt-2 min-h-[44px]"
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  setReloadKey((k) => k + 1);
+                }}
+              >
+                Try again
               </Button>
-            </Link>
+              <Link to="/">
+                <Button variant="outline" className="mt-2 min-h-[44px]">
+                  Home
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       </div>

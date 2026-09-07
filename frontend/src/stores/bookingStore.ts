@@ -35,17 +35,6 @@ interface BookingStoreState {
   removeScheduleBlock: (blockId: string) => void;
 
   // Booking
-  createBooking: (bookingData: {
-    meetingTypeId: string;
-    adminId: string | null; // null means 'Any available'
-    startTime: string;
-    endTime: string;
-    customerName: string;
-    customerEmail: string;
-    customerPhone?: string;
-    notes?: string;
-    customerTimezone: string;
-  }) => Booking;
 
   getAvailableSlots: (date: Date, meetingTypeId: string, adminId: string | null) => TimeSlot[];
 
@@ -308,169 +297,14 @@ export const useBookingStore = create<BookingStoreState>()(
         }));
       },
 
-      createBooking: (data) => {
-        const state = get();
-        const meeting = state.meetingTypes.find((m) => m.id === data.meetingTypeId);
-        
-        const reqStart = new Date(data.startTime).getTime();
-        const reqEnd = new Date(data.endTime).getTime();
-
-        // 1. Resolve Target Admin: prioritize data.adminId, then meeting.admin_id, then super admin
-        let assignedAdmin: AdminUser | undefined;
-        if (data.adminId) {
-          const reqAdminId = data.adminId;
-          assignedAdmin = state.admins.find(
-            (a) => a.id === reqAdminId || a.username.toLowerCase() === reqAdminId.toLowerCase()
-          );
-        }
-
-        if (!assignedAdmin && meeting?.admin_id) {
-          const meetingAdminId = meeting.admin_id;
-          assignedAdmin = state.admins.find(
-            (a) => a.id === meetingAdminId || a.username.toLowerCase() === meetingAdminId.toLowerCase()
-          );
-        }
-
-        if (!assignedAdmin) {
-          // If no specific admin was requested (e.g. platform pooled booking), fall back
-          // to the first known admin rather than any hardcoded identity.
-          const primaryAdmin = state.admins[0];
-          const isPrimaryBusy = state.bookings.some((b) => {
-            if (b.status === 'cancelled') return false;
-            const isAssigned = b.assigned_admin_id === primaryAdmin.id || b.admin_id === primaryAdmin.id;
-            if (!isAssigned) return false;
-            const bStart = new Date(b.start_time).getTime();
-            const bEnd = new Date(b.end_time).getTime();
-            return reqStart < bEnd && reqEnd > bStart;
-          });
-
-          if (!isPrimaryBusy) {
-            assignedAdmin = primaryAdmin;
-          } else {
-            const availableOtherAdmins = state.admins.filter((adm) => {
-              if (adm.id === primaryAdmin.id) return false;
-              const hasConflict = state.bookings.some((b) => {
-                if (b.status === 'cancelled') return false;
-                const isAssigned = b.assigned_admin_id === adm.id || b.admin_id === adm.id;
-                if (!isAssigned) return false;
-                const bStart = new Date(b.start_time).getTime();
-                const bEnd = new Date(b.end_time).getTime();
-                return reqStart < bEnd && reqEnd > bStart;
-              });
-              return !hasConflict;
-            });
-            assignedAdmin = availableOtherAdmins.length > 0 ? availableOtherAdmins[0] : primaryAdmin;
-          }
-        }
-
-        const publicId = `BMM-${Math.floor(1000 + Math.random() * 9000)}`;
-        const bookingId = `bk-${Date.now()}`;
-        
-        // Use https://meet.google.com/new so Google Meet creates an instant active meeting room
-        // on launch rather than failing with "No such meeting" on fabricated random codes.
-        const googleMeetUrl = 'https://meet.google.com/new';
-
-        // Generate 1-click Google Calendar Web URL (pre-filled with both client and admin as attendees)
-        const gCalUrl = generateGoogleCalendarUrl({
-          title: `1:1 Session: ${meeting?.name || 'Consultation'} - ${data.customerName} with ${assignedAdmin.full_name}`,
-          description: `Appointment: ${meeting?.name || '1-on-1 Consultation'}\nDuration: ${meeting?.duration_minutes || 15} mins\nTopic: ${data.notes || '1:1 Mentorship Session'}\n\nClient: ${data.customerName} (${data.customerEmail})\nHost: ${assignedAdmin.full_name} (${assignedAdmin.email})`,
-          location: googleMeetUrl,
-          startTime: data.startTime,
-          endTime: data.endTime,
-          clientName: data.customerName,
-          clientEmail: data.customerEmail,
-          adminName: assignedAdmin.full_name,
-          adminEmail: assignedAdmin.email,
-        });
-
-        // Email notifications dispatched to BOTH Client and Admin with meeting link and booked time
-        const formattedDate = format(new Date(data.startTime), 'EEEE, MMMM d, yyyy');
-        const formattedTime = `${format(new Date(data.startTime), 'h:mm a')} – ${format(new Date(data.endTime), 'h:mm a')} (${data.customerTimezone || 'IST'})`;
-
-        const clientNotification: EmailNotification = {
-          id: `email-client-${Date.now()}`,
-          booking_id: bookingId,
-          recipient_type: 'client',
-          recipient_email: data.customerEmail,
-          recipient_name: data.customerName,
-          subject: `Booking Confirmed: ${meeting?.name || 'Consultation'} with ${assignedAdmin.full_name}`,
-          meet_url: googleMeetUrl,
-          google_calendar_url: gCalUrl,
-          booked_time: data.startTime,
-          formatted_time: `${formattedDate} at ${formattedTime}`,
-          sent_at: new Date().toISOString(),
-          status: 'delivered',
-        };
-
-        const adminNotification: EmailNotification = {
-          id: `email-admin-${Date.now()}`,
-          booking_id: bookingId,
-          recipient_type: 'admin',
-          recipient_email: assignedAdmin.email,
-          recipient_name: assignedAdmin.full_name,
-          subject: `New Paid Booking Alert: ${data.customerName} - ${meeting?.name || 'Consultation'}`,
-          meet_url: googleMeetUrl,
-          google_calendar_url: gCalUrl,
-          booked_time: data.startTime,
-          formatted_time: `${formattedDate} at ${formattedTime}`,
-          sent_at: new Date().toISOString(),
-          status: 'delivered',
-        };
-
-        const newBooking: Booking = {
-          id: bookingId,
-          public_id: publicId,
-          admin_id: assignedAdmin.id,
-          assigned_admin_id: assignedAdmin.id,
-          assigned_admin_name: assignedAdmin.full_name,
-          assigned_admin_email: assignedAdmin.email,
-          customer_id: `cust-${Date.now()}`,
-          customer_name: data.customerName,
-          customer_email: data.customerEmail,
-          customer_phone: data.customerPhone,
-          meeting_type_id: data.meetingTypeId,
-          meeting_type_name: meeting?.name || 'Consultation Session',
-          start_time: data.startTime,
-          end_time: data.endTime,
-          customer_timezone: data.customerTimezone,
-          status: 'confirmed',
-          payment_status: 'completed',
-          calendar_status: 'created',
-          google_calendar_event_id: `cal-${Date.now()}`,
-          google_meet_url: googleMeetUrl,
-          google_calendar_url: gCalUrl,
-          notifications_sent: {
-            client_email: data.customerEmail,
-            admin_email: assignedAdmin.email,
-            sent_at: new Date().toISOString(),
-            meet_url: googleMeetUrl,
-          },
-          cancellation_token: `cancel-${Date.now()}`,
-          reschedule_token: `resched-${Date.now()}`,
-          cancelled_at: null,
-          cancellation_reason: null,
-          calendar_retry_count: 0,
-          question_answers: null,
-          notes: data.notes || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          customer: {
-            id: `cust-${Date.now()}`,
-            name: data.customerName,
-            email: data.customerEmail,
-            phone: data.customerPhone,
-            created_at: new Date().toISOString(),
-          },
-          meeting_type: meeting,
-        };
-
-        set((s) => ({
-          bookings: [newBooking, ...s.bookings],
-          emailNotifications: [clientNotification, adminNotification, ...(s.emailNotifications || [])],
-        }));
-
-        return newBooking;
-      },
+      // createBooking() has been removed.
+      //
+      // It built a confirmed Booking entirely in the browser -- inventing a public id, a
+      // 'https://meet.google.com/new' meeting URL and 'delivered' email records -- with no
+      // API call anywhere in it. BookingConfirmationPage then read that row back and
+      // rendered a full 'Booking Confirmed!' screen with payment.status hardcoded to
+      // 'captured'. A booking exists when the server says a payment cleared, and nowhere
+      // else. Checkout goes through api.createOrder + api.verifyPayment.
 
       getAvailableSlots: (date, meetingTypeId, adminId) => {
         const state = get();

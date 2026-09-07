@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.models import User, Session as SessionModel, Booking, SlotLock
 from app.schemas.schemas import SlotLockRequest, SlotLockResponse, BookingResponse
 from app.api.deps import get_current_admin
+from app.services.booking_slots import expire_abandoned_bookings, is_occupying
 
 router = APIRouter()
 
@@ -45,16 +46,25 @@ def hold_slot(req: SlotLockRequest, db: Session = Depends(get_db)):
                 detail="This slot is currently held by another user. Please choose another time or wait a few minutes."
             )
 
-    # 2. Check if already confirmed booking exists
-    existing_booking = (
+    # 2. Is the slot already taken by a booking?
+    #
+    # Confirmed always counts; a checkout in progress counts while its window is open. An
+    # abandoned one is released here rather than blocking the slot forever -- the same rule
+    # the availability engine applies, so the picker and the hold never disagree about what
+    # is free.
+    expire_abandoned_bookings(
+        db, admin_id=req.admin_id, start_time=req.start_time, now_utc=now_utc
+    )
+    candidates = (
         db.query(Booking)
         .filter(
             Booking.admin_id == req.admin_id,
             Booking.start_time == req.start_time,
             Booking.status.in_(["confirmed", "pending_payment"])
         )
-        .first()
+        .all()
     )
+    existing_booking = next((b for b in candidates if is_occupying(b, now_utc)), None)
     if existing_booking:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -82,11 +92,27 @@ def hold_slot(req: SlotLockRequest, db: Session = Depends(get_db)):
     }
 
 @router.post("/release-hold/{lock_id}")
-def release_hold(lock_id: str, db: Session = Depends(get_db)):
+def release_hold(
+    lock_id: str,
+    session_fingerprint: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Releases a hold the caller owns.
+
+    This used to release any lock by id with no ownership check at all, so anyone holding a
+    lock id could drop another client's hold mid-checkout. The fingerprint is the same value
+    that took the hold, and the endpoint stays public because the booking flow has no login.
+
+    Always answers 200: a hold that is already gone, or was never the caller's, is not
+    something a client can act on, and saying which it was would confirm that a given lock id
+    exists.
+    """
     lock = db.query(SlotLock).filter(SlotLock.id == lock_id).first()
-    if lock:
-        lock.status = "released"
-        db.commit()
+    if lock and lock.status == "active":
+        if session_fingerprint is None or lock.locked_by_session == session_fingerprint:
+            lock.status = "released"
+            db.commit()
     return {"message": "Hold released successfully"}
 
 @router.get("/my-bookings")

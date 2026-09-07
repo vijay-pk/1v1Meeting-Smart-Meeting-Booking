@@ -86,6 +86,12 @@ def _make_admin(tracked, tag="a"):
     created = client.post("/api/sessions/", headers=headers, json={
         "title": "Test Consultation", "description": "", "duration_minutes": 30,
         "price": 99900, "currency": "INR", "is_active": True,
+        # These tests book fixed 2030 dates so the weekday mapping stays deterministic, and
+        # max_advance_days is now actually enforced (it was declared on the model from the
+        # start and never read). A wide horizon keeps the fixture dates reachable so each
+        # test still measures the slot engine rather than the booking horizon; the horizon
+        # itself is covered by its own tests.
+        "max_advance_days": 3650,
     })
     assert created.status_code == 200, created.text
 

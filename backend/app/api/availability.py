@@ -6,6 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.services.booking_slots import is_occupying
 from app.core.database import get_db
 from app.models.models import (
     User, AdminProfile, Session as SessionModel, AvailabilityRule,
@@ -209,12 +210,21 @@ async def get_available_slots(
     username: Optional[str] = None,
     session_id: str = Query(...),
     date_str: str = Query(..., pattern="^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),  # YYYY-MM-DD
-    client_timezone: str = Query("Asia/Kolkata"),
     db: Session = Depends(get_db)
 ):
     """
     Calculates final available slots using the exact formula:
     FINAL AVAILABLE SLOTS = Working Hours - Google Calendar Busy - Leave/Holidays - Confirmed Bookings - Buffer Time
+
+    Every time in the response is wall clock in the host's own timezone, which is the zone
+    they set their working hours in. The response names that zone so the UI can label it.
+
+    There was previously a client_timezone parameter here. It was accepted and never read --
+    nothing in this function converted anything -- while the booking page labelled these
+    times with the *browser's* zone. A client in London was shown IST slots captioned
+    "Europe/London" and would arrive five and a half hours late. Removed rather than
+    implemented: converting properly means converting the write path, the calendar event and
+    both emails too, and a parameter that silently does nothing is worse than no parameter.
     """
     # 1. Resolve Admin
     user = None
@@ -229,7 +239,11 @@ async def get_available_slots(
         raise HTTPException(status_code=404, detail="Admin not found")
 
     if user.status != "ACTIVE":
-        return {"available_slots": [], "message": "Admin is currently not taking bookings."}
+        return {
+            "available_slots": [], "date": date_str, "admin_id": user.id,
+            "timezone": settings.BUSINESS_TIMEZONE,
+            "message": "Admin is currently not taking bookings."
+        }
 
     # 2. Fetch Session details
     session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
@@ -237,6 +251,24 @@ async def get_available_slots(
         raise HTTPException(status_code=404, detail="Session not found or inactive")
 
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+    # How far ahead this session may be booked. Session.max_advance_days has existed since
+    # the first schema and was never read, so a client could request a date years out and be
+    # offered slots the host never intended to open.
+    today_business = datetime.now(BUSINESS_TZ).date()
+    if target_date < today_business:
+        return {
+            "available_slots": [], "date": date_str, "admin_id": user.id,
+            "timezone": settings.BUSINESS_TIMEZONE,
+            "message": "That date has already passed."
+        }
+    horizon = session_obj.max_advance_days or 30
+    if (target_date - today_business).days > horizon:
+        return {
+            "available_slots": [], "date": date_str, "admin_id": user.id,
+            "timezone": settings.BUSINESS_TIMEZONE,
+            "message": f"This session can only be booked up to {horizon} days ahead."
+        }
     # Python weekday(): 0=Mon, 6=Sun. We map to: 0=Sun, 1=Mon... 6=Sat
     day_of_week = (target_date.weekday() + 1) % 7
 
@@ -257,6 +289,7 @@ async def get_available_slots(
             continue
         if not row.start_time or not row.end_time:
             return {
+                "timezone": settings.BUSINESS_TIMEZONE,
                 "available_slots": [],
                 "date": date_str,
                 "admin_id": user.id,
@@ -286,6 +319,7 @@ async def get_available_slots(
     )
     if not rules:
         return {
+            "timezone": settings.BUSINESS_TIMEZONE,
             "available_slots": [],
             "date": date_str,
             "admin_id": user.id,
@@ -309,6 +343,7 @@ async def get_available_slots(
 
     if not working_windows:
         return {
+            "timezone": settings.BUSINESS_TIMEZONE,
             "available_slots": [],
             "date": date_str,
             "admin_id": user.id,
@@ -324,7 +359,14 @@ async def get_available_slots(
     day_start_iso = f"{date_str}T00:00:00Z"
     day_end_iso = f"{date_str}T23:59:59Z"
 
-    existing_bookings = (
+    now_utc = datetime.now(timezone.utc)
+
+    # A booking occupies its slot while it is confirmed, and while a client is part-way
+    # through paying for it. But an abandoned checkout stays "pending_payment" forever --
+    # nothing swept those rows, so one closed tab took a slot off the calendar permanently.
+    # Bookings past the checkout window are ignored here and are actually released the next
+    # time someone tries to book that slot (payments.expire_abandoned_bookings).
+    candidate_bookings = (
         db.query(Booking)
         .filter(
             Booking.admin_id == user.id,
@@ -334,9 +376,9 @@ async def get_available_slots(
         )
         .all()
     )
+    existing_bookings = [b for b in candidate_bookings if is_occupying(b, now_utc)]
 
     # 6. Fetch Active Slot Locks
-    now_utc = datetime.now(timezone.utc)
     active_locks = (
         db.query(SlotLock)
         .filter(
@@ -374,6 +416,7 @@ async def get_available_slots(
         except GoogleCalendarUnavailable as exc:
             logger.warning("Google Calendar unavailable for admin %s: %s", user.id, exc)
             return {
+                "timezone": settings.BUSINESS_TIMEZONE,
                 "available_slots": [],
                 "date": date_str,
                 "admin_id": user.id,
@@ -394,6 +437,7 @@ async def get_available_slots(
             except Exception:
                 # An unparseable interval must not silently vanish into "free".
                 return {
+                    "timezone": settings.BUSINESS_TIMEZONE,
                     "available_slots": [],
                     "date": date_str,
                     "admin_id": user.id,
@@ -466,4 +510,57 @@ async def get_available_slots(
     slots = list({slot["start"]: slot for slot in slots}.values())
     slots.sort(key=lambda slot: slot["start"])
 
-    return {"available_slots": slots, "date": date_str, "admin_id": user.id}
+    return {
+        "available_slots": slots,
+        "date": date_str,
+        "admin_id": user.id,
+        # The zone these wall-clock times are in. The UI labels slots with this and never
+        # with the browser's zone, which is not where the host's calendar lives.
+        "timezone": settings.BUSINESS_TIMEZONE,
+    }
+
+
+@router.get("/slot-counts")
+async def get_slot_counts(
+    admin_id: Optional[str] = None,
+    username: Optional[str] = None,
+    session_id: str = Query(...),
+    days: int = Query(14, ge=1, le=31),
+    db: Session = Depends(get_db)
+):
+    """
+    How many slots each of the next `days` days has, in one request.
+
+    The booking page needs this to show "3 slots" on a date pill and to hide days that have
+    none -- which is what the reference booking experience does, and the difference between
+    a visitor finding a time in one click and hunting through empty days one at a time.
+
+    Doing it client-side would mean one request per day. That is 14 round trips on a link
+    people open from a phone, against a backend that can be cold. One request instead.
+
+    Each day is computed by the same engine that serves /slots, so the count on a pill can
+    never disagree with the slots behind it. That means up to `days` sequential FreeBusy
+    calls for a host with Google connected; the cap keeps that bounded, and it is still one
+    network round trip for the client rather than fourteen.
+    """
+    today = datetime.now(BUSINESS_TZ).date()
+    counts = []
+    for offset in range(days):
+        date_str = (today + timedelta(days=offset)).strftime("%Y-%m-%d")
+        result = await get_available_slots(
+            admin_id=admin_id, username=username, session_id=session_id,
+            date_str=date_str, db=db,
+        )
+        slots = result.get("available_slots", [])
+        counts.append({
+            "date": date_str,
+            "count": len(slots),
+            # Surfaced so the UI can distinguish "the host is free on no days" from "we
+            # could not read the host's calendar", which are very different messages.
+            "calendar_error": bool(result.get("calendar_error")),
+        })
+
+    return {
+        "days": counts,
+        "timezone": settings.BUSINESS_TIMEZONE,
+    }

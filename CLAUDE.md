@@ -32,10 +32,10 @@ Swagger at `http://127.0.0.1:8000/docs`, health at `/health`.
 
 **Tests** (`cd backend`):
 ```
-pytest -q                                                          # all 310
+pytest -q                                                          # all 329
 pytest test_api.py::test_slot_lock_double_booking_protection -v    # single test
 ```
-Six test files. Every one of them now builds the rows it needs and tears them down, so the
+Ten test files. Every one of them builds the rows it needs and tears them down, so the
 suite is order-independent and leaves nothing behind in the development database:
 - `test_api.py` — 6 `TestClient` integration tests; signs up its own admin per test.
 - `test_security.py` — 30 unit tests on password hashing and Razorpay signature verification. No DB, no app.
@@ -45,10 +45,13 @@ suite is order-independent and leaves nothing behind in the development database
   re-registration block.
 - `test_superprofile_import.py` — 51 tests on the SuperProfile import: URL/SSRF rejection,
   parsing without invented values, sanitization, duplicates, and the apply modes.
+- `test_booking_integrity.py` — 19 tests on the guarantees below: the hold is consumed, one
+  slot yields one booking, no meeting link is ever fabricated, email reports what actually
+  happened, and the booking horizon is enforced.
 
-`test_security.py`, `test_payment_flow.py`, `test_admin_deletion.py` and
-`test_superprofile_import.py` encode fail-closed
-security guarantees. Do not relax an assertion in them to make a change pass.
+`test_security.py`, `test_payment_flow.py`, `test_admin_deletion.py`,
+`test_superprofile_import.py` and `test_booking_integrity.py` encode fail-closed
+security and integrity guarantees. Do not relax an assertion in them to make a change pass.
 
 **Full stack**: `docker compose up` from the root — postgres on 5432, backend on 8000, frontend (nginx) on 80.
 
@@ -77,7 +80,7 @@ This is the thing to internalize first. The frontend reads from **three differen
 | `schemas/schemas.py` | **All Pydantic models in one file** |
 | `api/deps.py` | `get_current_user` / `get_current_admin` / `get_current_super_admin` |
 | `api/*.py` | 10 routers |
-| `services/` | `razorpay_service`, `google_calendar`, `email_service` (mock — only logs), `scraper_service` |
+| `services/` | `razorpay_service`, `google_calendar`, `email_service` (real, Resend), `booking_slots` (slot-occupancy rules shared by availability and payments), `superprofile_import`, `admin_deletion`, `supabase_storage` |
 | `main.py` | App factory, CORS, static `/uploads` mount, `/health`, and `seed_initial_data()` (L17-238) |
 
 Routers, all under the `/api` prefix set at `main.py:274`: `/auth`, `/profiles`, `/sessions`, `/availability`, `/bookings`, `/payments`, `/google`, `/super-admin`, `/notifications`, `/upload`.
@@ -88,11 +91,47 @@ Auth is a stateless HS256 bearer token, 7-day expiry, payload `{exp, sub: user_i
 
 The one cross-file path worth knowing by heart:
 
-1. `POST /api/bookings/hold-slot` — creates a `SlotLock` with an expiry; returns 409 on conflict. This is the double-booking guard (`test_api.py::test_slot_lock_double_booking_protection`).
-2. `POST /api/payments/create-order` — creates a `pending_payment` `Booking` and a Razorpay order **under that admin's own key** (`payments.py:103-105`).
-3. `POST /api/payments/verify` — checks the HMAC signature, re-checks double-booking (`payments.py:193-209`), flips the booking to `confirmed`, creates the Google Meet event using the admin's encrypted refresh token (`payments.py:236-248`), writes a `Notification`, fires the mock emails.
+1. `POST /api/bookings/hold-slot` — creates a 10-minute `SlotLock`; 409 if someone else holds
+   it or a booking already occupies it. `release-hold` requires the `session_fingerprint`
+   that took the hold: it previously released any lock by id, so anyone could drop another
+   client's hold mid-checkout.
+2. `POST /api/payments/create-order` — **requires and consumes `lock_id`**, then creates a
+   `pending_payment` `Booking` and a Razorpay order under that admin's own key. The lock is
+   marked `consumed`; from there the booking holds the slot.
+3. `POST /api/payments/verify` — checks the HMAC signature, re-checks double-booking, flips
+   the booking to `confirmed`, creates the Google Meet event with the admin's encrypted
+   refresh token, writes a `Notification`, then sends email.
 
-**Slot engine**: `api/availability.py:58-230` computes working hours − Google FreeBusy − leave exceptions − confirmed bookings − buffers. Note the weekday remap at `availability.py:93`: `(weekday() + 1) % 7` converts Python's Mon=0 to the schema's Sun=0. Off-by-one bugs in availability almost always live here.
+**One slot, one booking.** This is the area most worth understanding before changing anything
+in `payments.py`:
+
+- Every conflict check is a SELECT then an INSERT with no locking, and the gap between them
+  is the length of a Razorpay checkout — minutes. No application code closes that. The
+  guarantee is a **partial unique index** on `bookings(admin_id, start_time)` covering
+  `('confirmed', 'pending_payment')`, declared in `models.Booking.__table_args__` *and* in
+  `migrations/004_booking_conflict_constraints.sql`. Both, because production was built by
+  `create_all` and would otherwise never get it. `IntegrityError` maps to the same 409.
+- **`pending_payment` occupies a slot.** Matching only `"confirmed"` is what let two people
+  pay for the same time.
+- Which creates the opposite hazard: an abandoned checkout would hold its slot forever, since
+  nothing sweeps those rows. `services/booking_slots.py` owns that rule
+  (`ABANDONED_CHECKOUT_MINUTES`, `is_occupying`, `expire_abandoned_bookings`) and is used by
+  the availability engine, `hold-slot` and `create-order` alike — if they ever disagree about
+  what is free, a client is offered a slot that then 409s, or a free slot silently vanishes.
+- `slot_locks` is deliberately **not** uniquely indexed: expired locks keep `status='active'`
+  because nothing sweeps them, so an index there would let one abandoned hold block a slot
+  permanently. `bookings` is the table that decides what is booked.
+
+**Slot engine**: `api/availability.py` computes working hours − Google FreeBusy − leave
+exceptions − occupying bookings − active locks − buffers. Note the weekday remap:
+`(weekday() + 1) % 7` converts Python's Mon=0 to the schema's Sun=0. Off-by-one bugs in
+availability almost always live there. `max_advance_days` and past dates are enforced here —
+the column existed from the first schema and was read by nothing, so any future date was
+bookable.
+
+**`GET /api/availability/slot-counts`** returns per-day counts for the date strip in one
+request, running the same engine per day so a pill's count can never disagree with the slots
+behind it. `days` is capped at 31.
 
 ## Multi-admin isolation
 
@@ -322,6 +361,17 @@ against a live fetch of superprofile.bio.** Do not claim otherwise without re-te
 
 - **Routing** — `App.tsx`, one flat `<Routes>`, no lazy loading. Several aliases point at the same three funnel pages (`/book/:username/schedule/:meetingId`, `/:username/schedule/:meetingId`, `/schedule/:meetingId` all render `TimeAvailabilityPage`). `/:username` is a catch-all that must stay last. Admin pages sit under a pathless `<Route element={<AdminLayout/>}>`.
 - **Stores** — only two. `authStore.ts` (no persist; hydrates synchronously from localStorage, then races `supabase.auth.getSession()` against a 600ms timeout) and `bookingStore.ts` (persist, whole state, no `partialize`). There is no separate admin or super-admin store — super-admin state is `currentSuperAdmin` inside `bookingStore`.
+- **`lib/api.ts` is the only door to the backend** — one `request()` wrapper, one
+  `persistSession()` for login and signup, and `getSlotCounts` for the date strip. See "The
+  client is not the source of truth" under Gotchas before changing it.
+- **`lib/username.ts`** holds the username policy, mirrored from `backend/app/api/auth.py`.
+  Change both in the same commit or they drift, which is how the form came to strip
+  characters the backend accepts.
+- **Booking funnel state** — `TimeAvailabilityPage` fetches per-day slot counts once, greys
+  out full days, auto-advances to the first day with availability (today is usually full by
+  mid-afternoon), and groups slots Morning / Midday / Evening. Part-of-day is read from the
+  wall-clock string, not through `Date`, which would reinterpret the host's times in the
+  browser's zone.
 - **Raw localStorage keys** used outside persist: `bmm_auth_token`, `bmm_current_user_role`, `bmm_logged_admin_id`, `bmm_logged_username`, `bmm_logged_admin_name`, `bmm_logged_role`, `bmm_auth_user`.
 - **Intro video** — `src/lib/video.ts` is the single normalizer (`getVideoEmbedUrl`), used by
   `SuperProfileHomePage`, `TimeAvailabilityPage` and the Settings preview so all three render
@@ -354,7 +404,15 @@ Each of these costs a debugging cycle if rediscovered.
 - `@tanstack/react-query` and `@tanstack/react-table` are installed but never imported. Don't assume react-query is the data layer — it isn't; `api.ts` is plain `fetch`.
 
 **Database**
-- **There is no migration framework.** Schema comes from `Base.metadata.create_all`, which only ever *adds* missing tables — a new table appears by itself, an altered column does not. Column changes ship as hand-written SQL under `backend/migrations/`, applied with `python scripts/apply_migration.py` (`--check` to report only; handles both PostgreSQL and SQLite).
+- **There is no migration framework.** Schema comes from `Base.metadata.create_all`, which only ever *adds* missing tables — a new table appears by itself, an altered column or a new index does not. Those ship as hand-written SQL under `backend/migrations/`, each with its own apply script (`--check` to report only; all handle PostgreSQL and SQLite, all idempotent):
+  - `001_admin_deletion.sql` → `scripts/apply_migration.py`
+  - `003_media_storage.sql` → `scripts/apply_media_storage_migration.py`
+  - `004_booking_conflict_constraints.sql` → `scripts/apply_booking_constraints_migration.py`
+  004 refuses to run and prints the offending rows if a slot is already double-booked, rather
+  than failing on an opaque `IntegrityError`. Choosing which of two paying customers loses
+  their slot is not a decision a migration script should make.
+  **Anything added to `__table_args__` needs a migration too**, or existing databases silently
+  lack it while fresh ones have it.
 - `seed_initial_data()` catches, logs and rolls back without re-raising, so a bootstrap failure lets the app boot without a super admin.
 
 **Tests**
@@ -368,14 +426,58 @@ Each of these costs a debugging cycle if rediscovered.
 - There is no platform-wide Razorpay credential by design. An admin with no connected account gets 503 from `/create-order`; gateway failures raise (502) rather than degrading into a fake order.
 - `decrypt_secret` raises `SecretDecryptionError` rather than returning ciphertext. In `/verify` that maps to 500 ("configuration error"), never 400 — a key-management fault must not be reported as a customer's bad signature.
 - `verify_password` fails closed on any exception; there is deliberately no plaintext fallback.
+- `create-order` **requires `lock_id`** and verifies the lock is active, unexpired, this
+  admin's and this slot's. It was accepted and ignored for the product's whole history.
+- Both conflict checks match `("confirmed", "pending_payment")`. Never narrow that back to
+  `"confirmed"` alone.
 
-**Still-simulated (lower stakes, but be aware)**
-- `google_calendar.py` returns `"simulated-access-token"` when Google creds are absent — the FreeBusy path treats that as unavailable and fails closed, so availability is hidden rather than shown as free.
-- `services/email_service.py` is a mock — it only logs `[EMAIL MOCK]`, it never sends.
+**The client is not the source of truth (frontend contracts)**
+- `lib/api.ts` routes **every** call through one `request()` wrapper: a 45s `AbortController`
+  timeout (`fetch` has none of its own), and `NetworkError` / `RequestTimeoutError` instead of
+  the raw `"Failed to fetch"` string. Measured cause: a cold Render instance answered
+  `/auth/username-available` in **37 seconds**, and the signup form submitted into it.
+  Do not add a bare `fetch` to `API_BASE` — and note the wrapper calls `fetch` internally, so a
+  blanket find-and-replace over this file will make it infinitely recursive (it has been).
+- `checkUsername` **throws** when the answer is unknown. It used to return
+  `{available: false}` on any HTTP error, reporting an unreachable server as "that name is
+  taken".
+- Availability checks use explicit states (`idle | invalid | checking | available | taken |
+  error`) and an `AbortController`, so a failure is never read as consent and a stale reply
+  for `midh` cannot overwrite the answer for `midhun`. Only `available` may submit.
+- `lib/username.ts` mirrors the backend's `USERNAME_PATTERN` and is the single policy for
+  both signup screens. The form used to strip dots and underscores the backend accepts.
+- Slot times are labelled with the **timezone the backend computed in**, returned on every
+  `/slots` response. Never `Intl.DateTimeFormat().resolvedOptions().timeZone` — that showed a
+  London visitor IST slots captioned `Europe/London`. There is no `client_timezone` parameter;
+  it existed, was never read, and was removed rather than half-implemented.
+
+**Integrations — what is real**
+- `services/email_service.py` **really sends**, through Resend. It was a mock that logged
+  `[EMAIL MOCK]` and returned `True` unconditionally, so every confirmation in the product's
+  history was a no-op its caller believed had worked. The rule now: **a send that did not
+  happen returns `False`.** Not configured returns False, a provider error returns False;
+  there is no path that reports success without Resend accepting the message. Requires both
+  `RESEND_API_KEY` and `EMAIL_FROM_ADDRESS` (`EMAIL_ENABLED` is a computed property over the
+  pair), and the from-address must be on a domain verified in Resend — sending from a
+  `gmail.com` address is a 403, since nobody can verify Google's domain.
+  Both call sites in `payments.py` are wrapped in `try/except` and run **after** `db.commit()`:
+  an email outage must never turn a confirmed, paid booking into a 500. An undelivered
+  confirmation raises a host `Notification` rather than vanishing into a log.
+- `google_calendar.py` returns `"simulated-access-token"` when Google creds are absent — the
+  FreeBusy path treats that as unavailable and fails closed, so availability is hidden rather
+  than shown as free.
+- **A meeting link is never invented.** `create_calendar_event_with_meet` used to return the
+  literal `"https://meet.google.com/new"` from three failure paths, and it never raises, so
+  `payments.py` always committed it: a paying client received a link to Google's "start a new
+  meeting" page. Every failure path now returns `meet_link=None` plus an `error` naming the
+  cause. The booking is still confirmed — the money moved, and a calendar outage must not
+  undo a paid booking — and the host gets a `calendar_failed` notification.
+  `test_booking_integrity.py` guards this with an AST check that no dict literal assigns a
+  hardcoded string to `meet_link`.
 
 **Config drift**
-- `CORS_ORIGINS` is a hardcoded list (not env-driven) containing `"*"`, combined with `allow_credentials=True` (`core/config.py:39`, `main.py:259`).
-- `docker-compose.yml` passes `JWT_SECRET` and `FRONTEND_ORIGIN` to the backend, but **no Python code reads either** — the code wants `SECRET_KEY`, and CORS is hardcoded. A compose deploy silently runs on the default JWT secret.
+- `CORS_ALLOWED_ORIGINS` is a comma-separated env var read into the `CORS_ORIGINS` property. `"*"` is deliberately unsupported: the middleware runs with `allow_credentials=True`, and browsers reject a wildcard there. Add each deployed frontend origin explicitly. (A dev server that falls back to port 5174 because 5173 is taken will be blocked — the allowlist names 5173.)
+- `docker-compose.yml` passes `JWT_SECRET` and `FRONTEND_ORIGIN` to the backend, but **no Python code reads either** — the code wants `SECRET_KEY` and `CORS_ALLOWED_ORIGINS`.
 - Root `.env.example` now documents the FastAPI backend's vars in its first block, then the Supabase stack separately. `backend/.env` is the live file and is gitignored.
 - `backend/.env` sets `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`, which no Python code reads — they survive only because `config.py` sets `extra = "allow"`.
 
@@ -389,6 +491,17 @@ Each of these costs a debugging cycle if rediscovered.
 - `SuperAdminLoginPage` used to authenticate nobody: it waited 400 ms, wrote `bmm_current_user_role='super_admin'` to localStorage and opened the dashboard, with the owner's credentials pre-filled. It now signs in through `POST /api/auth/login` and verifies the returned role.
 - `AdminLoginPage` had a client-side password fallback against the store's plaintext passwords; `SignupPage` created a browser-only "account" whenever the API was unreachable. Both are gone.
 - `api.scrapeSuperProfile` returned a fabricated profile (name, photo, priced sessions) when the backend was down and the URL mentioned the seeded owner; `RescheduleBookingPage` generated availability from a fixed hour list. Both now use the real endpoints.
+- `BookingConfirmationPage` swallowed the API error in an empty `catch {}`, then rendered the
+  full "Booking Confirmed!" screen from the local zustand store with `payment.status`
+  hardcoded to `'captured'`. A client whose payment never reached the backend was shown a
+  confirmed booking that existed only in their own browser. The store fallback is gone; a
+  booking the server cannot confirm gets an error with a retry.
+- `pages/public/BookingPage.tsx` (imported in `App.tsx`, never routed) and
+  `bookingStore.createBooking` are **deleted**. `createBooking` fabricated a confirmed
+  booking, a fake Meet URL and "delivered" email records entirely client-side, with no API
+  call anywhere in it — and it was the only thing that could populate the store path above.
+- The slot fetch had a `.then()` with no `.catch()`, so a failed request rendered
+  "0 slots available" — an outage shown to the client as a host with no free time.
 
 **Credentials in the tree** — `.env` is now gitignored at the root and in `frontend/`, so `backend/.env` and `frontend/.env` will not be picked up by a future `git init` + `git add .`. Still uncovered, because they are tracked source rather than env files: `docker-compose.yml` carries inline default `postgres123` / `JWT_SECRET` / `ENCRYPTION_KEY` values, and the super-admin username/email defaults sit in `config.py` (the password has no default and fails startup if unset). The demo staff-admin seed and the plaintext passwords that used to live in `bookingStore.ts` are gone. Replace the compose defaults with env lookups before any real deployment.
 

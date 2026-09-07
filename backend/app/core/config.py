@@ -103,6 +103,25 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+    # Transactional email (Resend).
+    #
+    # email_service.py used to log "[EMAIL MOCK]" and return True unconditionally, so every
+    # booking confirmation in the product's history was a no-op that reported success. The
+    # replacement refuses rather than pretends: with no key set it logs and returns False,
+    # and the caller records that the client was not emailed.
+    #
+    # Resend rather than SMTP because supabase/functions/_shared/email.ts already posts to
+    # api.resend.com -- same provider, one account, no second thing to configure.
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    EMAIL_FROM_NAME: str = os.getenv("EMAIL_FROM_NAME", "BookMyMeet")
+    # Must be an address on a domain verified in Resend, or sends are rejected.
+    EMAIL_FROM_ADDRESS: str = os.getenv("EMAIL_FROM_ADDRESS", "")
+
+    @property
+    def EMAIL_ENABLED(self) -> bool:
+        """Email is on only when it can actually be delivered."""
+        return bool(self.RESEND_API_KEY and self.EMAIL_FROM_ADDRESS)
+
     # App & CORS.
     # Comma-separated origin list. "*" is deliberately unsupported: main.py registers the
     # CORS middleware with allow_credentials=True, and browsers reject a wildcard there.

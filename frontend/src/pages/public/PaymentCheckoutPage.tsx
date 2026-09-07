@@ -42,7 +42,6 @@ export const PaymentCheckoutPage: React.FC = () => {
     meetingTypes,
     admins,
     pendingBooking,
-    createBooking,
   } = useBookingStore();
 
   const queryAdminId = searchParams.get('adminId') || searchParams.get('username');

@@ -2,10 +2,12 @@ import uuid
 import hmac
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.services.booking_slots import expire_abandoned_bookings, as_utc
 from app.core.database import get_db
 from app.core.security import encrypt_secret, SecretDecryptionError
 from app.models.models import (
@@ -27,6 +29,7 @@ from app.services.google_calendar import create_calendar_event_with_meet
 from app.services.email_service import send_booking_confirmation_email, send_admin_new_booking_notification
 
 logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
@@ -155,13 +158,52 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
     if not session_obj or not session_obj.is_active:
         raise HTTPException(status_code=404, detail="Session not found or inactive")
 
-    # 1. Check double booking
+    # 1a. Consume the hold created by POST /bookings/hold-slot.
+    #
+    # This used to be skipped entirely: lock_id was declared on the request and then never
+    # referenced, so the hold was decorative and two clients could both reach checkout for
+    # the same slot. The lock is what reserves the slot for the length of a Razorpay
+    # checkout, so it has to be real, unexpired, and actually this client's.
+    now_utc = datetime.now(timezone.utc)
+    if not req.lock_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This time slot is no longer held. Please pick your time again."
+        )
+    lock = db.query(SlotLock).filter(SlotLock.id == req.lock_id).first()
+    if (
+        not lock
+        or lock.status != "active"
+        or as_utc(lock.expires_at) <= now_utc
+        or lock.admin_id != admin.id
+        or lock.start_time != req.start_time
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Your hold on this time slot expired. Please pick your time again."
+        )
+
+    # Release slots held by abandoned checkouts before testing for a conflict.
+    #
+    # A "pending_payment" booking occupies its slot -- both here and in the availability
+    # engine, which has always counted them. But a client who opens Razorpay and closes the
+    # tab leaves that row behind forever, and nothing ever swept it, so the slot became
+    # permanently unbookable. Anything older than the hold's own lifetime has been abandoned
+    # by definition: the hold that authorised it expired long ago.
+    expire_abandoned_bookings(db, admin_id=admin.id, start_time=req.start_time, now_utc=now_utc)
+
+    # 1b. Check double booking.
+    #
+    # "pending_payment" counts: another client part-way through checkout occupies the slot
+    # just as much as a confirmed one does. Matching only "confirmed" here is what let two
+    # people pay for the same time. The database index added in migration 004 is the actual
+    # guarantee -- this check exists to return a clean 409 before taking any money.
     existing = (
         db.query(Booking)
         .filter(
             Booking.admin_id == admin.id,
             Booking.start_time == req.start_time,
-            Booking.status == "confirmed"
+            Booking.status.in_(["confirmed", "pending_payment"])
         )
         .first()
     )
@@ -203,8 +245,23 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
         cancellation_token=cancellation_token,
         notes=req.notes
     )
+    # The hold has done its job: the booking below now holds the slot. Leaving the lock
+    # "active" would keep the time blocked for the rest of its ten minutes even after the
+    # booking was cancelled or abandoned, so the slot could not be resold.
+    lock.status = "consumed"
+
     db.add(booking)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # migration 004's partial unique index fired: another request committed a booking for
+        # this exact slot between our SELECT above and this INSERT. That window cannot be
+        # closed in application code, which is the whole reason the index exists.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This slot has already been booked. Please select another time."
+        )
 
     # 4. Create Razorpay order under that admin's own merchant account.
     receipt = f"rcpt_{booking.id[:8]}"
@@ -325,7 +382,7 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         .filter(
             Booking.admin_id == admin.id,
             Booking.start_time == booking.start_time,
-            Booking.status == "confirmed",
+            Booking.status.in_(["confirmed", "pending_payment"]),
             Booking.id != booking.id
         )
         .first()
@@ -378,9 +435,11 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         # creation failed. A fabricated meet.google.com link would be worse than none:
         # the client would follow it and land nowhere.
         meet_link = event_res.get("meet_link")
+        calendar_error = event_res.get("error")
     else:
         # No calendar connected for this admin: nothing real to link to.
         meet_link = None
+        calendar_error = "not_connected"
 
     booking.google_meet_link = meet_link
 
@@ -394,30 +453,74 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
     )
     db.add(notification)
 
+    # The booking is confirmed either way -- the money moved, and a calendar outage must not
+    # undo a paid booking. But a confirmed session with no meeting link is something the host
+    # has to act on, so it is surfaced rather than left for them to notice.
+    if calendar_error:
+        db.add(Notification(
+            admin_id=admin.id,
+            type="calendar_failed",
+            title="Action needed: no meeting link was created",
+            message=(
+                f"The booking for {booking.client_name} on {booking.start_time} is confirmed "
+                f"and paid, but the Google Calendar event could not be created "
+                f"({calendar_error}). Send the client a meeting link, and reconnect Google "
+                f"Calendar in Settings if the problem persists."
+            ),
+            booking_id=booking.id
+        ))
+
     db.commit()
 
     # 6. Send Email Notifications (Client and Admin)
     session_title = booking.meeting_type.title if booking.meeting_type else "Mentorship Call"
     duration = booking.meeting_type.duration_minutes if booking.meeting_type else 30
 
-    await send_booking_confirmation_email(
-        to_email=booking.client_email,
-        client_name=booking.client_name,
-        admin_name=admin.name,
-        session_title=session_title,
-        start_time=booking.start_time,
-        duration_minutes=duration,
-        meet_link=meet_link
-    )
-    await send_admin_new_booking_notification(
-        admin_email=admin.email,
-        admin_name=admin.name,
-        client_name=booking.client_name,
-        client_email=booking.client_email,
-        session_title=session_title,
-        start_time=booking.start_time,
-        meet_link=meet_link
-    )
+    # Everything above is already committed. An email provider outage must not turn a
+    # confirmed, paid booking into a 500 for the client -- the send is best-effort and its
+    # failure is logged, never raised.
+    client_emailed = False
+    try:
+        client_emailed = await send_booking_confirmation_email(
+            to_email=booking.client_email,
+            client_name=booking.client_name,
+            admin_name=admin.name,
+            session_title=session_title,
+            start_time=booking.start_time,
+            duration_minutes=duration,
+            meet_link=meet_link
+        )
+    except Exception as exc:
+        logger.error(f"Client confirmation email failed for booking {booking.id}: {exc}")
+
+    # An unsent confirmation is the host's problem to solve, so it is told to them rather
+    # than left in a log nobody reads. The booking itself stands: the money moved.
+    if not client_emailed:
+        db.add(Notification(
+            admin_id=admin.id,
+            type="email_failed",
+            title=f"Confirmation email not delivered to {booking.client_name}",
+            message=(
+                f"{booking.client_name} ({booking.client_email}) is booked and paid for "
+                f"{session_title} at {booking.start_time}, but the confirmation email could "
+                f"not be sent. Contact them directly with the details."
+            ),
+            booking_id=booking.id
+        ))
+        db.commit()
+
+    try:
+        await send_admin_new_booking_notification(
+            admin_email=admin.email,
+            admin_name=admin.name,
+            client_name=booking.client_name,
+            client_email=booking.client_email,
+            session_title=session_title,
+            start_time=booking.start_time,
+            meet_link=meet_link
+        )
+    except Exception as exc:
+        logger.error(f"Admin notification email failed for booking {booking.id}: {exc}")
 
     return {
         "status": "confirmed",
@@ -425,5 +528,6 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         "client_name": booking.client_name,
         "admin_name": admin.name,
         "google_meet_link": meet_link,
+        "meeting_link_pending": meet_link is None,
         "message": "Payment verified and booking confirmed successfully"
     }

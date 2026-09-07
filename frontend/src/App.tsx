@@ -30,7 +30,6 @@ import { GoogleCallbackPage } from '@/pages/auth/GoogleCallbackPage';
 import { SuperProfileHomePage } from '@/pages/public/SuperProfileHomePage';
 import { TimeAvailabilityPage } from '@/pages/public/TimeAvailabilityPage';
 import { PaymentCheckoutPage } from '@/pages/public/PaymentCheckoutPage';
-import { BookingPage } from '@/pages/public/BookingPage';
 import { BookingConfirmationPage } from '@/pages/public/BookingConfirmationPage';
 import { BookingStatusPage } from '@/pages/public/BookingStatusPage';
 import { PrivacyPolicyPage } from '@/pages/public/PrivacyPolicyPage';
