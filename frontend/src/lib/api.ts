@@ -297,6 +297,30 @@ export const api = {
     return res.json();
   },
   // Availability & Slots
+  /**
+   * Per-day slot counts for the date strip, in one request.
+   *
+   * The alternative is one /slots call per day, which is fourteen round trips on a link
+   * people open from a phone. The backend runs the same engine for each day, so a count can
+   * never disagree with the slots behind it.
+   */
+  getSlotCounts: async (params: {
+    admin_id?: string;
+    username?: string;
+    session_id: string;
+    days?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params.admin_id) query.append('admin_id', params.admin_id);
+    if (params.username) query.append('username', params.username);
+    query.append('session_id', params.session_id);
+    query.append('days', String(params.days ?? 14));
+
+    const res = await request(`/availability/slot-counts?${query.toString()}`);
+    if (!res.ok) throw await failure(res, 'Could not load availability.');
+    return res.json();
+  },
+
   getAvailableSlots: async (params: { admin_id?: string; username?: string; session_id: string; date_str: string }) => {
     const query = new URLSearchParams();
     if (params.admin_id) query.append('admin_id', params.admin_id);

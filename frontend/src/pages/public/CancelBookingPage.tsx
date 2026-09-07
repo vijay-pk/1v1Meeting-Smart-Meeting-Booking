@@ -12,6 +12,9 @@ import type { Booking } from '@/types';
 export const CancelBookingPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const [booking, setBooking] = useState<Booking | null>(null);
+  // A load failure used to be a dead end: an error screen whose only action was a link away
+  // from the page the visitor was sent. Re-running the fetch is almost always what they want.
+  const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -54,7 +57,7 @@ export const CancelBookingPage: React.FC = () => {
     };
 
     fetchBooking();
-  }, [token]);
+  }, [token, reloadKey]);
 
   const handleCancel = async () => {
     if (!booking || !token) return;
@@ -103,6 +106,19 @@ export const CancelBookingPage: React.FC = () => {
             <div>
               <h2 className="text-lg font-bold text-text-primary">Cancellation Error</h2>
               <p className="text-sm text-text-secondary mt-1">{error}</p>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <Button
+                variant="outline"
+                className="mt-2 min-h-[44px]"
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  setReloadKey((k) => k + 1);
+                }}
+              >
+                Try again
+              </Button>
             </div>
             <Link to="/">
               <Button variant="outline" className="mt-2">

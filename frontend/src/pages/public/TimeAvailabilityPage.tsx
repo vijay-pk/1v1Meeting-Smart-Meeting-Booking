@@ -31,6 +31,31 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+/** How many days the date strip offers. Also the window the slot counts are fetched for. */
+const DATE_STRIP_DAYS = 14;
+
+/**
+ * Splits slots into the parts of the day people actually think in.
+ *
+ * A flat list of a dozen times is read one item at a time; three short labelled groups are
+ * scanned. Empty groups are dropped so the headings never promise something that is not
+ * there.
+ */
+function groupByPartOfDay(slots: TimeSlot[]): { label: string; slots: TimeSlot[] }[] {
+  const buckets: Record<string, TimeSlot[]> = { Morning: [], Midday: [], Evening: [] };
+  for (const slot of slots) {
+    // start is "YYYY-MM-DDTHH:MM:00Z" wall clock in the host's zone; read the hour directly
+    // rather than through Date, which would shift it into the browser's zone.
+    const hour = Number(slot.start.slice(11, 13));
+    if (hour < 12) buckets.Morning.push(slot);
+    else if (hour < 17) buckets.Midday.push(slot);
+    else buckets.Evening.push(slot);
+  }
+  return Object.entries(buckets)
+    .filter(([, group]) => group.length > 0)
+    .map(([label, group]) => ({ label, slots: group }));
+}
+
 export const TimeAvailabilityPage: React.FC = () => {
   const navigate = useNavigate();
   const { username: routeUsername, meetingId } = useParams<{ username?: string; meetingId?: string }>();
@@ -156,11 +181,11 @@ export const TimeAvailabilityPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(pendingBooking.slot || null);
 
-  // Generate 14 selectable days for horizontal date strip
+  // The horizontal date strip.
   const daysList = useMemo(() => {
     const list: Date[] = [];
     const today = startOfToday();
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < DATE_STRIP_DAYS; i++) {
       list.push(addDays(today, i));
     }
     return list;
@@ -172,6 +197,14 @@ export const TimeAvailabilityPage: React.FC = () => {
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState('');
+  const [slotsRetryKey, setSlotsRetryKey] = useState(0);
+  // The zone the backend computed these times in -- the host's, which is where their working
+  // hours and calendar live. Never the browser's: this caption used to read
+  // Intl.DateTimeFormat().resolvedOptions().timeZone, so a client in London was shown IST
+  // slots labelled "Europe/London" and would have arrived five and a half hours late.
+  const [slotTimezone, setSlotTimezone] = useState<string>('');
+  // Per-day slot counts for the date strip, fetched in one request rather than one per day.
+  const [dayCounts, setDayCounts] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
     if (!selectedMeeting || !selectedAdminUser?.id) {
@@ -192,6 +225,7 @@ export const TimeAvailabilityPage: React.FC = () => {
       })
       .then((res: any) => {
         if (ignore) return; // a newer date/session request has superseded this one
+        if (res?.timezone) setSlotTimezone(res.timezone);
         if (res?.error || res?.calendar_error) {
           setAvailableSlots([]);
           setSlotsError(res.message || 'Could not load availability. Please try again.');
@@ -206,6 +240,13 @@ export const TimeAvailabilityPage: React.FC = () => {
           }))
         );
       })
+      .catch((err: any) => {
+        // Without this the promise rejected unhandled and the grid simply rendered
+        // "0 slots available" -- a failed request shown as a host with no free time.
+        if (ignore) return;
+        setAvailableSlots([]);
+        setSlotsError(err?.message || 'Could not load availability. Please try again.');
+      })
       .finally(() => {
         if (!ignore) setSlotsLoading(false);
       });
@@ -213,7 +254,40 @@ export const TimeAvailabilityPage: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [selectedAdminUser?.id, selectedMeeting?.id, selectedDate]);
+  }, [selectedAdminUser?.id, selectedMeeting?.id, selectedDate, slotsRetryKey]);
+
+  // Slot counts for the whole date strip, in one request.
+  //
+  // Without these every pill looks identical and a visitor has to click through empty days
+  // to find one that has anything. One call, so a phone on a slow connection pays for one
+  // round trip instead of fourteen.
+  useEffect(() => {
+    if (!selectedMeeting || !selectedAdminUser?.id) {
+      setDayCounts(null);
+      return;
+    }
+    let ignore = false;
+    api
+      .getSlotCounts({
+        admin_id: selectedAdminUser.id,
+        session_id: selectedMeeting.id,
+        days: DATE_STRIP_DAYS,
+      })
+      .then((res: any) => {
+        if (ignore) return;
+        const map: Record<string, number> = {};
+        for (const day of res?.days || []) map[day.date] = day.count;
+        setDayCounts(map);
+      })
+      .catch(() => {
+        // Counts are an enhancement. If they cannot be fetched the strip still works --
+        // every day stays selectable and the slot grid gives the real answer.
+        if (!ignore) setDayCounts(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [selectedAdminUser?.id, selectedMeeting?.id, slotsRetryKey]);
 
   // Auto-select first available slot if none selected or if slot is outside available range
   useEffect(() => {
@@ -507,22 +581,38 @@ export const TimeAvailabilityPage: React.FC = () => {
               <div className="flex items-center gap-2.5 overflow-x-auto pb-2 scrollbar-none">
                 {daysList.map((day) => {
                   const isSelected = isSameDay(day, selectedDate);
+                  const key = format(day, 'yyyy-MM-dd');
+                  // undefined = counts unavailable, so every day stays open and the slot
+                  // grid gives the real answer.
+                  const count = dayCounts ? dayCounts[key] ?? 0 : undefined;
+                  const isEmpty = count === 0;
                   return (
                     <button
                       key={day.toISOString()}
                       type="button"
-                      onClick={() => setSelectedDate(day)}
-                      className={`flex-shrink-0 w-16 py-3 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 cursor-pointer ${
-                        isSelected
-                          ? 'bg-[#0B1E3B] text-white shadow-md shadow-slate-900/20 scale-102 font-bold'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80'
+                      onClick={() => !isEmpty && setSelectedDate(day)}
+                      disabled={isEmpty}
+                      aria-label={
+                        `${format(day, 'EEEE d MMMM')}` +
+                        (count === undefined ? '' : `, ${count} ${count === 1 ? 'slot' : 'slots'}`)
+                      }
+                      aria-pressed={isSelected}
+                      className={`flex-shrink-0 w-16 min-h-[76px] py-3 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 ${
+                        isEmpty
+                          ? 'bg-slate-50/60 text-slate-300 border border-slate-100 cursor-not-allowed'
+                          : isSelected
+                          ? 'bg-[#0B1E3B] text-white shadow-md shadow-slate-900/20 scale-102 font-bold cursor-pointer'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 cursor-pointer'
                       }`}
                     >
-                      <span className={`text-xs font-medium ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                      <span className={`text-xs font-medium ${isSelected ? 'text-slate-300' : isEmpty ? 'text-slate-300' : 'text-slate-400'}`}>
                         {format(day, 'EEE')}
                       </span>
-                      <span className={`text-lg font-extrabold mt-0.5 ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                      <span className={`text-lg font-extrabold mt-0.5 ${isSelected ? 'text-white' : isEmpty ? 'text-slate-300' : 'text-slate-800'}`}>
                         {format(day, 'd')}
+                      </span>
+                      <span className={`text-[10px] mt-0.5 leading-none ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                        {count === undefined ? ' ' : isEmpty ? 'Full' : `${count} slot${count === 1 ? '' : 's'}`}
                       </span>
                     </button>
                   );
@@ -538,7 +628,10 @@ export const TimeAvailabilityPage: React.FC = () => {
                   <span>Pick a Time</span>
                 </h3>
                 <span className="text-xs text-slate-500 font-medium">
-                  {slotsLoading ? 'Checking availability…' : `${availableSlots.length} slots available`} • {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                  {slotsLoading
+                    ? 'Checking availability…'
+                    : `${availableSlots.length} slot${availableSlots.length === 1 ? '' : 's'} available`}
+                  {slotTimezone ? ` • times in ${slotTimezone}` : ''}
                 </span>
               </div>
 
@@ -552,6 +645,15 @@ export const TimeAvailabilityPage: React.FC = () => {
                   <Clock className="w-8 h-8 text-amber-400 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
                   <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
+                  {/* This screen previously had no way out: a transient failure left the
+                      visitor on a dead end with no action but to leave. */}
+                  <button
+                    type="button"
+                    onClick={() => setSlotsRetryKey((k) => k + 1)}
+                    className="mt-4 min-h-[44px] px-5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold transition cursor-pointer"
+                  >
+                    Try again
+                  </button>
                 </div>
               ) : availableSlots.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
@@ -560,24 +662,34 @@ export const TimeAvailabilityPage: React.FC = () => {
                   <p className="text-xs text-slate-400 mt-1">Please select another date on the calendar strip above.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5 max-h-80 overflow-y-auto pr-1">
-                  {availableSlots.map((slot) => {
-                    const isSelected = selectedSlot?.start === slot.start;
-                    return (
-                      <button
-                        key={slot.start}
-                        type="button"
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 text-center border cursor-pointer ${
-                          isSelected
-                            ? 'border-[#FF5722] bg-[#FFF8F6] text-[#FF5722] ring-2 ring-[#FF5722]/20 font-bold shadow-xs'
-                            : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                        }`}
-                      >
-                        {slot.display_start}
-                      </button>
-                    );
-                  })}
+                <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                  {groupByPartOfDay(availableSlots).map((group) => (
+                    <div key={group.label}>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+                        {group.label}
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5">
+                        {group.slots.map((slot) => {
+                          const isSelected = selectedSlot?.start === slot.start;
+                          return (
+                            <button
+                              key={slot.start}
+                              type="button"
+                              onClick={() => setSelectedSlot(slot)}
+                              aria-pressed={isSelected}
+                              className={`min-h-[44px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 text-center border cursor-pointer ${
+                                isSelected
+                                  ? 'border-[#FF5722] bg-[#FFF8F6] text-[#FF5722] ring-2 ring-[#FF5722]/20 font-bold shadow-xs'
+                                  : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                              }`}
+                            >
+                              {slot.display_start}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
