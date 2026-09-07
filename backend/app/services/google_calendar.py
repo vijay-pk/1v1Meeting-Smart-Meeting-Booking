@@ -115,15 +115,25 @@ async def create_calendar_event_with_meet(
     """
     Creates an event on the Admin's Google Calendar with Google Meet conference data
     and configured 1-hour and 5-minute reminders.
+
+    Never fabricates a meeting link. Every failure path returns meet_link=None plus an
+    "error" key naming the cause; only a real conference entry point from Google produces a
+    URL. A generic "https://meet.google.com/new" is worse than no link at all, because it
+    looks like a working invitation and drops the client into an empty meeting.
+
+    This function does not raise: the caller is a payment-verification path where the money
+    has already moved, and a calendar outage must never fail a paid booking.
     """
     try:
         access_token = await refresh_google_token(encrypted_refresh_token)
         if access_token == "simulated-access-token":
-            return {
-                "event_id": f"gcal_evt_{int(datetime.now().timestamp())}",
-                "meet_link": "https://meet.google.com/new",
-                "html_link": f"https://calendar.google.com/calendar/r/eventedit"
-            }
+            # Google OAuth is not configured on this server, so no event and no conference
+            # exist. Returning a fabricated id and "meet.google.com/new" used to send a
+            # paying client a link to Google's "start a new meeting" page -- a link to a
+            # meeting their host is not in. Report the failure instead; the caller confirms
+            # the booking (the money moved) and tells the client the link will follow.
+            logger.warning("Google OAuth not configured -- no calendar event created")
+            return {"event_id": None, "meet_link": None, "html_link": None, "error": "not_configured"}
 
         url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1"
         payload = {
@@ -186,15 +196,7 @@ async def create_calendar_event_with_meet(
                 }
             else:
                 logger.error(f"Google Calendar event creation failed: {data}")
-                return {
-                    "event_id": None,
-                    "meet_link": "https://meet.google.com/new",
-                    "html_link": None
-                }
+                return {"event_id": None, "meet_link": None, "html_link": None, "error": "api_error"}
     except Exception as e:
         logger.error(f"Exception creating Google Calendar event: {e}")
-        return {
-            "event_id": None,
-            "meet_link": "https://meet.google.com/new",
-            "html_link": None
-        }
+        return {"event_id": None, "meet_link": None, "html_link": None, "error": "exception"}

@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, LargeBinary
+    Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, LargeBinary, Index
 )
+from sqlalchemy import text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -159,6 +160,32 @@ class SlotLock(Base):
 
 class Booking(Base):
     __tablename__ = "bookings"
+
+    # The double-booking guard, and the only one that actually holds.
+    #
+    # Every application-level check in payments.py is a SELECT followed by an INSERT, with no
+    # locking and no isolation: two requests can both read "no conflict" before either
+    # commits, and both then write a booking for the same slot. That window is the whole
+    # length of a Razorpay checkout -- minutes, not milliseconds.
+    #
+    # A partial unique index makes the database the final authority, which is the only place
+    # the race can actually be settled. It covers the two statuses that occupy a slot;
+    # "cancelled" and "completed" rows are excluded so a slot can legitimately be rebooked
+    # after a cancellation. admin_id is nullable for permanently deleted admins, and NULLs
+    # compare as distinct in both PostgreSQL and SQLite, so anonymized historical bookings
+    # never collide with each other.
+    #
+    # Declared here as well as in migrations/004 so a database created by create_all (which
+    # is how production was built) gets the constraint without anyone remembering to run it.
+    __table_args__ = (
+        Index(
+            "ux_bookings_admin_slot_active",
+            "admin_id", "start_time",
+            unique=True,
+            postgresql_where=text("status IN ('confirmed', 'pending_payment')"),
+            sqlite_where=text("status IN ('confirmed', 'pending_payment')"),
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     public_id = Column(String(50), unique=True, nullable=False)

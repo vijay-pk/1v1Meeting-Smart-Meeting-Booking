@@ -1,5 +1,83 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+/**
+ * How long any single request may take before we give up on it.
+ *
+ * The backend can be cold: a real measurement against production showed
+ * GET /auth/username-available returning 200 after **37 seconds**. `fetch` has no timeout of
+ * its own, so a request like that hangs until the browser abandons it, and every caller sat
+ * there with no way to distinguish "slow" from "dead". This ceiling is generous enough to
+ * survive a cold start and short enough that a genuinely dead backend is reported rather
+ * than spun on forever.
+ */
+const REQUEST_TIMEOUT_MS = 45_000;
+
+/** After this long, a request is slow enough that the UI should explain itself. */
+export const SLOW_REQUEST_MS = 3_000;
+
+/** Thrown when a request exceeded REQUEST_TIMEOUT_MS. Callers can offer a retry. */
+export class RequestTimeoutError extends Error {
+  readonly isTimeout = true;
+  constructor() {
+    super('The server took too long to respond. It may be waking up — please try again.');
+    this.name = 'RequestTimeoutError';
+  }
+}
+
+/** Thrown when the request never reached the server at all (offline, DNS, CORS, cold start). */
+export class NetworkError extends Error {
+  readonly isNetwork = true;
+  constructor() {
+    super('Could not reach the server. Check your connection and try again.');
+    this.name = 'NetworkError';
+  }
+}
+
+/**
+ * The single fetch used by every call below.
+ *
+ * Adds the timeout `fetch` lacks, and turns the two failures that used to surface as the raw
+ * string "Failed to fetch" into named errors a caller can actually branch on. That raw string
+ * reaching the signup screen -- next to "midhunvijay is available", because the availability
+ * check eventually succeeded while the submit did not -- is what this replaces.
+ *
+ * `signal` lets a caller cancel its own request (used by the username check, so a stale
+ * response cannot overwrite a newer one).
+ */
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  // Honour a caller-supplied signal as well as our timeout.
+  const callerSignal = init.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  try {
+    return await request(`${path}`, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    // A caller-initiated cancel is not a failure; let it propagate as an AbortError so the
+    // caller can ignore it rather than render an error for a request it abandoned itself.
+    if (callerSignal?.aborted) throw err;
+    if (err?.name === 'AbortError') throw new RequestTimeoutError();
+    throw new NetworkError();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Reads the backend's error detail, falling back to a message the user can act on. */
+async function failure(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => ({} as any));
+  const detail = typeof body?.detail === 'string' ? body.detail : null;
+  const error = new Error(detail || fallback) as Error & { status?: number; notFound?: boolean };
+  error.status = res.status;
+  error.notFound = res.status === 404;
+  return error;
+}
+
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('bmm_auth_token');
   return {
@@ -20,7 +98,7 @@ function persistSession(data: any) {
 export const api = {
   // Auth
   login: async (username_or_email: string, password: string) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await request(`/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username_or_email, password })
@@ -30,16 +108,12 @@ export const api = {
       throw new Error(err.detail || 'Login failed');
     }
     const data = await res.json();
-    localStorage.setItem('bmm_auth_token', data.access_token);
-    localStorage.setItem('bmm_current_user_role', data.role);
-    localStorage.setItem('bmm_logged_admin_id', data.user_id);
-    if (data.username) localStorage.setItem('bmm_logged_username', data.username);
-    if (data.name) localStorage.setItem('bmm_logged_admin_name', data.name);
+    persistSession(data);
     return data;
   },
 
   signup: async (data: { name: string; email: string; password: string; phone?: string; username: string }) => {
-    const res = await fetch(`${API_BASE}/auth/signup`, {
+    const res = await request(`/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -49,11 +123,7 @@ export const api = {
       throw new Error(err.detail || 'Signup failed');
     }
     const resData = await res.json();
-    localStorage.setItem('bmm_auth_token', resData.access_token);
-    localStorage.setItem('bmm_current_user_role', resData.role);
-    localStorage.setItem('bmm_logged_admin_id', resData.user_id);
-    if (resData.username) localStorage.setItem('bmm_logged_username', resData.username);
-    if (resData.name) localStorage.setItem('bmm_logged_admin_name', resData.name);
+    persistSession(resData);
     return resData;
   },
 
@@ -62,7 +132,7 @@ export const api = {
   // First leg. Returns either status:"authenticated" with a token, or
   // status:"registration_required" with a suggested username for a new Google user.
   googleAuth: async (supabaseAccessToken: string) => {
-    const res = await fetch(`${API_BASE}/auth/google`, {
+    const res = await request(`/auth/google`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ supabase_access_token: supabaseAccessToken })
@@ -75,7 +145,7 @@ export const api = {
 
   // Second leg, for a Google address with no account yet.
   googleAuthComplete: async (supabaseAccessToken: string, username: string, phone?: string) => {
-    const res = await fetch(`${API_BASE}/auth/google/complete`, {
+    const res = await request(`/auth/google/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ supabase_access_token: supabaseAccessToken, username, phone })
@@ -86,21 +156,39 @@ export const api = {
     return data;
   },
 
-  checkUsername: async (username: string) => {
-    const res = await fetch(`${API_BASE}/auth/username-available?username=${encodeURIComponent(username)}`);
-    if (!res.ok) return { username, available: false, reason: 'Could not check availability right now.' };
+  /**
+   * Asks whether a username is free.
+   *
+   * Throws when the answer is unknown rather than guessing. This used to return
+   * `{ available: false }` on any HTTP error, so an unreachable backend was reported to the
+   * user as "that name is taken" -- advice that is wrong, unactionable, and indistinguishable
+   * from the real thing.
+   *
+   * `signal` cancels a superseded check: typing "midhun" fires several of these, and without
+   * cancellation a slow reply for "midh" can land after the reply for "midhun" and overwrite
+   * a correct answer with a stale one.
+   */
+  checkUsername: async (
+    username: string,
+    signal?: AbortSignal
+  ): Promise<{ username: string; available: boolean; reason: string | null }> => {
+    const res = await request(
+      `/auth/username-available?username=${encodeURIComponent(username)}`,
+      { signal }
+    );
+    if (!res.ok) throw await failure(res, 'Could not check that name right now.');
     return res.json();
   },
 
   getMe: async () => {
-    const res = await fetch(`${API_BASE}/auth/me`, { headers: getAuthHeaders() });
+    const res = await request(`/auth/me`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     return res.json();
   },
 
   // Public Profiles
   getMyProfile: async () => {
-    const res = await fetch(`${API_BASE}/profiles/me`, { headers: getAuthHeaders() });
+    const res = await request(`/profiles/me`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     return res.json();
   },
@@ -109,7 +197,7 @@ export const api = {
   // failure, the API being unreachable -- is a *transient* failure, and the public page must
   // not tell a visitor the host's booking page "has been removed" because of one.
   getPublicProfile: async (username: string) => {
-    const res = await fetch(`${API_BASE}/profiles/public/${encodeURIComponent(username)}`);
+    const res = await request(`/profiles/public/${encodeURIComponent(username)}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       const error = new Error(
@@ -122,7 +210,7 @@ export const api = {
   },
 
   updateMyProfile: async (updates: any) => {
-    const res = await fetch(`${API_BASE}/profiles/me`, {
+    const res = await request(`/profiles/me`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(updates)
@@ -140,7 +228,7 @@ export const api = {
   // pageHtml is the supported fallback when SuperProfile refuses an automated request:
   // the page owner opens their own page, copies the source, and pastes it here.
   importPreview: async (sourceUrl: string, pageHtml?: string) => {
-    const res = await fetch(`${API_BASE}/profile-import/preview`, {
+    const res = await request(`/profile-import/preview`, {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ source_url: sourceUrl, page_html: pageHtml || null }),
@@ -182,7 +270,7 @@ export const api = {
     }>;
     confirm_replace?: boolean;
   }) => {
-    const res = await fetch(`${API_BASE}/profile-import/apply`, {
+    const res = await request(`/profile-import/apply`, {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -195,7 +283,7 @@ export const api = {
   },
 
   importCancel: async (importId: string) => {
-    const res = await fetch(`${API_BASE}/profile-import/${importId}/cancel`, {
+    const res = await request(`/profile-import/${importId}/cancel`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
@@ -204,7 +292,7 @@ export const api = {
   },
 
   getImport: async (importId: string) => {
-    const res = await fetch(`${API_BASE}/profile-import/${importId}`, { headers: getAuthHeaders() });
+    const res = await request(`/profile-import/${importId}`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     return res.json();
   },
@@ -219,7 +307,7 @@ export const api = {
     // Errors are reported, not swallowed: "the backend is down" and "this day is full"
     // must not look identical to the booking UI.
     try {
-      const res = await fetch(`${API_BASE}/availability/slots?${query.toString()}`);
+      const res = await request(`/availability/slots?${query.toString()}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         return { available_slots: [], error: true, message: err.detail || 'Could not load availability' };
@@ -234,7 +322,7 @@ export const api = {
   // page can tell "you have not set hours yet" apart from "we could not load your hours" --
   // the two used to look identical, which is why a load failure read as "No hours set".
   getMyAvailabilityRules: async () => {
-    const res = await fetch(`${API_BASE}/availability/rules`, { headers: getAuthHeaders() });
+    const res = await request(`/availability/rules`, { headers: getAuthHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Could not load your availability.');
@@ -243,7 +331,7 @@ export const api = {
   },
 
   getMyAvailabilityExceptions: async () => {
-    const res = await fetch(`${API_BASE}/availability/exceptions`, { headers: getAuthHeaders() });
+    const res = await request(`/availability/exceptions`, { headers: getAuthHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Could not load your blocked dates.');
@@ -257,7 +345,7 @@ export const api = {
     end_time?: string | null;
     reason?: string | null;
   }) => {
-    const res = await fetch(`${API_BASE}/availability/exceptions`, {
+    const res = await request(`/availability/exceptions`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ is_available: false, ...payload }),
@@ -270,7 +358,7 @@ export const api = {
   },
 
   deleteMyAvailabilityException: async (exceptionId: string) => {
-    const res = await fetch(`${API_BASE}/availability/exceptions/${exceptionId}`, {
+    const res = await request(`/availability/exceptions/${exceptionId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -282,7 +370,7 @@ export const api = {
   },
 
   saveMyAvailabilityRules: async (rules: { day_of_week: number; start_time: string; end_time: string; is_active: boolean }[]) => {
-    const res = await fetch(`${API_BASE}/availability/rules`, {
+    const res = await request(`/availability/rules`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ rules })
@@ -296,7 +384,7 @@ export const api = {
 
   // Slot Lock
   holdSlot: async (data: { admin_id: string; session_id: string; start_time: string; end_time: string; session_fingerprint: string }) => {
-    const res = await fetch(`${API_BASE}/bookings/hold-slot`, {
+    const res = await request(`/bookings/hold-slot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -317,7 +405,7 @@ export const api = {
     const query = statusFilter && statusFilter !== 'all'
       ? `?status_filter=${encodeURIComponent(statusFilter)}`
       : '';
-    const res = await fetch(`${API_BASE}/bookings/my-bookings${query}`, {
+    const res = await request(`/bookings/my-bookings${query}`, {
       headers: getAuthHeaders(),
     });
     if (!res.ok) {
@@ -328,7 +416,7 @@ export const api = {
   },
 
   cancelMyBooking: async (bookingId: string) => {
-    const res = await fetch(`${API_BASE}/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+    const res = await request(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
@@ -341,18 +429,18 @@ export const api = {
 
   /** A confirmed booking, by its public reference (BK-YYYYMMDD-XXXXXX). */
   getPublicBooking: async (publicId: string) => {
-    const res = await fetch(`${API_BASE}/bookings/public/${encodeURIComponent(publicId)}`);
+    const res = await request(`/bookings/public/${encodeURIComponent(publicId)}`);
     if (!res.ok) return null;
     return res.json();
   },
 
   releaseHold: async (lockId: string) => {
-    await fetch(`${API_BASE}/bookings/release-hold/${lockId}`, { method: 'POST' });
+    await request(`/bookings/release-hold/${lockId}`, { method: 'POST' });
   },
 
   // Payments & Booking
   createOrder: async (data: any) => {
-    const res = await fetch(`${API_BASE}/payments/create-order`, {
+    const res = await request(`/payments/create-order`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -365,7 +453,7 @@ export const api = {
   },
 
   verifyPayment: async (data: { booking_id: string; razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
-    const res = await fetch(`${API_BASE}/payments/verify`, {
+    const res = await request(`/payments/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -379,7 +467,7 @@ export const api = {
 
   // Google Calendar
   getGoogleAuthUrl: async () => {
-    const res = await fetch(`${API_BASE}/google/auth-url`, { headers: getAuthHeaders() });
+    const res = await request(`/google/auth-url`, { headers: getAuthHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Could not start Google authorization');
@@ -388,7 +476,7 @@ export const api = {
   },
 
   getGoogleStatus: async () => {
-    const res = await fetch(`${API_BASE}/google/admin/status`, { headers: getAuthHeaders() });
+    const res = await request(`/google/admin/status`, { headers: getAuthHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Failed to fetch Google status');
@@ -397,7 +485,7 @@ export const api = {
   },
 
   connectMockGoogle: async (googleEmail: string) => {
-    const res = await fetch(`${API_BASE}/google/admin/connect-mock?google_email=${encodeURIComponent(googleEmail)}`, {
+    const res = await request(`/google/admin/connect-mock?google_email=${encodeURIComponent(googleEmail)}`, {
       method: 'POST',
       headers: getAuthHeaders()
     });
@@ -405,7 +493,7 @@ export const api = {
   },
 
   disconnectGoogle: async () => {
-    const res = await fetch(`${API_BASE}/google/admin/disconnect`, {
+    const res = await request(`/google/admin/disconnect`, {
       method: 'POST',
       headers: getAuthHeaders()
     });
@@ -420,7 +508,7 @@ export const api = {
   // unreachable API as "not connected" is what made a live Razorpay account look disconnected
   // after a blip; the caller must keep its last known state instead.
   getRazorpayStatus: async (probe = false) => {
-    const res = await fetch(`${API_BASE}/payments/admin/status${probe ? '?probe=true' : ''}`, {
+    const res = await request(`/payments/admin/status${probe ? '?probe=true' : ''}`, {
       headers: getAuthHeaders(),
     });
     if (!res.ok) {
@@ -431,7 +519,7 @@ export const api = {
   },
 
   disconnectRazorpay: async () => {
-    const res = await fetch(`${API_BASE}/payments/admin/disconnect`, {
+    const res = await request(`/payments/admin/disconnect`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
@@ -443,7 +531,7 @@ export const api = {
   },
 
   setupRazorpay: async (key_id: string, key_secret: string, account_reference?: string) => {
-    const res = await fetch(`${API_BASE}/payments/admin/setup`, {
+    const res = await request(`/payments/admin/setup`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ key_id, key_secret, account_reference })
@@ -457,13 +545,13 @@ export const api = {
 
   // Sessions & 1v1 Pricing Customization
   getMySessions: async () => {
-    const res = await fetch(`${API_BASE}/sessions/`, { headers: getAuthHeaders() });
+    const res = await request(`/sessions/`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
     return res.json();
   },
 
   createSession: async (sessionData: any) => {
-    const res = await fetch(`${API_BASE}/sessions/`, {
+    const res = await request(`/sessions/`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(sessionData)
@@ -476,7 +564,7 @@ export const api = {
   },
 
   updateSession: async (sessionId: string, sessionData: any) => {
-    const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    const res = await request(`/sessions/${sessionId}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(sessionData)
@@ -489,7 +577,7 @@ export const api = {
   },
 
   deleteSession: async (sessionId: string) => {
-    const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    const res = await request(`/sessions/${sessionId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     });
@@ -506,13 +594,13 @@ export const api = {
     if (search) q.append('search', search);
     if (status_filter && status_filter !== 'all') q.append('status_filter', status_filter);
 
-    const res = await fetch(`${API_BASE}/super-admin/admins?${q.toString()}`, { headers: getAuthHeaders() });
+    const res = await request(`/super-admin/admins?${q.toString()}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch admins');
     return res.json();
   },
 
   superAdminUpdateStatus: async (adminId: string, status: string) => {
-    const res = await fetch(`${API_BASE}/super-admin/admins/${adminId}/status`, {
+    const res = await request(`/super-admin/admins/${adminId}/status`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify({ status })
@@ -525,7 +613,7 @@ export const api = {
   },
 
   superAdminDeleteAdmin: async (adminId: string) => {
-    const res = await fetch(`${API_BASE}/super-admin/admins/${adminId}?confirm=true`, {
+    const res = await request(`/super-admin/admins/${adminId}?confirm=true`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     });
@@ -537,13 +625,13 @@ export const api = {
   },
 
   superAdminGetAnalytics: async () => {
-    const res = await fetch(`${API_BASE}/super-admin/analytics`, { headers: getAuthHeaders() });
+    const res = await request(`/super-admin/analytics`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     return res.json();
   },
 
   superAdminGetBookings: async () => {
-    const res = await fetch(`${API_BASE}/super-admin/bookings`, { headers: getAuthHeaders() });
+    const res = await request(`/super-admin/bookings`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
     return res.json();
   },
@@ -567,7 +655,7 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_BASE}/upload`, {
+    const res = await request(`/upload`, {
       method: 'POST',
       headers,
       body: formData,

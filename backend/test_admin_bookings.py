@@ -128,7 +128,28 @@ def admin(tracked):
     return _make_admin(tracked, "a")
 
 
-def _create_order(admin, date_str="2030-08-05", client_name="Alice Client"):
+def _hold(admin, date_str="2030-08-05", fingerprint=None):
+    """
+    Takes the slot hold that create-order now consumes.
+
+    The real checkout page has always called hold-slot before create-order; the backend just
+    never checked, so lock_id was accepted and ignored. These tests skipped the hold, which
+    is why they exercised a path no client actually takes.
+    """
+    res = client.post("/api/bookings/hold-slot", json={
+        "admin_id": admin["id"],
+        "session_id": admin["session_id"],
+        "start_time": f"{date_str}T10:00:00Z",
+        "end_time": f"{date_str}T10:30:00Z",
+        "session_fingerprint": fingerprint or f"test_{uuid.uuid4().hex[:8]}",
+    })
+    assert res.status_code == 200, res.text
+    return res.json()["lock_id"]
+
+
+def _create_order(admin, date_str="2030-08-05", client_name="Alice Client", lock_id=None):
+    if lock_id is None:
+        lock_id = _hold(admin, date_str)
     res = client.post("/api/payments/create-order", json={
         "admin_id": admin["id"],
         "session_id": admin["session_id"],
@@ -138,6 +159,7 @@ def _create_order(admin, date_str="2030-08-05", client_name="Alice Client"):
         "client_email": f"{client_name.split()[0].lower()}@example.com",
         "client_phone": "+919000000001",
         "notes": "please call on time",
+        "lock_id": lock_id,
     })
     assert res.status_code == 200, res.text
     return res.json()

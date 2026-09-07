@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
+import { api, SLOW_REQUEST_MS } from '@/lib/api';
+import {
+  sanitizeUsername,
+  validateUsername,
+  USERNAME_RULE_TEXT,
+  type UsernameStatus,
+} from '@/lib/username';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
@@ -31,50 +37,98 @@ export function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [checkingUsername, setCheckingUsername] = useState(false);
-  const [usernameAvailability, setUsernameAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>({ kind: 'idle' });
+  // True once a request has been in flight long enough to be worth explaining. The backend
+  // can take tens of seconds to wake from idle, and silence for that long reads as broken.
+  const [serverWaking, setServerWaking] = useState(false);
 
   const navigate = useNavigate();
 
   const handleUsernameChange = (value: string) => {
-    // Only allow lowercase letters, numbers, and hyphens
-    const sanitized = value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-    setUsername(sanitized);
+    // Keeps every character the backend accepts. This used to strip dots and underscores,
+    // which the backend allows, so a legal name was mangled as the user typed it.
+    setUsername(sanitizeUsername(value));
   };
 
-  // Live real-time check to ensure each admin has their own unique username
+  // Live availability check.
+  //
+  // Three things this has to get right, all of which it previously got wrong:
+  //   1. A failed check is not an answer. It used to be swallowed into `null`, which the
+  //      submit guard then read as "no objection" and let the form through.
+  //   2. A superseded check must not win. Typing "midhun" fires a request per keystroke
+  //      after the debounce; without cancellation a slow reply for "midh" can land after the
+  //      reply for "midhun" and overwrite a correct answer with a stale one.
+  //   3. Format is decided locally against the shared rule, so an obviously invalid name
+  //      never costs a round trip.
   useEffect(() => {
-    const clean = username.trim().toLowerCase();
-    if (clean.length < 3) {
-      setUsernameAvailability(null);
-      setCheckingUsername(false);
+    const clean = username.trim();
+    if (!clean) {
+      setUsernameStatus({ kind: 'idle' });
       return;
     }
-    setCheckingUsername(true);
-    const t = setTimeout(async () => {
+    const formatProblem = validateUsername(clean);
+    if (formatProblem) {
+      setUsernameStatus({ kind: 'invalid', reason: formatProblem });
+      return;
+    }
+
+    const controller = new AbortController();
+    setUsernameStatus({ kind: 'checking' });
+
+    const timer = setTimeout(async () => {
       try {
-        const result = await api.checkUsername(clean);
-        setUsernameAvailability(result);
-      } catch {
-        setUsernameAvailability(null);
-      } finally {
-        setCheckingUsername(false);
+        const result = await api.checkUsername(clean, controller.signal);
+        if (controller.signal.aborted) return;
+        setUsernameStatus(
+          result.available
+            ? { kind: 'available' }
+            : { kind: 'taken', reason: result.reason || 'That name is already taken.' }
+        );
+      } catch (err: any) {
+        // An abort is this effect superseding itself, not a failure.
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        setUsernameStatus({
+          kind: 'error',
+          reason: err?.message || 'Could not check that name right now.',
+        });
       }
     }, 350);
-    return () => clearTimeout(t);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [username]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (username.length < 3) {
-      setError('Username must be at least 3 characters');
+    const formatProblem = validateUsername(username.trim());
+    if (formatProblem) {
+      setError(formatProblem);
       return;
     }
 
-    if (usernameAvailability && !usernameAvailability.available) {
-      setError(usernameAvailability.reason || 'This username is already taken. Please choose another.');
+    // Only a confirmed "available" may proceed. The old guard read
+    // `usernameAvailability && !available`, so a check that had failed -- stored as null --
+    // satisfied it and the form submitted anyway. Against a cold backend that produced the
+    // reported symptom exactly: "midhunvijay is available" from a check that eventually
+    // returned, next to "Failed to fetch" from the submit that did not.
+    if (usernameStatus.kind === 'checking') {
+      setError('Still checking that name — one moment.');
+      return;
+    }
+    if (usernameStatus.kind === 'taken' || usernameStatus.kind === 'invalid') {
+      setError(usernameStatus.reason);
+      return;
+    }
+    if (usernameStatus.kind === 'error') {
+      setError('We could not confirm that name is free. Please try again in a moment.');
+      return;
+    }
+    if (usernameStatus.kind !== 'available') {
+      setError('Choose a username for your booking link.');
       return;
     }
 
@@ -84,6 +138,8 @@ export function SignupPage() {
     }
 
     setLoading(true);
+    // Explain a slow backend rather than showing a button that looks stuck.
+    const wakeTimer = setTimeout(() => setServerWaking(true), SLOW_REQUEST_MS);
 
     try {
       // The backend is the only place an account is created. It rejects duplicate and
@@ -112,6 +168,8 @@ export function SignupPage() {
           : message
       );
     } finally {
+      clearTimeout(wakeTimer);
+      setServerWaking(false);
       setLoading(false);
     }
   };
@@ -121,13 +179,21 @@ export function SignupPage() {
   // The username helper line: one message, one colour, in the field's reserved slot. Taken
   // names read red here and on the Google callback screen, which used to disagree (amber).
   const usernameHelper = (() => {
-    if (username.length < 3) return { hint: 'At least 3 characters. Letters, numbers and dashes.' };
-    if (checkingUsername) return { hint: 'Checking availability…' };
-    if (usernameAvailability?.available) return { success: `${host}/${username} is available` };
-    if (usernameAvailability && !usernameAvailability.available) {
-      return { error: usernameAvailability.reason || 'That username is already taken' };
+    switch (usernameStatus.kind) {
+      case 'idle':
+        return { hint: USERNAME_RULE_TEXT };
+      case 'invalid':
+        return { error: usernameStatus.reason };
+      case 'checking':
+        return { hint: 'Checking availability…' };
+      case 'available':
+        return { success: `${host}/${username} is available` };
+      case 'taken':
+        return { error: usernameStatus.reason };
+      case 'error':
+        // Distinct from "taken" on purpose. The name may well be free; we could not ask.
+        return { error: 'Unable to check availability. Please try again in a moment.' };
     }
-    return { hint: `${host}/${username}` };
   })();
 
   return (
@@ -292,11 +358,19 @@ export function SignupPage() {
           }
         />
 
-        <Button type="submit" size="touch" disabled={loading} className="mt-1 w-full">
+        {/* Also disabled while the name is still being checked: submitting into an
+            unresolved check is how the form ended up posting to a backend that had not
+            answered yet. */}
+        <Button
+          type="submit"
+          size="touch"
+          disabled={loading || usernameStatus.kind === 'checking'}
+          className="mt-1 w-full"
+        >
           {loading ? (
             <>
               <Spinner />
-              Creating your page…
+              {serverWaking ? 'Waking the server…' : 'Creating your page…'}
             </>
           ) : (
             <>
@@ -305,6 +379,12 @@ export function SignupPage() {
             </>
           )}
         </Button>
+        {serverWaking && (
+          <p className="text-center text-xs text-text-secondary" aria-live="polite">
+            The server has been idle and is starting up. This can take up to a minute the
+            first time — your details are safe, please don&rsquo;t refresh.
+          </p>
+        )}
       </form>
 
       <div className="mt-4 border-t border-border pt-3 text-center">

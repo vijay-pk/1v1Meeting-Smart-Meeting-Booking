@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
+import { validateUsername, type UsernameStatus } from '@/lib/username';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { AuthShell } from '@/components/auth/AuthShell';
@@ -31,8 +32,7 @@ export function GoogleCallbackPage() {
   const [accessToken, setAccessToken] = useState('');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
-  const [availability, setAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>({ kind: 'idle' });
 
   // React 18 mounts effects twice in dev; the exchange must not run twice.
   const started = useRef(false);
@@ -163,19 +163,46 @@ export function GoogleCallbackPage() {
     navigate(effectiveRole === 'super_admin' ? '/super-admin' : '/admin', { replace: true });
   };
 
-  // Availability check, debounced so typing does not hit the API on every keystroke.
+  // Availability check. Same three rules as the signup form, and the same shared username
+  // policy -- this screen previously had no error handling at all, so a failed check became
+  // an unhandled rejection and the helper line simply froze on "Checking availability…".
   useEffect(() => {
-    if (phase !== 'choose-username' || !username.trim()) {
-      setAvailability(null);
+    const clean = username.trim();
+    if (phase !== 'choose-username' || !clean) {
+      setUsernameStatus({ kind: 'idle' });
       return;
     }
-    setChecking(true);
-    const t = setTimeout(async () => {
-      const result = await api.checkUsername(username.trim().toLowerCase());
-      setAvailability(result);
-      setChecking(false);
+    const formatProblem = validateUsername(clean);
+    if (formatProblem) {
+      setUsernameStatus({ kind: 'invalid', reason: formatProblem });
+      return;
+    }
+
+    const controller = new AbortController();
+    setUsernameStatus({ kind: 'checking' });
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.checkUsername(clean, controller.signal);
+        if (controller.signal.aborted) return;
+        setUsernameStatus(
+          result.available
+            ? { kind: 'available' }
+            : { kind: 'taken', reason: result.reason || 'That name is already taken.' }
+        );
+      } catch (err: any) {
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        setUsernameStatus({
+          kind: 'error',
+          reason: err?.message || 'Could not check that name right now.',
+        });
+      }
     }, 400);
-    return () => clearTimeout(t);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [username, phase]);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -192,7 +219,8 @@ export function GoogleCallbackPage() {
   };
 
   const previewHost = (import.meta.env.VITE_APP_URL || window.location.origin).replace(/^https?:\/\//, '');
-  const canSubmit = !!availability?.available && !checking && phase === 'choose-username';
+  // Only a confirmed 'available' may submit: not 'checking', and never 'error'.
+  const canSubmit = usernameStatus.kind === 'available' && phase === 'choose-username';
 
   return (
     <AuthShell
@@ -256,14 +284,21 @@ export function GoogleCallbackPage() {
               className="min-h-[16px] text-[11px] leading-tight"
               aria-live="polite"
             >
-              {checking && <span className="text-text-tertiary">Checking availability…</span>}
-              {!checking && availability?.available && (
+              {usernameStatus.kind === 'checking' && (
+                <span className="text-text-tertiary">Checking availability…</span>
+              )}
+              {usernameStatus.kind === 'available' && (
                 <span className="font-medium text-emerald-600">
                   {previewHost}/{username} is available
                 </span>
               )}
-              {!checking && availability && !availability.available && (
-                <span className="font-medium text-red-600">{availability.reason}</span>
+              {(usernameStatus.kind === 'taken' || usernameStatus.kind === 'invalid') && (
+                <span className="font-medium text-red-600">{usernameStatus.reason}</span>
+              )}
+              {usernameStatus.kind === 'error' && (
+                <span className="font-medium text-amber-600">
+                  Unable to check availability. Please try again in a moment.
+                </span>
               )}
             </p>
           </div>

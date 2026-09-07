@@ -63,3 +63,6 @@ graphify/
 Thumbs.db
 *.swp
 
+
+# Playwright MCP scratch output (browser snapshots, console logs)
+.playwright-mcp/
