@@ -289,6 +289,26 @@ export const TimeAvailabilityPage: React.FC = () => {
     };
   }, [selectedAdminUser?.id, selectedMeeting?.id, slotsRetryKey]);
 
+  // Land on a day that actually has times.
+  //
+  // The strip defaults to today, and today is very often full -- by mid-afternoon every
+  // remaining slot has passed the host's minimum notice. A visitor arriving on an empty grid
+  // has to work out for themselves that they should try another pill. Once the counts are
+  // known, move to the first day with availability; only ever automatically, and never away
+  // from a day the visitor picked themselves.
+  const [dateAutoAdvanced, setDateAutoAdvanced] = useState(false);
+  useEffect(() => {
+    if (!dayCounts || dateAutoAdvanced) return;
+    const currentKey = format(selectedDate, 'yyyy-MM-dd');
+    if ((dayCounts[currentKey] ?? 0) > 0) {
+      setDateAutoAdvanced(true);
+      return;
+    }
+    const firstOpen = daysList.find((day) => (dayCounts[format(day, 'yyyy-MM-dd')] ?? 0) > 0);
+    if (firstOpen) setSelectedDate(firstOpen);
+    setDateAutoAdvanced(true);
+  }, [dayCounts, daysList, selectedDate, dateAutoAdvanced]);
+
   // Auto-select first available slot if none selected or if slot is outside available range
   useEffect(() => {
     if (availableSlots.length > 0) {

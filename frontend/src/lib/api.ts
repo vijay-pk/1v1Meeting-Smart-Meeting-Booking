@@ -56,7 +56,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   }
 
   try {
-    return await request(`${path}`, { ...init, signal: controller.signal });
+    return await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal });
   } catch (err: any) {
     // A caller-initiated cancel is not a failure; let it propagate as an AbortError so the
     // caller can ignore it rather than render an error for a request it abandoned itself.
