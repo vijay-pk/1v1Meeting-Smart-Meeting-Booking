@@ -1,3 +1,4 @@
+import logging
 import re
 import secrets
 from typing import Optional, Tuple
@@ -20,6 +21,7 @@ from app.services.supabase_auth import (
 from app.services.admin_deletion import is_email_blocked, is_username_retired
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Usernames that would collide with an application route. "/:username" is a catch-all
 # in the frontend router, so nothing here may become a vanity page.
@@ -332,17 +334,25 @@ async def google_auth_complete(payload: GoogleAuthCompleteRequest, db: Session =
     # Google users authenticate through the provider, never with a local password. The
     # column is NOT NULL, so it gets a random hash nobody holds a preimage for --
     # password login on this account fails closed rather than being bypassable.
-    new_user = provision_admin(
-        db,
-        name=identity["name"],
-        email=email,
-        username=clean_username,
-        password_hash=get_password_hash(secrets.token_urlsafe(32)),
-        phone=payload.phone,
-    )
+    try:
+        new_user = provision_admin(
+            db,
+            name=identity["name"],
+            email=email,
+            username=clean_username,
+            password_hash=get_password_hash(secrets.token_urlsafe(32)),
+            phone=payload.phone,
+        )
 
-    db.commit()
-    db.refresh(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create admin in google_auth_complete: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not complete account setup: {str(exc)}"
+        )
 
     return _google_authenticated(new_user, clean_username)
 

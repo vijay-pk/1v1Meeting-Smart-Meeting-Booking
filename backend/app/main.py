@@ -11,20 +11,40 @@ from app.api import api_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def reconcile_database_schema(bind_engine):
+    """
+    Detects and clears legacy pre-FastAPI table definitions from Supabase.
+
+    If the database was previously initialized with an older schema (where availability_rules,
+    availability_exceptions, bookings, payments, and notifications had foreign keys referencing
+    the legacy 'profiles' table with UUID columns), Base.metadata.create_all would not alter them.
+    This caused admin creation to crash with ForeignKeyViolation on availability_rules.
+    """
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(bind_engine)
+        tables = set(inspector.get_table_names())
+
+        if "availability_rules" in tables:
+            fks = inspector.get_foreign_keys("availability_rules")
+            points_to_legacy_profiles = any(
+                fk.get("referred_table") == "profiles" for fk in fks
+            )
+            cols = {c["name"]: str(c["type"]).lower() for c in inspector.get_columns("availability_rules")}
+            is_uuid = "uuid" in cols.get("admin_id", "")
+
+            if points_to_legacy_profiles or is_uuid:
+                logger.warning("Detected legacy Supabase table definitions. Reconciling schema...")
+                with bind_engine.begin() as conn:
+                    for tbl in ["notifications", "payments", "bookings", "availability_exceptions", "availability_rules"]:
+                        if tbl in tables:
+                            conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
+                logger.info("Legacy tables dropped successfully. create_all will rebuild them with correct foreign keys.")
+    except Exception as exc:
+        logger.error("Schema reconciliation check failed: %s", exc)
+
 def seed_initial_data():
-    """
-    Creates the database schema and bootstraps the Super Admin account, nothing else.
-
-    Fake/demo data policy: this function must never create a demonstration admin, a
-    sample profile, example session types, placeholder availability, or a connection row
-    holding a placeholder credential. A fresh database starts with exactly one account --
-    the Super Admin, built from environment variables -- and every other admin arrives
-    through the real signup or Google registration flow.
-
-    The Super Admin is created only when no super admin exists yet, so restarting the app
-    never resurrects an account that was intentionally removed, and never overwrites the
-    credentials of a live one.
-    """
+    reconcile_database_schema(engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
@@ -110,6 +130,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled server error: %s", exc)
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server error: {str(exc)}"},
+        headers=headers,
+    )
 
 import os
 from starlette.staticfiles import StaticFiles

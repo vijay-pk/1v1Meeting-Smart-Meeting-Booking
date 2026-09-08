@@ -37,7 +37,13 @@ import { TermsPage } from '@/pages/public/TermsPage';
 import { CancelBookingPage } from '@/pages/public/CancelBookingPage';
 import { RescheduleBookingPage } from '@/pages/public/RescheduleBookingPage';
 
+import { warmUpBackend } from '@/lib/api';
+
 export const App: React.FC = () => {
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

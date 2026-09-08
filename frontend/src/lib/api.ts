@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
  * survive a cold start and short enough that a genuinely dead backend is reported rather
  * than spun on forever.
  */
-const REQUEST_TIMEOUT_MS = 45_000;
+const REQUEST_TIMEOUT_MS = 90_000;
 
 /** After this long, a request is slow enough that the UI should explain itself. */
 export const SLOW_REQUEST_MS = 3_000;
