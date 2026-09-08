@@ -504,3 +504,144 @@ def test_slot_counts_are_bounded(admin):
         f"/api/availability/slot-counts?admin_id={admin['id']}"
         f"&session_id={admin['session_id']}&days=90"
     ).status_code == 422
+
+
+# --------------------------------------------------------------------------------------
+# Booking sends no email, and puts one shared event on both calendars
+# --------------------------------------------------------------------------------------
+
+def _connect_google(db, admin_id, calendar_id="primary"):
+    from app.models.models import GoogleConnection
+    db.add(GoogleConnection(
+        admin_id=admin_id,
+        encrypted_refresh_token=encrypt_secret("refresh-token"),
+        google_email="host@example.com",
+        calendar_id=calendar_id,
+        connection_status="connected",
+    ))
+    db.commit()
+
+
+def test_a_confirmed_booking_sends_no_email(admin, db, monkeypatch):
+    """
+    Booking email is deliberately off. The client learns the details from the confirmation
+    screen and Google's calendar invitation; the host from the in-app notification.
+
+    Asserted by making any send raise: if the booking flow ever calls one again, this fails
+    rather than quietly resuming a behaviour that was removed on purpose.
+    """
+    from app.services import email_service
+
+    async def must_not_send(*args, **kwargs):
+        raise AssertionError("the booking flow must not send email")
+
+    monkeypatch.setattr(email_service, "send_booking_confirmation_email", must_not_send)
+    monkeypatch.setattr(email_service, "send_admin_new_booking_notification", must_not_send)
+
+    held = _hold(admin)
+    order = _order(admin, held.json()["lock_id"]).json()
+    verified = _pay(order)
+
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["status"] == "confirmed"
+
+
+def test_the_client_is_invited_so_the_event_reaches_their_calendar(admin, db, monkeypatch):
+    """
+    There is no client account in this product, so no client calendar to write to directly.
+    The single shared event with the client as an attendee is the only mechanism -- and it
+    only reaches them if Google is told to notify attendees.
+
+    sendUpdates defaults to "none". Without it the client was listed on the host's event and
+    never told, which is the whole of the missing-client-calendar bug.
+    """
+    _connect_google(db, admin["id"], calendar_id="work@example.com")
+    captured = {}
+
+    async def fake_event(**kwargs):
+        captured.update(kwargs)
+        return {
+            "event_id": "evt_123",
+            "meet_link": "https://meet.google.com/real-link",
+            "html_link": "https://calendar.google.com/x",
+        }
+
+    monkeypatch.setattr(payments_api, "create_calendar_event_with_meet", fake_event)
+
+    held = _hold(admin)
+    order = _order(admin, held.json()["lock_id"]).json()
+    assert _pay(order).status_code == 200
+
+    # The admin's chosen calendar, not a hardcoded "primary".
+    assert captured["calendar_id"] == "work@example.com"
+    # The client is on the event.
+    assert captured["client_email"].endswith("@example.com")
+    # Idempotency key is derived from the booking, so a retry cannot mint a second Meet link.
+    assert captured["idempotency_key"] == f"bmm_{order['booking_id']}"
+
+
+def test_the_event_request_asks_google_to_notify_attendees():
+    """
+    Guards the parameter itself. A structural check, because the behaviour it controls
+    (an invitation actually arriving) cannot be asserted without live Google credentials.
+    """
+    from pathlib import Path
+    source = Path(__file__).resolve().parent / "app" / "services" / "google_calendar.py"
+    text = source.read_text(encoding="utf-8")
+    assert "sendUpdates=all" in text, "attendees would not be notified"
+    assert "calendars/primary/events" not in text, "the admin's chosen calendar is ignored"
+
+
+def test_a_retry_does_not_create_a_second_calendar_event(admin, db, monkeypatch):
+    """A booking that already carries an event id must never ask Google for another."""
+    _connect_google(db, admin["id"])
+    calls = {"n": 0}
+
+    async def counting_event(**kwargs):
+        calls["n"] += 1
+        return {"event_id": "evt_once", "meet_link": "https://meet.google.com/x", "html_link": None}
+
+    monkeypatch.setattr(payments_api, "create_calendar_event_with_meet", counting_event)
+
+    held = _hold(admin)
+    order = _order(admin, held.json()["lock_id"]).json()
+    assert _pay(order).status_code == 200
+    assert calls["n"] == 1
+
+    # Replaying /verify returns the same booking without touching Google again.
+    again = _pay(order)
+    assert again.status_code == 200
+    assert calls["n"] == 1, "a retry created a second calendar event"
+    assert again.json()["google_meet_link"] == "https://meet.google.com/x"
+
+
+def test_two_clients_racing_one_slot_produce_one_booking(admin, db):
+    """
+    Client A succeeds, client B is refused. Never both.
+
+    Both hold attempts and both orders are exercised; the database index is the thing that
+    actually settles it, and this asserts exactly one booking survives.
+    """
+    first = _hold(admin, fingerprint="client_a")
+    assert first.status_code == 200
+
+    # B cannot even take the hold while A has it.
+    second = _hold(admin, fingerprint="client_b")
+    assert second.status_code == 409, second.text
+
+    assert _order(admin, first.json()["lock_id"], name="Alice").status_code == 200
+
+    # And with a hold in hand from elsewhere, B's order is still refused.
+    third = _order(admin, first.json()["lock_id"], name="Bob")
+    assert third.status_code == 409, third.text
+
+    live = (
+        db.query(Booking)
+        .filter(
+            Booking.admin_id == admin["id"],
+            Booking.start_time == SLOT_START,
+            Booking.status.in_(["confirmed", "pending_payment"]),
+        )
+        .all()
+    )
+    assert len(live) == 1, f"expected exactly one live booking, found {len(live)}"

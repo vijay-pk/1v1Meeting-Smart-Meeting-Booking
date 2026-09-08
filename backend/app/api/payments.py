@@ -26,7 +26,6 @@ from app.services.razorpay_service import (
     SIMULATED_PROVIDER, REAL_PROVIDER,
 )
 from app.services.google_calendar import create_calendar_event_with_meet
-from app.services.email_service import send_booking_confirmation_email, send_admin_new_booking_notification
 
 logger = logging.getLogger(__name__)
 
@@ -419,7 +418,13 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         .filter(GoogleConnection.admin_id == admin.id, GoogleConnection.connection_status == "connected")
         .first()
     )
-    if g_conn and g_conn.encrypted_refresh_token:
+    if booking.google_event_id:
+        # This booking already has an event. /verify short-circuits on a confirmed booking,
+        # but a retry reaching here after a partial failure must not create a second event, a
+        # second Meet link, or send the client a second invitation.
+        meet_link = booking.google_meet_link
+        calendar_error = None
+    elif g_conn and g_conn.encrypted_refresh_token:
         session_title = booking.meeting_type.title if booking.meeting_type else "Mentorship Call"
         event_res = await create_calendar_event_with_meet(
             encrypted_refresh_token=g_conn.encrypted_refresh_token,
@@ -427,6 +432,11 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
             description=f"1-to-1 session on BookMyMeet.\nAttendee: {booking.client_name} ({booking.client_email})\nNotes: {booking.notes or 'None'}",
             start_time_iso=booking.start_time,
             end_time_iso=booking.end_time,
+            # The calendar the admin actually chose, not a hardcoded "primary".
+            calendar_id=g_conn.calendar_id or "primary",
+            # Derived from the booking, so a retry asks Google for the same conference rather
+            # than minting a second Meet link for one appointment.
+            idempotency_key=f"bmm_{booking.id}",
             client_name=booking.client_name,
             client_email=booking.client_email
         )
@@ -472,55 +482,23 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
 
     db.commit()
 
-    # 6. Send Email Notifications (Client and Admin)
-    session_title = booking.meeting_type.title if booking.meeting_type else "Mentorship Call"
-    duration = booking.meeting_type.duration_minutes if booking.meeting_type else 30
-
-    # Everything above is already committed. An email provider outage must not turn a
-    # confirmed, paid booking into a 500 for the client -- the send is best-effort and its
-    # failure is logged, never raised.
-    client_emailed = False
-    try:
-        client_emailed = await send_booking_confirmation_email(
-            to_email=booking.client_email,
-            client_name=booking.client_name,
-            admin_name=admin.name,
-            session_title=session_title,
-            start_time=booking.start_time,
-            duration_minutes=duration,
-            meet_link=meet_link
-        )
-    except Exception as exc:
-        logger.error(f"Client confirmation email failed for booking {booking.id}: {exc}")
-
-    # An unsent confirmation is the host's problem to solve, so it is told to them rather
-    # than left in a log nobody reads. The booking itself stands: the money moved.
-    if not client_emailed:
-        db.add(Notification(
-            admin_id=admin.id,
-            type="email_failed",
-            title=f"Confirmation email not delivered to {booking.client_name}",
-            message=(
-                f"{booking.client_name} ({booking.client_email}) is booked and paid for "
-                f"{session_title} at {booking.start_time}, but the confirmation email could "
-                f"not be sent. Contact them directly with the details."
-            ),
-            booking_id=booking.id
-        ))
-        db.commit()
-
-    try:
-        await send_admin_new_booking_notification(
-            admin_email=admin.email,
-            admin_name=admin.name,
-            client_name=booking.client_name,
-            client_email=booking.client_email,
-            session_title=session_title,
-            start_time=booking.start_time,
-            meet_link=meet_link
-        )
-    except Exception as exc:
-        logger.error(f"Admin notification email failed for booking {booking.id}: {exc}")
+    # 6. No automatic booking email.
+    #
+    # Deliberate product decision: a confirmed booking sends nothing from this application.
+    # The client learns the details from the confirmation screen and from Google's calendar
+    # invitation; the host learns from the in-app Notification written above and from the
+    # event landing on their calendar.
+    #
+    # email_service.py is NOT removed -- it is real, configured, and stays available for any
+    # explicitly requested email. It is simply not part of this transaction, so a booking can
+    # never depend on, or be delayed by, an email provider.
+    #
+    # Worth being precise about one thing: the calendar invitation Google delivers to the
+    # client IS an email, sent by Google, not by us. It is the only mechanism that puts a
+    # single shared event on an attendee's calendar, and this product has no client accounts
+    # and therefore no client calendar to write to directly. Suppressing it (sendUpdates=none,
+    # the API default, which is what the code did before) is exactly what kept the meeting off
+    # the client's calendar.
 
     return {
         "status": "confirmed",

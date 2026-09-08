@@ -2,6 +2,9 @@ import os
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import quote
+
 import httpx
 from app.core.config import settings
 from app.core.security import decrypt_secret
@@ -110,7 +113,9 @@ async def create_calendar_event_with_meet(
     start_time_iso: str,
     end_time_iso: str,
     client_name: str,
-    client_email: str
+    client_email: str,
+    calendar_id: str = "primary",
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     """
     Creates an event on the Admin's Google Calendar with Google Meet conference data
@@ -135,7 +140,26 @@ async def create_calendar_event_with_meet(
             logger.warning("Google OAuth not configured -- no calendar event created")
             return {"event_id": None, "meet_link": None, "html_link": None, "error": "not_configured"}
 
-        url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1"
+        # Honour the calendar the admin actually selected. GoogleConnection.calendar_id has
+        # existed all along, defaulting to "primary", and this was hardcoded past it -- an
+        # admin who picked a different calendar had events land somewhere they were not
+        # looking.
+        target = quote(calendar_id or "primary", safe="")
+        url = (
+            f"https://www.googleapis.com/calendar/v3/calendars/{target}/events"
+            # sendUpdates=all is what puts the meeting on the CLIENT's calendar.
+            #
+            # There is no client account in this product -- bookings carry a name and an email,
+            # not a user row -- so a client cannot connect a calendar of their own, and there
+            # is nothing to write a second event into. The single shared event, created by the
+            # host with the client as an attendee, is the only mechanism available and is also
+            # the one that cannot drift: one event, one link, one time, both calendars.
+            #
+            # The API defaults sendUpdates to "none". The client was therefore listed as an
+            # attendee and never told, so the meeting never reached their calendar. That is
+            # the whole of the missing-client-calendar bug.
+            "?conferenceDataVersion=1&sendUpdates=all"
+        )
         payload = {
             "summary": title,
             "description": description,
@@ -144,12 +168,21 @@ async def create_calendar_event_with_meet(
             # event lands at the hour the client picked instead of shifting by the offset.
             "start": {"dateTime": _wall_clock(start_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
             "end": {"dateTime": _wall_clock(end_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
+            # needsAction, not accepted: Google delivers a real invitation the client can
+            # accept, decline or propose a new time for. Marking it accepted on their behalf
+            # asserts a response they never gave.
             "attendees": [
-                {"email": client_email, "displayName": client_name, "responseStatus": "accepted"}
+                {"email": client_email, "displayName": client_name, "responseStatus": "needsAction"}
             ],
+            "guestsCanModify": False,
+            "guestsCanInviteOthers": False,
+            "guestsCanSeeOtherGuests": False,
             "conferenceData": {
                 "createRequest": {
-                    "requestId": f"req_{int(datetime.now().timestamp())}",
+                    # Derived from the booking, not the clock. Google treats requestId as an
+                    # idempotency key: a retry with the same id returns the conference that
+                    # already exists instead of minting a second Meet link for one booking.
+                    "requestId": idempotency_key or f"req_{int(datetime.now().timestamp())}",
                     "conferenceSolutionKey": {"type": "hangoutsMeet"}
                 }
             },
