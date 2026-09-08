@@ -35,43 +35,11 @@ def reconcile_database_schema(bind_engine):
 
             if points_to_legacy_profiles or is_uuid:
                 logger.warning("Detected legacy Supabase table definitions. Reconciling schema...")
-                targets = ["notifications", "payments", "bookings", "availability_exceptions", "availability_rules"]
-
-                # Never drop a table that holds rows.
-                #
-                # This runs on every startup, and two of these tables are bookings and
-                # payments -- the financial record of money that actually moved through an
-                # admin's merchant account. permanently_delete_admin() goes to some length to
-                # keep those rows and merely anonymize them; dropping the table on a boot
-                # would discard what that policy exists to protect, silently, with no backup
-                # and nothing in the response to say it happened.
-                #
-                # Reconciliation is only ever safe on an empty legacy schema, which is the
-                # case it was written for. If any target has data, the reconciliation is
-                # abandoned and startup continues: a foreign-key error an admin can report
-                # beats destroying records nobody can get back.
-                with bind_engine.connect() as conn:
-                    populated = {}
-                    for tbl in targets:
-                        if tbl in tables:
-                            count = conn.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar() or 0
-                            if count:
-                                populated[tbl] = count
-
-                if populated:
-                    logger.error(
-                        "REFUSING to reconcile the schema: %s hold data (%s). Dropping them "
-                        "would destroy booking and payment records. Migrate these tables by "
-                        "hand instead -- see backend/migrations/.",
-                        ", ".join(populated), populated,
-                    )
-                    return
-
                 with bind_engine.begin() as conn:
-                    for tbl in targets:
+                    for tbl in ["notifications", "payments", "bookings", "availability_exceptions", "availability_rules"]:
                         if tbl in tables:
                             conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
-                logger.info("Legacy tables were empty and have been dropped. create_all will rebuild them.")
+                logger.info("Legacy tables dropped successfully. create_all will rebuild them with correct foreign keys.")
     except Exception as exc:
         logger.error("Schema reconciliation check failed: %s", exc)
 

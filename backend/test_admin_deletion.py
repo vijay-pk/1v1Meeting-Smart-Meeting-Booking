@@ -724,51 +724,17 @@ def test_an_ordinary_permission_denial_does_not_revoke_the_session(db, tracked, 
     assert client.get("/api/auth/me", headers=headers).status_code == 200
 
 
-def test_schema_reconciliation_never_drops_a_table_that_holds_data(monkeypatch):
-    """
-    reconcile_database_schema() runs on every startup and, on a legacy schema, drops
-    notifications, payments, bookings, availability_exceptions and availability_rules.
 
-    Two of those are the financial record of money that moved through a real merchant
-    account. permanently_delete_admin() deliberately keeps and anonymizes them rather than
-    deleting them, so a startup path that drops the whole table would discard exactly what
-    that policy protects -- silently, with no backup.
-
-    Reconciliation is only safe on an empty legacy schema. This asserts it refuses otherwise.
-    """
-    from app import main as main_module
-
-    executed = []
-
-    class FakeConn:
-        def execute(self, statement):
-            sql = str(statement)
-            executed.append(sql)
-            class R:
-                # Any COUNT(*) reports rows present, so the guard must trigger.
-                def scalar(self_inner): return 7
-            return R()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    class FakeInspector:
-        def get_table_names(self):
-            return ["availability_rules", "bookings", "payments", "notifications",
-                    "availability_exceptions"]
-        def get_foreign_keys(self, table):
-            return [{"referred_table": "profiles"}]        # trips the legacy branch
-        def get_columns(self, table):
-            return [{"name": "admin_id", "type": "uuid"}]  # trips it the other way too
-
-    class FakeEngine:
-        def connect(self): return FakeConn()
-        def begin(self): raise AssertionError("begin() means it is about to DROP tables")
-
-    monkeypatch.setattr(main_module, "inspect", lambda _e: FakeInspector(), raising=False)
-    import sqlalchemy
-    monkeypatch.setattr(sqlalchemy, "inspect", lambda _e: FakeInspector())
-
-    main_module.reconcile_database_schema(FakeEngine())
-
-    dropped = [sql for sql in executed if "DROP TABLE" in sql.upper()]
-    assert not dropped, f"reconciliation dropped populated tables: {dropped}"
+# NOTE: reconcile_database_schema() in app/main.py drops notifications, payments, bookings,
+# availability_exceptions and availability_rules when it detects a legacy Supabase schema, and
+# it runs on every startup. Two of those tables are the financial record that
+# permanently_delete_admin() deliberately keeps and anonymizes rather than deleting.
+#
+# A guard was added here that refused to drop a populated table, and it was withdrawn at the
+# owner's request -- that function is to stay exactly as written. Recording the reasoning so
+# the next person does not have to rediscover it:
+#
+#   Both trigger conditions were false in production when checked on 2026-09-08
+#   (availability_rules.admin_id is character varying, no FK to a legacy `profiles` table), and
+#   bookings and payments were both empty, so nothing has been lost. The path is dormant
+#   rather than safe: changing admin_id to a native uuid, or reintroducing that FK, arms it.
