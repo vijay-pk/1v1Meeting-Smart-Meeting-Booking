@@ -505,6 +505,78 @@ Each of these costs a debugging cycle if rediscovered.
 
 **Credentials in the tree** — `.env` is now gitignored at the root and in `frontend/`, so `backend/.env` and `frontend/.env` will not be picked up by a future `git init` + `git add .`. Still uncovered, because they are tracked source rather than env files: `docker-compose.yml` carries inline default `postgres123` / `JWT_SECRET` / `ENCRYPTION_KEY` values, and the super-admin username/email defaults sit in `config.py` (the password has no default and fails startup if unset). The demo staff-admin seed and the plaintext passwords that used to live in `bookingStore.ts` are gone. Replace the compose defaults with env lookups before any real deployment.
 
+## Hosting the backend (and moving it)
+
+Today: FastAPI in Docker on Render (Oregon, free tier), Postgres on Supabase (`ap-south-1`),
+frontend on Vercel. Auto-deploy from `main` on both hosts.
+
+Two facts drive every hosting decision here:
+
+- **The free tier sleeps.** Measured repeatedly: `/health` answers in **32-42 seconds** cold,
+  ~1s warm. `warmUpBackend()` moves that cost off the submit button, and `request()` retries
+  GETs once, but neither makes the instance faster. Only a paid plan does.
+- **The backend is in Oregon and the database is in Mumbai.** Every query crosses the Pacific,
+  ~200-250ms, and a booking makes several per request. This is a separate problem from the
+  cold start and paying Render does not fix it.
+
+**Only the backend container is portable, and only it should move.** Supabase stays (it also
+holds the profile-media bucket) and Vercel stays. Nothing in `backend/app/` references Render
+-- verified by grep -- and the Dockerfile already binds `0.0.0.0:8000`, so the container runs
+anywhere that lets you name the port.
+
+### Two environment variables that must be carried across verbatim
+
+Not "regenerated". Copied.
+
+- **`ENCRYPTION_KEY`** is the Fernet key for every admin's Google refresh token and Razorpay
+  key secret. A new value makes all of them undecryptable and every admin has to reconnect
+  Google and re-enter their Razorpay keys. `decrypt_secret` raises rather than returning
+  ciphertext, so at least it fails loudly.
+- **`SECRET_KEY`** signs JWTs (a new value just logs everyone out, which is survivable) but it
+  also keys two HMACs: the OAuth state parameter (`api/google_calendar.py:39`) and the digest
+  of deleted admins' email addresses (`core/security.py:108`). Change it and
+  **every permanently deleted admin silently becomes able to register again** -- the digests
+  stop matching, nothing errors, and the block just stops working. This is the one to get
+  wrong quietly.
+
+### What changes when the hostname changes
+
+1. `GOOGLE_REDIRECT_URI` on the backend **and** the authorized redirect URI in Google Cloud
+   Console. They must match exactly or OAuth fails with `redirect_uri_mismatch`.
+2. `VITE_API_URL` on Vercel.
+3. The Razorpay webhook URL, if one is configured.
+4. All 16 environment variables copied over.
+
+`CORS_ALLOWED_ORIGINS` and `APP_URL` point at the *frontend* and do not change.
+
+### If moving to AWS App Runner
+
+The closest analogue to Render: container in, HTTPS and a domain out, deploy on push.
+Choose **`ap-south-1`**, which is the whole point -- it co-locates the backend with Supabase
+and fixes the latency as well as the cold start.
+
+- Port **8000** (the Dockerfile's), health check path **`/health`**.
+- Image via ECR, or App Runner's source build from the repo.
+- **Set an AWS Budgets alert before deploying anything.** New-account credits expire on their
+  own clock, and forgotten resources are the usual way a "free" account produces a bill.
+- Optional portability tidy: have the Dockerfile honour `$PORT`
+  (`--port ${PORT:-8000}`) so the container stops caring which host runs it.
+
+Avoid Lambda + API Gateway. It reintroduces cold starts per invocation, needs a Mangum
+adapter (a code change), and makes Postgres connection handling harder. It is the one option
+that lands you back where you started.
+
+### Verifying a cutover
+
+`GET /health` must report `"database":"postgresql"` and `"persistent_storage":true` -- if it
+says `sqlite`, `DATABASE_URL` did not come across and the new host is quietly running on a
+disposable file. Then: an unauthenticated `GET /api/profiles/public/{username}` returns the
+same admin id as before (proving the same database), a login succeeds (proving `SECRET_KEY`),
+and an admin's Google/Razorpay connection still reads as connected (proving `ENCRYPTION_KEY`).
+
+Roll back by pointing `VITE_API_URL` at the old host, which stays deployable until DNS and
+OAuth are confirmed on the new one.
+
 ## Graphify (optional aid)
 
 `graphify/` is a **nested clone of an unrelated PyPI tool** (`graphifyy` — a tree-sitter knowledge-graph builder). It is not application code. **Exclude it when searching, counting, or reasoning about this project** — it is roughly 500 files and will dominate any naive scan.
