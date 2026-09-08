@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ShieldCheck, Lock, Mail, ArrowRight, UserPlus } from 'lucide-react';
@@ -7,11 +7,17 @@ import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { Spinner } from '@/components/common/Skeleton';
 import { useBookingStore } from '@/stores/bookingStore';
-import { api } from '@/lib/api';
+import { api, warmUpBackend } from '@/lib/api';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // Wake the backend while the visitor types, so the cold start does not land on the
+  // sign-in POST -- the one request that cannot be safely retried automatically.
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
   const { admins, currentSuperAdmin } = useBookingStore();
 
   const [identifier, setIdentifier] = useState('');
@@ -109,7 +115,14 @@ export const AdminLoginPage: React.FC = () => {
       }
       // Any other failure (network, server down) is reported as-is below: signing
       // somebody in against browser-held data is not an acceptable fallback.
-      setError(apiErr?.message || 'Could not reach the sign-in service. Please try again.');
+      //
+      // A cold Render instance is the common case and is worth naming, so the visitor presses
+      // the button again rather than concluding their password is wrong.
+      setError(
+        apiErr?.isNetwork || apiErr?.isTimeout
+          ? 'We could not reach the sign-in service — it may have been asleep. Please try again.'
+          : apiErr?.message || 'Could not reach the sign-in service. Please try again.'
+      );
       setLoading(false);
       return;
     }

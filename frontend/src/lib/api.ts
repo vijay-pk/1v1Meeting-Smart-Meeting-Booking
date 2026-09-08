@@ -44,6 +44,10 @@ export class NetworkError extends Error {
  * `signal` lets a caller cancel its own request (used by the username check, so a stale
  * response cannot overwrite a newer one).
  */
+async function attempt(path: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, { ...init, signal });
+}
+
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -55,8 +59,28 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
     else callerSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
+  // Retrying is only safe for reads. A GET that never reached the server can be repeated
+  // freely; a POST cannot -- it may have been received and only its response lost, so an
+  // automatic second attempt risks creating an account or a booking twice. Writes get one
+  // attempt and an honest error the caller can offer a retry for.
+  const method = (init.method || 'GET').toUpperCase();
+  const retries = method === 'GET' ? 1 : 0;
+
   try {
-    return await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal });
+    for (let remaining = retries; ; remaining--) {
+      try {
+        return await attempt(path, init, controller.signal);
+      } catch (err: any) {
+        if (callerSignal?.aborted || controller.signal.aborted) throw err;
+        // A refused connection while Render spins up looks exactly like this. One quick
+        // second attempt turns most cold starts into a slightly slow read instead of an error.
+        if (remaining > 0 && err?.name !== 'AbortError') {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          continue;
+        }
+        throw err;
+      }
+    }
   } catch (err: any) {
     // A caller-initiated cancel is not a failure; let it propagate as an AbortError so the
     // caller can ignore it rather than render an error for a request it abandoned itself.
@@ -66,6 +90,26 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Wakes the backend, without waiting for it.
+ *
+ * The Render instance sleeps when idle and takes tens of seconds to come back -- measured at
+ * 32s. That cost lands on whoever makes the first request, which on the signup screen is the
+ * form submission: the visitor spends a minute filling the form against a warm-looking page,
+ * presses the button, and the POST is the request that pays for the spin-up. It fails, and
+ * the availability check beside it has already succeeded, so the screen says a name is
+ * available and the server is unreachable at the same time.
+ *
+ * Calling this on mount moves the wake-up to the moment the page opens, so the backend is
+ * usually up by the time anything is submitted. It fixes nothing about the instance itself --
+ * a paid Render plan is the actual fix -- it just stops the cold start landing on the one
+ * request that cannot be safely retried. Deliberately fire-and-forget: nothing waits on it and
+ * a failure is not the visitor's problem.
+ */
+export function warmUpBackend(): void {
+  fetch(`${API_BASE.replace(/\/api$/, '')}/health`, { method: 'GET' }).catch(() => {});
 }
 
 /** Reads the backend's error detail, falling back to a message the user can act on. */

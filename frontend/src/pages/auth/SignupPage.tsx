@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { api, SLOW_REQUEST_MS } from '@/lib/api';
+import { api, warmUpBackend, SLOW_REQUEST_MS } from '@/lib/api';
 import {
   sanitizeUsername,
   validateUsername,
@@ -43,6 +43,11 @@ export function SignupPage() {
   const [serverWaking, setServerWaking] = useState(false);
 
   const navigate = useNavigate();
+
+  // Move the cold start off the submit button. See warmUpBackend() in lib/api.ts.
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
 
   const handleUsernameChange = (value: string) => {
     // Keeps every character the backend accepts. This used to strip dots and underscores,
@@ -161,12 +166,21 @@ export function SignupPage() {
 
       navigate('/admin');
     } catch (err: any) {
-      const message = err?.message || 'Failed to create admin account';
-      setError(
-        message.includes('Failed to fetch')
-          ? 'Could not reach the sign-up service. Please try again in a moment.'
-          : message
-      );
+      // This used to test `message.includes('Failed to fetch')` to substitute friendlier
+      // copy. That string no longer reaches here -- lib/api.ts converts the browser's raw
+      // TypeError into NetworkError first -- so the branch was dead and the generic message
+      // leaked through, beside a username helper that had already succeeded and said the name
+      // was available. Two accurate statements about two different requests, reading as one
+      // contradiction.
+      if (err?.isNetwork || err?.isTimeout) {
+        setError(
+          'We could not reach the sign-up service — it may have been asleep. Nothing was ' +
+          'created, so please press the button again. If it then says the email is already ' +
+          'registered, your account did go through: sign in instead.'
+        );
+      } else {
+        setError(err?.message || 'Failed to create admin account');
+      }
     } finally {
       clearTimeout(wakeTimer);
       setServerWaking(false);
