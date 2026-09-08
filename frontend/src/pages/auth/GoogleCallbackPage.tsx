@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { api } from '@/lib/api';
-import { validateUsername, type UsernameStatus } from '@/lib/username';
+import { api, warmUpBackend } from '@/lib/api';
+import { sanitizeUsername } from '@/lib/username';
+import { useUsernameAvailability } from '@/hooks/useUsernameAvailability';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { AuthShell } from '@/components/auth/AuthShell';
@@ -32,10 +33,19 @@ export function GoogleCallbackPage() {
   const [accessToken, setAccessToken] = useState('');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
-  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>({ kind: 'idle' });
+  // One shared state machine with the sign-up form. These two screens drifted apart once,
+  // and that drift is exactly what produced a green "available" beside a red server error.
+  const {
+    status: usernameStatus,
+    invalidate: recheckUsername,
+  } = useUsernameAvailability(username, phase === 'choose-username');
 
   // React 18 mounts effects twice in dev; the exchange must not run twice.
   const started = useRef(false);
+
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
 
   useEffect(() => {
     if (started.current) return;
@@ -163,47 +173,7 @@ export function GoogleCallbackPage() {
     navigate(effectiveRole === 'super_admin' ? '/super-admin' : '/admin', { replace: true });
   };
 
-  // Availability check. Same three rules as the signup form, and the same shared username
-  // policy -- this screen previously had no error handling at all, so a failed check became
-  // an unhandled rejection and the helper line simply froze on "Checking availability…".
-  useEffect(() => {
-    const clean = username.trim();
-    if (phase !== 'choose-username' || !clean) {
-      setUsernameStatus({ kind: 'idle' });
-      return;
-    }
-    const formatProblem = validateUsername(clean);
-    if (formatProblem) {
-      setUsernameStatus({ kind: 'invalid', reason: formatProblem });
-      return;
-    }
 
-    const controller = new AbortController();
-    setUsernameStatus({ kind: 'checking' });
-
-    const timer = setTimeout(async () => {
-      try {
-        const result = await api.checkUsername(clean, controller.signal);
-        if (controller.signal.aborted) return;
-        setUsernameStatus(
-          result.available
-            ? { kind: 'available' }
-            : { kind: 'taken', reason: result.reason || 'That name is already taken.' }
-        );
-      } catch (err: any) {
-        if (controller.signal.aborted || err?.name === 'AbortError') return;
-        setUsernameStatus({
-          kind: 'error',
-          reason: err?.message || 'Could not check that name right now.',
-        });
-      }
-    }, 400);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [username, phase]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,13 +183,34 @@ export function GoogleCallbackPage() {
       const result = await api.googleAuthComplete(accessToken, username.trim().toLowerCase());
       await finishSignIn(result.role);
     } catch (err: any) {
-      setError(err?.message || 'Could not create your account.');
       setPhase('choose-username');
+
+      if (err?.isNetwork || err?.isTimeout) {
+        // We could not reach the server -- which also means we no longer know this name is
+        // free. It was checked seconds ago against a server we can no longer talk to, so
+        // leaving the green "available" on screen asserts knowledge we have lost. Dropping it
+        // is what stops the two messages contradicting each other, and it re-disables the
+        // button until the name is confirmed again.
+        recheckUsername();
+        setError(
+          'We could not reach the server — it may have been asleep. Nothing was created. ' +
+          'Your name is being checked again; try once more in a moment.'
+        );
+        return;
+      }
+
+      // A real answer from the server: the name was taken between the check and the create,
+      // the account is blocked, or something else it can explain. Show what it said.
+      setError(err?.message || 'Could not create your account.');
     }
   };
 
   const previewHost = (import.meta.env.VITE_APP_URL || window.location.origin).replace(/^https?:\/\//, '');
   // Only a confirmed 'available' may submit: not 'checking', and never 'error'.
+  // Enabled only on a confirmed 'available' for the username currently in the box.
+  // Every other state -- idle, invalid, checking, taken, error -- and any in-flight
+  // submission leaves it disabled. 'error' matters most: a check that did not complete is
+  // not permission to submit.
   const canSubmit = usernameStatus.kind === 'available' && phase === 'choose-username';
 
   return (
@@ -261,14 +252,21 @@ export function GoogleCallbackPage() {
               Username
             </Label>
 
-            {/* The host prefix stays inside the field, so it is clear the username is the
-                tail of a URL rather than a display name. */}
+            {/* The host prefix sits inside the field so it reads as the tail of a URL rather
+                than a display name -- but it is a <span>, never part of the value.
+
+                It is hidden below sm: on purpose. The deployed host is 44 characters
+                (1v1-meeting-smart-meeting-booking.vercel.app/), which on a phone consumes
+                almost the whole field and leaves the username a sliver, making the domain
+                look like the editable value. On small screens the full URL is shown under the
+                field instead, where it has room. */}
             <div className="flex h-11 items-center rounded-xl border border-border-strong bg-surface focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-2 focus-within:ring-offset-surface">
-              <span className="shrink-0 pl-3 text-sm text-text-tertiary">{previewHost}/</span>
+              <span className="hidden shrink-0 max-w-[45%] truncate pl-3 text-sm text-text-tertiary sm:inline">{previewHost}/</span>
+              <span className="shrink-0 pl-3 text-sm text-text-tertiary sm:hidden">/</span>
               <input
                 id="google-username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                onChange={(e) => { if (error) setError(null); setUsername(sanitizeUsername(e.target.value)); }}
                 autoFocus
                 disabled={phase === 'creating'}
                 aria-describedby="google-username-helper"
@@ -279,6 +277,11 @@ export function GoogleCallbackPage() {
 
             {/* Reserved height so the message appearing never shifts the button under the
                 user's thumb. Taken names read red here, matching the sign-up form. */}
+            {/* The address in full, for the screens the inline prefix is hidden on. */}
+            <p className="truncate text-[11px] leading-tight text-text-tertiary sm:hidden">
+              {previewHost}/{username || 'yourname'}
+            </p>
+
             <p
               id="google-username-helper"
               className="min-h-[16px] text-[11px] leading-tight"
@@ -287,7 +290,10 @@ export function GoogleCallbackPage() {
               {usernameStatus.kind === 'checking' && (
                 <span className="text-text-tertiary">Checking availability…</span>
               )}
-              {usernameStatus.kind === 'available' && (
+              {/* Suppressed while a submit error stands: the green claim and a red server
+                  error are each true about a different request, and shown together they read
+                  as the page contradicting itself. */}
+              {usernameStatus.kind === 'available' && !error && (
                 <span className="font-medium text-emerald-600">
                   {previewHost}/{username} is available
                 </span>

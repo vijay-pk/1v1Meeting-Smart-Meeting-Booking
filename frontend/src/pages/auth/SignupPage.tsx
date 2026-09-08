@@ -2,12 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { api, warmUpBackend, SLOW_REQUEST_MS } from '@/lib/api';
-import {
-  sanitizeUsername,
-  validateUsername,
-  USERNAME_RULE_TEXT,
-  type UsernameStatus,
-} from '@/lib/username';
+import { sanitizeUsername, validateUsername, USERNAME_RULE_TEXT } from '@/lib/username';
+import { useUsernameAvailability } from '@/hooks/useUsernameAvailability';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
@@ -37,7 +33,8 @@ export function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>({ kind: 'idle' });
+  // Shared with the Google "choose your page address" step, so the two screens cannot drift.
+  const { status: usernameStatus, invalidate: recheckUsername } = useUsernameAvailability(username);
   // True once a request has been in flight long enough to be worth explaining. The backend
   // can take tens of seconds to wake from idle, and silence for that long reads as broken.
   const [serverWaking, setServerWaking] = useState(false);
@@ -50,60 +47,15 @@ export function SignupPage() {
   }, []);
 
   const handleUsernameChange = (value: string) => {
+    // The outstanding error described the previous attempt with the previous name. Once the
+    // name changes it no longer applies, and holding it would keep suppressing the helper.
+    if (error) setError('');
     // Keeps every character the backend accepts. This used to strip dots and underscores,
     // which the backend allows, so a legal name was mangled as the user typed it.
     setUsername(sanitizeUsername(value));
   };
 
-  // Live availability check.
-  //
-  // Three things this has to get right, all of which it previously got wrong:
-  //   1. A failed check is not an answer. It used to be swallowed into `null`, which the
-  //      submit guard then read as "no objection" and let the form through.
-  //   2. A superseded check must not win. Typing "midhun" fires a request per keystroke
-  //      after the debounce; without cancellation a slow reply for "midh" can land after the
-  //      reply for "midhun" and overwrite a correct answer with a stale one.
-  //   3. Format is decided locally against the shared rule, so an obviously invalid name
-  //      never costs a round trip.
-  useEffect(() => {
-    const clean = username.trim();
-    if (!clean) {
-      setUsernameStatus({ kind: 'idle' });
-      return;
-    }
-    const formatProblem = validateUsername(clean);
-    if (formatProblem) {
-      setUsernameStatus({ kind: 'invalid', reason: formatProblem });
-      return;
-    }
 
-    const controller = new AbortController();
-    setUsernameStatus({ kind: 'checking' });
-
-    const timer = setTimeout(async () => {
-      try {
-        const result = await api.checkUsername(clean, controller.signal);
-        if (controller.signal.aborted) return;
-        setUsernameStatus(
-          result.available
-            ? { kind: 'available' }
-            : { kind: 'taken', reason: result.reason || 'That name is already taken.' }
-        );
-      } catch (err: any) {
-        // An abort is this effect superseding itself, not a failure.
-        if (controller.signal.aborted || err?.name === 'AbortError') return;
-        setUsernameStatus({
-          kind: 'error',
-          reason: err?.message || 'Could not check that name right now.',
-        });
-      }
-    }, 350);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [username]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,9 +125,15 @@ export function SignupPage() {
       // was available. Two accurate statements about two different requests, reading as one
       // contradiction.
       if (err?.isNetwork || err?.isTimeout) {
+        // The server is unreachable, so the availability answer beside this message is no
+        // longer something we know -- it was checked against a server we can no longer talk
+        // to. Drop it, which clears the green line and re-disables the button until the name
+        // is confirmed again. Otherwise the screen claims a name is available and the server
+        // is unreachable in the same breath.
+        recheckUsername();
         setError(
           'We could not reach the sign-up service — it may have been asleep. Nothing was ' +
-          'created, so please press the button again. If it then says the email is already ' +
+          'created. Your name is being checked again; if it then says the email is already ' +
           'registered, your account did go through: sign in instead.'
         );
       } else {
@@ -193,6 +151,19 @@ export function SignupPage() {
   // The username helper line: one message, one colour, in the field's reserved slot. Taken
   // names read red here and on the Google callback screen, which used to disagree (amber).
   const usernameHelper = (() => {
+    // A standing submit error outranks the availability line.
+    //
+    // "midhunvijay is available" in green and "could not reach the server" in red are each
+    // true about a different request, and together they read as the page contradicting
+    // itself -- which is exactly what was reported. Re-checking the name is not enough on its
+    // own: against a reachable server the check succeeds again in a few hundred milliseconds
+    // and the green returns while the red is still on screen.
+    //
+    // So while an error from the submit is outstanding, the availability line falls back to
+    // the neutral URL preview. The green claim returns the moment the user edits the name,
+    // which is what clears the error.
+    if (error) return { hint: `${host}/${username}` };
+
     switch (usernameStatus.kind) {
       case 'idle':
         return { hint: USERNAME_RULE_TEXT };
@@ -375,10 +346,14 @@ export function SignupPage() {
         {/* Also disabled while the name is still being checked: submitting into an
             unresolved check is how the form ended up posting to a backend that had not
             answered yet. */}
+        {/* Enabled only on a confirmed 'available' for the name currently in the box.
+            idle, invalid, checking, taken and error all leave it disabled -- 'error' most
+            importantly, because a check that did not complete is not permission to submit.
+            The handler still re-validates; this is the visible half of the same rule. */}
         <Button
           type="submit"
           size="touch"
-          disabled={loading || usernameStatus.kind === 'checking'}
+          disabled={loading || usernameStatus.kind !== 'available'}
           className="mt-1 w-full"
         >
           {loading ? (
