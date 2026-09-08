@@ -568,3 +568,207 @@ def test_status_endpoint_cannot_fake_a_permanent_deletion(super_admin, full_admi
         json={"status": "PERMANENTLY_DELETED"},
     )
     assert res.status_code == 400
+
+
+# =====================================================================================
+# Session revocation: an already-issued token must stop working the moment the account goes
+# =====================================================================================
+#
+# A JWT here is signed for seven days and carries only {exp, sub}. It stays cryptographically
+# valid long after the account behind it is gone, so nothing about the token itself can
+# express "deleted" -- the only thing standing between an old token and the API is the
+# per-request database lookup in deps.get_current_user.
+#
+# That lookup used to answer 404 "User not found" for a deleted account. A 404 does not read
+# as "your session is over" to any client, so a revoked admin kept a working-looking dashboard
+# that merely threw errors. These assert the contract the frontend now relies on: 401 or 403,
+# always carrying X-Auth-Revoked, on every authenticated route.
+
+
+def _login(email: str) -> str:
+    res = client.post("/api/auth/login", json={"username_or_email": email, "password": PASSWORD})
+    assert res.status_code == 200, res.text
+    return res.json()["access_token"]
+
+
+def test_an_existing_session_dies_the_moment_the_account_is_deleted(super_admin, full_admin):
+    """The headline requirement: log in, get deleted, and the token you already hold is dead."""
+    token = _login(full_admin["email"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # The session works before deletion.
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    assert client.delete(
+        f"/api/super-admin/admins/{full_admin['id']}?confirm=true", headers=super_admin["headers"]
+    ).status_code == 200
+
+    after = client.get("/api/auth/me", headers=headers)
+    assert after.status_code == 401, after.text
+    assert after.headers.get("X-Auth-Revoked") == "1"
+
+
+def test_every_device_loses_access_not_just_the_one_that_was_deleted_from(super_admin, full_admin):
+    """
+    Three separate sign-ins, as three devices would produce. Deletion is not a per-session
+    action: an admin must not keep working simply because another browser holds a token.
+    """
+    sessions = [{"Authorization": f"Bearer {_login(full_admin['email'])}"} for _ in range(3)]
+    for headers in sessions:
+        assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    client.delete(
+        f"/api/super-admin/admins/{full_admin['id']}?confirm=true", headers=super_admin["headers"]
+    )
+
+    for index, headers in enumerate(sessions):
+        res = client.get("/api/auth/me", headers=headers)
+        assert res.status_code == 401, f"device {index} still had access: {res.text}"
+        assert res.headers.get("X-Auth-Revoked") == "1"
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("get", "/api/profiles/me", None),
+    ("put", "/api/profiles/me", {"bio": "written after deletion"}),
+    ("get", "/api/sessions/", None),
+    ("post", "/api/sessions/", {"title": "x", "duration_minutes": 30, "price": 1000, "currency": "INR"}),
+    ("get", "/api/availability/rules", None),
+    ("get", "/api/bookings/my-bookings", None),
+    ("get", "/api/notifications/", None),
+])
+def test_no_authenticated_route_answers_a_revoked_token(super_admin, full_admin, method, path, body):
+    """
+    Reads and writes alike. A revoked account must not be able to change anything -- this is
+    the difference between a closed account and one that merely cannot see its dashboard.
+    """
+    headers = {"Authorization": f"Bearer {_login(full_admin['email'])}"}
+    client.delete(
+        f"/api/super-admin/admins/{full_admin['id']}?confirm=true", headers=super_admin["headers"]
+    )
+
+    call = getattr(client, method)
+    res = call(path, headers=headers) if body is None else call(path, headers=headers, json=body)
+    assert res.status_code in (401, 403), f"{method.upper()} {path} answered {res.status_code}"
+    assert res.headers.get("X-Auth-Revoked") == "1"
+
+
+def test_a_write_in_flight_when_the_account_is_deleted_does_not_land(db, super_admin, full_admin):
+    """
+    The race the requirement names: the admin submits an edit at about the moment the Super
+    Admin deletes them. The write must not take effect, and the database must stay consistent.
+    """
+    headers = {"Authorization": f"Bearer {_login(full_admin['email'])}"}
+    client.delete(
+        f"/api/super-admin/admins/{full_admin['id']}?confirm=true", headers=super_admin["headers"]
+    )
+
+    res = client.put("/api/profiles/me", headers=headers, json={"bio": "should never be stored"})
+    assert res.status_code in (401, 403)
+
+    db.expire_all()
+    assert db.query(AdminProfile).filter(AdminProfile.user_id == full_admin["id"]).first() is None
+    assert db.query(User).filter(User.id == full_admin["id"]).first() is None
+
+
+def test_a_disabled_account_is_revoked_too_but_its_data_survives(db, super_admin, full_admin):
+    """
+    Suspension is not deletion. Access stops immediately and carries the same marker, but the
+    profile, sessions and username all remain so re-enabling restores the account intact.
+    """
+    headers = {"Authorization": f"Bearer {_login(full_admin['email'])}"}
+    assert client.put(
+        f"/api/super-admin/admins/{full_admin['id']}/status",
+        headers=super_admin["headers"],
+        json={"status": "TEMPORARILY_DISABLED"},
+    ).status_code == 200
+
+    res = client.get("/api/auth/me", headers=headers)
+    assert res.status_code == 403
+    assert res.headers.get("X-Auth-Revoked") == "1"
+
+    db.expire_all()
+    assert db.query(User).filter(User.id == full_admin["id"]).first() is not None
+    assert db.query(AdminProfile).filter(AdminProfile.user_id == full_admin["id"]).first() is not None
+
+
+def test_re_enabling_a_disabled_admin_restores_access_with_the_same_username(db, super_admin, full_admin):
+    headers = {"Authorization": f"Bearer {_login(full_admin['email'])}"}
+    before = db.query(AdminProfile).filter(AdminProfile.user_id == full_admin["id"]).one().username
+
+    for new_status in ("TEMPORARILY_DISABLED", "ACTIVE"):
+        client.put(
+            f"/api/super-admin/admins/{full_admin['id']}/status",
+            headers=super_admin["headers"],
+            json={"status": new_status},
+        )
+
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+    db.expire_all()
+    assert db.query(AdminProfile).filter(AdminProfile.user_id == full_admin["id"]).one().username == before
+
+
+def test_an_ordinary_permission_denial_does_not_revoke_the_session(db, tracked, full_admin):
+    """
+    The counter-case, and the reason the marker exists at all.
+
+    A staff admin calling a super-admin endpoint is legitimately signed in and simply lacks
+    the privilege. That is also a 403, and if it carried the revocation marker the client
+    would sign them out for clicking the wrong thing.
+    """
+    headers = {"Authorization": f"Bearer {_login(full_admin['email'])}"}
+    res = client.get("/api/super-admin/admins", headers=headers)
+    assert res.status_code == 403
+    assert res.headers.get("X-Auth-Revoked") is None, "a role denial must not end the session"
+
+    # And the session still works for what it is entitled to.
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+
+def test_schema_reconciliation_never_drops_a_table_that_holds_data(monkeypatch):
+    """
+    reconcile_database_schema() runs on every startup and, on a legacy schema, drops
+    notifications, payments, bookings, availability_exceptions and availability_rules.
+
+    Two of those are the financial record of money that moved through a real merchant
+    account. permanently_delete_admin() deliberately keeps and anonymizes them rather than
+    deleting them, so a startup path that drops the whole table would discard exactly what
+    that policy protects -- silently, with no backup.
+
+    Reconciliation is only safe on an empty legacy schema. This asserts it refuses otherwise.
+    """
+    from app import main as main_module
+
+    executed = []
+
+    class FakeConn:
+        def execute(self, statement):
+            sql = str(statement)
+            executed.append(sql)
+            class R:
+                # Any COUNT(*) reports rows present, so the guard must trigger.
+                def scalar(self_inner): return 7
+            return R()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class FakeInspector:
+        def get_table_names(self):
+            return ["availability_rules", "bookings", "payments", "notifications",
+                    "availability_exceptions"]
+        def get_foreign_keys(self, table):
+            return [{"referred_table": "profiles"}]        # trips the legacy branch
+        def get_columns(self, table):
+            return [{"name": "admin_id", "type": "uuid"}]  # trips it the other way too
+
+    class FakeEngine:
+        def connect(self): return FakeConn()
+        def begin(self): raise AssertionError("begin() means it is about to DROP tables")
+
+    monkeypatch.setattr(main_module, "inspect", lambda _e: FakeInspector(), raising=False)
+    import sqlalchemy
+    monkeypatch.setattr(sqlalchemy, "inspect", lambda _e: FakeInspector())
+
+    main_module.reconcile_database_schema(FakeEngine())
+
+    dropped = [sql for sql in executed if "DROP TABLE" in sql.upper()]
+    assert not dropped, f"reconciliation dropped populated tables: {dropped}"

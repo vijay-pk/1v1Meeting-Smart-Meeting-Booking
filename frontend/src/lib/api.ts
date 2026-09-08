@@ -45,7 +45,12 @@ export class NetworkError extends Error {
  * response cannot overwrite a newer one).
  */
 async function attempt(path: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, { ...init, signal });
+  const res = await fetch(`${API_BASE}${path}`, { ...init, signal });
+  // One place, so no endpoint can forget. The server sets this only when the credential
+  // itself is finished -- an ordinary 403 (wrong role for this endpoint) does not carry it
+  // and must not sign anyone out.
+  if (res.headers.get('X-Auth-Revoked') === '1') handleRevokedSession();
+  return res;
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -128,6 +133,53 @@ function getAuthHeaders(): HeadersInit {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
+}
+
+/**
+ * Every key a signed-in session writes. Kept beside persistSession() so the two cannot drift:
+ * a key added on sign-in and forgotten here would survive a revocation and keep the UI
+ * believing someone is logged in.
+ */
+const SESSION_KEYS = [
+  'bmm_auth_token',
+  'bmm_current_user_role',
+  'bmm_logged_admin_id',
+  'bmm_logged_username',
+  'bmm_logged_admin_name',
+  'bmm_logged_role',
+  'bmm_auth_user',
+  'bmm_logged_admin_photo',
+  'bmm_logged_admin_video',
+];
+
+/** Where the client is sent after its credential is revoked, and why. */
+export const REVOKED_REDIRECT = '/admin/login?revoked=1';
+
+let revocationHandled = false;
+
+/**
+ * Ends the session because the server said the credential is finished.
+ *
+ * The server is the authority here; this only makes the browser agree with it. A deleted
+ * admin is already locked out of every endpoint by `deps.get_current_user` -- without this
+ * they simply kept a dashboard shell that threw errors, which looks like a broken app rather
+ * than a closed account.
+ *
+ * Guarded by a flag because a dashboard fires several requests at once: without it, five
+ * concurrent 401s would each try to redirect.
+ */
+function handleRevokedSession(): void {
+  if (revocationHandled) return;
+  revocationHandled = true;
+  try {
+    for (const key of SESSION_KEYS) localStorage.removeItem(key);
+    sessionStorage.clear();
+  } catch {
+    // Private mode or blocked storage: the redirect below still matters more than the cleanup.
+  }
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin/login')) {
+    window.location.replace(REVOKED_REDIRECT);
+  }
 }
 
 function persistSession(data: any) {

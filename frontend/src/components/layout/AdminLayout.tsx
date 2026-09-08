@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -6,6 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Skeleton } from '@/components/common/Skeleton';
+import { api } from '@/lib/api';
 
 export function AdminLayout() {
   const { user, loading, initialized, profile } = useAuthStore();
@@ -19,6 +21,21 @@ export function AdminLayout() {
   const loggedRole = localStorage.getItem('bmm_current_user_role');
 
   const isAuthenticated = !!loggedToken && (!!user || !!loggedAdminId || !!loggedRole);
+
+  // Ask the server whether this account still exists, once per mount.
+  //
+  // Everything above is browser state, and browser state cannot know that a Super Admin
+  // deleted this account thirty seconds ago. Without this, a revoked admin who simply left a
+  // tab open kept the whole shell -- sidebar, navigation, the lot -- and only discovered the
+  // truth through whichever panel happened to fetch first.
+  //
+  // getMe() carries the token, so a deleted or disabled account comes back with the
+  // revocation header and lib/api.ts ends the session centrally. Nothing to handle here: this
+  // exists to make the request happen at all, on a screen that might otherwise make none.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void api.getMe();
+  }, [isAuthenticated]);
 
   const isSuperAdmin =
     profile?.role === 'super_admin' ||

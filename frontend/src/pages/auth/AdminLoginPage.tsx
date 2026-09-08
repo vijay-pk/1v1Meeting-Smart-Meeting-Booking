@@ -24,6 +24,18 @@ export const AdminLoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Arriving here from a revoked session. lib/api.ts redirects with ?revoked=1 when the
+  // server reports the credential is finished -- a deleted or disabled account. Landing on a
+  // blank login form with no explanation reads as a bug; this says what happened.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('revoked') === '1') {
+      setError(
+        'Your account is no longer active. Please contact the administrator if you believe ' +
+        'this is a mistake.'
+      );
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
