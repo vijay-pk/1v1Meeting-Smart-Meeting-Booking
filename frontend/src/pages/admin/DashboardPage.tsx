@@ -20,6 +20,13 @@ import {
   Video,
   ArrowRight,
   ExternalLink,
+  CheckCircle2,
+  Circle,
+  Share2,
+  Lock,
+  EyeIcon,
+  Plus,
+  MapPin,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Booking, DashboardStats } from '@/types';
@@ -27,7 +34,40 @@ import { useBookingStore } from '@/stores/bookingStore';
 
 export function DashboardPage() {
   const { profile } = useAuthStore();
-  const { bookings: storeBookings } = useBookingStore();
+  const { bookings: storeBookings, meetingTypes } = useBookingStore();
+  const [dismissedChecklist, setDismissedChecklist] = useState(false);
+
+  // Compute checklist completion
+  const checklistSteps = [
+    {
+      id: 'profile',
+      label: 'Profile & Photo',
+      completed: !!(profile?.full_name && profile?.photo_url),
+      link: '/admin/settings',
+    },
+    {
+      id: 'hours',
+      label: 'Working Hours',
+      completed: true, // Auto-set for all new admins
+      link: '/admin/availability',
+    },
+    {
+      id: 'meeting',
+      label: 'Active Meeting Type',
+      completed: (meetingTypes?.length || 0) > 0,
+      link: '/admin/meeting-types',
+    },
+    {
+      id: 'integrations',
+      label: 'Connect Gateway',
+      completed: false, // Can be checked manually by admin
+      link: '/admin/settings',
+    },
+  ];
+
+  const completedSteps = checklistSteps.filter(s => s.completed).length;
+  const allComplete = completedSteps === checklistSteps.length;
+  const showChecklist = !allComplete && !dismissedChecklist;
 
   // Instant fallback data calculation
   const getInitialStats = (): DashboardStats => {
@@ -117,6 +157,77 @@ export function DashboardPage() {
         }
       />
 
+      {/* Setup Checklist */}
+      {showChecklist && (
+        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base text-blue-900">Get Ready to Take Bookings</CardTitle>
+              <button
+                onClick={() => setDismissedChecklist(true)}
+                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+              >
+                Dismiss
+              </button>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2 mt-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all"
+                style={{ width: `${(completedSteps / checklistSteps.length) * 100}%` }}
+              ></div>
+            </div>
+            <p className="text-xs text-blue-700 mt-1">{completedSteps} of {checklistSteps.length} complete</p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {checklistSteps.map((step) => (
+                <Link key={step.id} to={step.link}>
+                  <div className="p-3 rounded-lg bg-white hover:bg-blue-100 transition cursor-pointer">
+                    <div className="flex items-center gap-2 mb-1">
+                      {step.completed ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-blue-400" />
+                      )}
+                      <p className="text-xs font-semibold text-text-primary">{step.label}</p>
+                    </div>
+                    <p className="text-[10px] text-text-tertiary">{step.completed ? 'Done' : 'Complete this'}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quick Action Bar */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Link to={`/${profile?.username}`} target="_blank">
+          <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" size="sm">
+            <Share2 className="w-4 h-4" />
+            Share Link
+          </Button>
+        </Link>
+        <Link to="/admin/availability">
+          <Button variant="outline" className="w-full" size="sm">
+            <Lock className="w-4 h-4" />
+            Block Time
+          </Button>
+        </Link>
+        <Link to={`/${profile?.username}`} target="_blank">
+          <Button variant="outline" className="w-full" size="sm">
+            <EyeIcon className="w-4 h-4" />
+            Preview
+          </Button>
+        </Link>
+        <Link to="/admin/meeting-types">
+          <Button variant="outline" className="w-full" size="sm">
+            <Plus className="w-4 h-4" />
+            New Meeting
+          </Button>
+        </Link>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatsCard
@@ -145,7 +256,47 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Upcoming Meetings */}
+      {/* Next Meeting Hero Card */}
+      {upcomingBookings.length > 0 && (
+        <Card className="bg-gradient-to-r from-primary-50 to-primary-100 border-primary-200">
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-primary-700 mb-2">Your Next Meeting</p>
+                <h3 className="text-2xl font-bold text-text-primary mb-1">
+                  {upcomingBookings[0].customer?.name || 'Client'}
+                </h3>
+                <p className="text-sm text-text-secondary mb-3">
+                  {upcomingBookings[0].meeting_type?.name} • {formatTime(upcomingBookings[0].start_time, profile?.timezone || 'Asia/Kolkata')}
+                </p>
+                {upcomingBookings[0].notes && (
+                  <p className="text-xs text-text-tertiary mb-3">Notes: {upcomingBookings[0].notes}</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {upcomingBookings[0].google_meet_url && (
+                  <a
+                    href={upcomingBookings[0].google_meet_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg flex items-center gap-2"
+                  >
+                    <Video className="w-4 h-4" />
+                    Join Meet
+                  </a>
+                )}
+                <Link to={`/admin/bookings/${upcomingBookings[0].id}`}>
+                  <Button variant="outline" size="sm">
+                    Details
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upcoming Meetings List */}
       <Card>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
@@ -180,7 +331,7 @@ export function DashboardPage() {
             />
           ) : (
             <div className="space-y-3">
-              {upcomingBookings.map((booking) => (
+              {upcomingBookings.slice(1).map((booking) => (
                 <Link
                   key={booking.id}
                   to={`/admin/bookings/${booking.id}`}
