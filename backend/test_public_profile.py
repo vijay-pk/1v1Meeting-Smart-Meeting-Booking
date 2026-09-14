@@ -29,7 +29,6 @@ from app.models.models import (
     RazorpayConnection,
     GoogleConnection,
     MediaAsset,
-    ProfileImport,
 )
 
 from app.services import supabase_storage
@@ -104,7 +103,6 @@ def tracked():
                 (GoogleConnection, GoogleConnection.admin_id),
                 (AvailabilityRule, AvailabilityRule.admin_id),
                 (SessionModel, SessionModel.admin_id),
-                (ProfileImport, ProfileImport.admin_id),
                 (MediaAsset, MediaAsset.owner_id),
             ):
                 session.query(model).filter(column == user_id).delete(synchronize_session=False)
@@ -736,57 +734,6 @@ def test_the_video_persists_until_the_admin_changes_it(admin, db):
 
     _set_profile(admin, intro_video="https://vimeo.com/1130419767")
     assert _stored(admin, db).intro_video == "https://vimeo.com/1130419767"
-
-
-def test_a_superprofile_import_never_changes_the_photo(admin, db, monkeypatch, fake_storage):
-    """
-    The import parses no image at all, so there is no field for apply to write. Asserted
-    end to end anyway, because "the import replaced my photo" is the failure this rule
-    exists to prevent.
-    """
-    photo = _upload_photo(admin)
-    _set_profile(admin, profile_photo=photo)
-
-    from app.services import superprofile_import as sp
-
-    page = (
-        '<html><head>'
-        '<meta property="og:image" content="https://media-cdn.cosmofeed.com/og.png">'
-        '<script id="__NEXT_DATA__" type="application/json">'
-        + '{"props":{"pageProps":{"prefetchedData":{'
-          '"name":"Someone Else",'
-          '"image":"https://media-cdn.cosmofeed.com/their-photo.png",'
-          '"bio":"Imported bio","sessions":[]}}}}'
-        + '</script></head><body></body></html>'
-    )
-
-    async def fake_import(url, page_html=None):
-        return sp.parse_superprofile(page, sp.validate_superprofile_url(url))
-
-    from app.api import profile_imports as import_api
-    monkeypatch.setattr(import_api, "import_superprofile", fake_import)
-
-    preview = client.post("/api/profile-import/preview", headers=admin["headers"], json={
-        "source_url": "https://superprofile.bio/bookings/someone",
-    })
-    assert preview.status_code == 200, preview.text
-    body = preview.json()
-    # No image reaches the preview at all.
-    assert "cosmofeed" not in preview.text
-    assert "profile_image" not in preview.text
-
-    applied = client.post("/api/profile-import/apply", headers=admin["headers"], json={
-        "import_id": body["import_id"],
-        "mode": "replace",
-        "profile_fields": ["name", "bio", "profile_image"],
-        "sessions": [],
-        "confirm_replace": True,
-    })
-    assert applied.status_code == 200, applied.text
-
-    assert _stored(admin, db).profile_photo == photo
-    assert _public(admin["username"]).json()["profile_photo"] == photo
-
 
 def test_the_public_url_is_case_insensitive(admin, db):
     """

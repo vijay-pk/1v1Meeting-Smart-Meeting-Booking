@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 from app.api import (
-    profile_imports,
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload
 )
@@ -19,5 +18,4 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])
 # Public: a host's profile photo has to load for a client on any device.
 api_router.include_router(upload.media_router, prefix="/media", tags=["Media Upload"])
-api_router.include_router(profile_imports.router, prefix="/profile-import", tags=["Profile Import"])
 

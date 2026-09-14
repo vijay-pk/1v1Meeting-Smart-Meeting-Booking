@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
 import {
@@ -550,13 +549,6 @@ function ProfileCustomizer({
     setCustomSections(admin.custom_sections || []);
   }, [admin.id, admin.username, admin.photo_url, admin.intro_video]);
 
-  // === SuperProfile Import ===
-  // The whole flow (URL -> preview -> field/session selection -> apply) lives in
-  // SuperProfileImportModal and writes through the backend import endpoints. The old inline
-  // version applied straight into this form and into the local store, which meant imported
-  // sessions never reached the database.
-  const [importOpen, setImportOpen] = useState(false);
-
   const handleAddSection = () => {
     const newSec = {
       id: `sec-${Date.now()}`,
@@ -719,38 +711,6 @@ function ProfileCustomizer({
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
       </div>
-
-      {/* ===== IMPORT FROM SUPERPROFILE ===== */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-br from-violet-50 via-indigo-50 to-purple-50 border border-indigo-200/60">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-            <Download className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-black text-indigo-900">Import from SuperProfile</h3>
-            <p className="text-[11px] text-indigo-600/70">
-              Bring your public profile and 1:1 sessions across. You review everything before anything changes.
-            </p>
-          </div>
-        </div>
-        <Button
-          type="button"
-          onClick={() => setImportOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl px-4 py-2 cursor-pointer shadow-md shadow-indigo-600/20"
-        >
-          Import from SuperProfile
-        </Button>
-      </div>
-
-      <SuperProfileImportModal
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImported={() => {
-          // The import wrote straight to the backend; reload so the form shows the result.
-          window.location.reload();
-        }}
-      />
-
 
       {/* Basic Info */}
       <div className="space-y-4">

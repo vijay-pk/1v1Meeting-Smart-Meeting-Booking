@@ -40,7 +40,6 @@ import {
   Phone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { SuperProfileImportModal } from '@/components/admin/SuperProfileImportModal';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Card, CardContent } from '@/components/ui/card';
@@ -211,7 +210,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [credsSavedNotice, setCredsSavedNotice] = useState(false);
 
   // Super Admin's own settings & integrations state
-  const [masterImportOpen, setMasterImportOpen] = useState(false);
 
   // Hosts the admin dark theme for this route (see hooks/useAdminTheme.ts).
   const { preference: themePreference, setPreference: setThemePreference } = useAdminTheme();
@@ -301,12 +299,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
     } catch (e: any) {
       setMasterIntegrationsNotice(e?.message || 'Could not start Google authorization');
     }
-  };
-
-  // The super admin imports through the same authenticated preview/apply flow as any other
-  // admin -- there is no separate scrape path, and nothing is written until they confirm.
-  const handleMasterScrapeSuperProfile = () => {
-    setMasterImportOpen(true);
   };
 
   // New Block temporary state per day
@@ -1031,61 +1023,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Card 1: SuperProfile Import & Super Chat */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-50/70 to-orange-50/50 border border-amber-200/80 space-y-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
-                  <Sparkles className="w-4 h-4 text-orange-600" />
-                  <span>SuperProfile Import & Super Chat</span>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-text-secondary">Import from SuperProfile</Label>
-                  <Button
-                    type="button"
-                    onClick={handleMasterScrapeSuperProfile}
-                    className="w-full bg-orange-600 hover:bg-orange-500 text-white text-xs px-3 h-9 rounded-xl cursor-pointer"
-                  >
-                    Import from SuperProfile
-                  </Button>
-                  <p className="text-[10px] text-text-tertiary">
-                    Preview what the public page exposes, then choose what to import.
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
-                    <span>⚡ Super Chat / Priority DM Link</span>
-                  </Label>
-                  <Input
-                    value={masterSuperChat}
-                    onChange={(e) => setMasterSuperChat(e.target.value)}
-                    placeholder="https://superprofile.bio/chat/your-handle"
-                    className="text-xs rounded-xl bg-surface h-9"
-                  />
-                  <p className="text-[10px] text-text-tertiary">
-                    Clients see an instant Super Chat card on /{currentSuperAdmin.username}
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-text-secondary">Telegram VIP Channel / DM</Label>
-                  <Input
-                    value={masterTelegram}
-                    onChange={(e) => setMasterTelegram(e.target.value)}
-                    placeholder="https://t.me/your-handle"
-                    className="text-xs rounded-xl bg-surface h-9"
-                  />
-                </div>
-              </div>
-
-              <p className="text-[10px] text-amber-800/80 italic pt-2 border-t border-amber-200/50">
-                Syncs bio, avatar, headline & priority contact channels.
-              </p>
-            </div>
-
-            {/* Card 2: Google Calendar Integration */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Card 1: Google Calendar Integration */}
             <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/50 border border-blue-200/80 space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -1738,15 +1677,6 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
           </div>
         </DialogContent>
       </Dialog>
-
-      <SuperProfileImportModal
-        open={masterImportOpen}
-        onOpenChange={setMasterImportOpen}
-        onImported={() => {
-          setMasterIntegrationsNotice('✓ SuperProfile data imported into your profile.');
-          setTimeout(() => setMasterIntegrationsNotice(''), 5000);
-        }}
-      />
 
     </div>
   );

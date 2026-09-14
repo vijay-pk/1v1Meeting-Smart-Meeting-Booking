@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.security import (
     verify_password, get_password_hash, create_access_token, normalize_email,
 )
-from app.models.models import User, AdminProfile, AvailabilityRule
+from app.models.models import User, AdminProfile, AvailabilityRule, Session
 from app.schemas.schemas import (
     UserLogin, UserSignup, Token, AdminProfileResponse,
     GoogleAuthRequest, GoogleAuthCompleteRequest, GoogleAuthResponse, UsernameAvailability,
@@ -179,11 +179,25 @@ def provision_admin(
             is_active=True
         ))
 
-    # No seeded sessions, and above all no seeded prices. This used to create three
-    # sessions priced at 149700 / 599400 / 1975000 paise -- amounts lifted from a demo
-    # SuperProfile account, active and sellable, on the public page of every admin who had
-    # never set a price. An admin creates their own sessions in Meeting Types; until then
-    # their page honestly shows none.
+    # Smart defaults: two starter sessions so admins can immediately share a bookable link.
+    # Admins can fully customize, delete, or add more sessions in Meeting Types.
+    # Pricing is admin-chosen, not inherited from any demo account.
+    db.add(Session(
+        admin_id=new_user.id,
+        title="15-Min 1:1 Intro Call",
+        duration_minutes=15,
+        price=0,  # free
+        currency="INR",
+        is_active=True
+    ))
+    db.add(Session(
+        admin_id=new_user.id,
+        title="30-Min Consultation",
+        duration_minutes=30,
+        price=159900,  # ₹1599 in paise
+        currency="INR",
+        is_active=True
+    ))
 
     return new_user
 

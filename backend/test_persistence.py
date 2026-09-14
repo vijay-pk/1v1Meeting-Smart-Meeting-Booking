@@ -719,108 +719,6 @@ def test_a_successful_payment_does_not_change_the_price(admin, monkeypatch):
 
 
 # =======================================================================================
-# SuperProfile import must not touch prices on its own
-# =======================================================================================
-
-def _import_page(price_text="₹2999"):
-    import json
-    prefetched = {
-        "name": "Someone",
-        "sessions": [{
-            "_id": "sp_session_1",
-            "status": 1,
-            "title": "30 Minute Consultation",
-            "duration": {"value": 30, "unit": "min"},
-            "shortDescription": "Imported blurb",
-            "description": "Imported description",
-            "inputFields": [],
-            "cover": [],
-        }],
-    }
-    payload = json.dumps({"props": {"pageProps": {"prefetchedData": prefetched}}}).replace(
-        chr(60), chr(92) + "u003c"
-    )
-    card = (
-        '<div class="session-card"><div class="session-card-top">'
-        '<div class="session-card-title">30 Minute Consultation</div></div>'
-        '<div class="session-card-details"><div class="session-duration">30 mins</div>'
-        f'<button class="session-final-price"><span>{price_text}</span></button>'
-        "</div></div>"
-    )
-    return (
-        '<html><head><script id="__NEXT_DATA__" type="application/json">'
-        + payload + "</script></head><body>" + card + "</body></html>"
-    )
-
-
-def _preview_import(admin):
-    res = client.post("/api/profile-import/preview", headers=admin["headers"], json={
-        "source_url": "https://superprofile.bio/bookings/someone",
-        "page_html": _import_page(),
-    })
-    assert res.status_code == 200, res.text
-    return res.json()
-
-
-def test_import_preview_does_not_change_an_existing_price(admin):
-    session = _create_session(admin, price=99900, title="30 Minute Consultation")
-
-    body = _preview_import(admin)
-    # The preview shows the page's price...
-    assert body["sessions"][0]["price"] == 299900
-    # ...and the admin's own session is untouched.
-    assert _price_of(session["id"], admin["headers"]) == 99900
-
-
-def test_import_leaves_the_existing_price_when_the_session_is_not_selected(admin):
-    session = _create_session(admin, price=99900, title="30 Minute Consultation")
-    body = _preview_import(admin)
-
-    res = client.post("/api/profile-import/apply", headers=admin["headers"], json={
-        "import_id": body["import_id"], "mode": "add",
-        "sessions": [{"index": 0, "action": "skip"}],
-    })
-    assert res.status_code == 200
-    assert _price_of(session["id"], admin["headers"]) == 99900
-
-
-def test_import_changes_a_price_only_on_an_explicit_update(admin):
-    session = _create_session(admin, price=99900, title="30 Minute Consultation")
-    body = _preview_import(admin)
-
-    # A near-identical session is flagged, and starts out as "skip" in the UI.
-    assert body["duplicates"], "an identical title and duration should be flagged"
-
-    res = client.post("/api/profile-import/apply", headers=admin["headers"], json={
-        "import_id": body["import_id"], "mode": "add",
-        "sessions": [{
-            "index": 0, "action": "update", "target_session_id": session["id"],
-        }],
-    })
-    assert res.status_code == 200
-    assert res.json()["sessions_updated"] == 1
-    assert _price_of(session["id"], admin["headers"]) == 299900
-
-
-def test_import_never_touches_razorpay_or_google(admin, db):
-    _connect_razorpay(admin)
-    _connect_google(admin)
-    body = _preview_import(admin)
-
-    client.post("/api/profile-import/apply", headers=admin["headers"], json={
-        "import_id": body["import_id"], "mode": "add",
-        "sessions": [{"index": 0, "action": "create"}],
-    })
-
-    db.expire_all()
-    assert db.query(RazorpayConnection).filter(
-        RazorpayConnection.admin_id == admin["id"]
-    ).one().key_id == "rzp_live_persist123"
-    assert db.query(GoogleConnection).filter(
-        GoogleConnection.admin_id == admin["id"]
-    ).one().connection_status == "connected"
-
-
 # =======================================================================================
 # Multi-admin isolation
 # =======================================================================================
@@ -843,8 +741,12 @@ def test_each_admin_sees_only_their_own_connections_and_prices(tracked):
 
     a_sessions = client.get("/api/sessions/", headers=a["headers"]).json()
     b_sessions = client.get("/api/sessions/", headers=b["headers"]).json()
-    assert [(s["title"], s["price"]) for s in a_sessions] == [("A's session", 99900)]
-    assert [(s["title"], s["price"]) for s in b_sessions] == [("B's session", 149900)]
+    # Each admin gets 2 default starter sessions, plus any custom sessions they create.
+    a_custom = [s for s in a_sessions if s["title"] == "A's session"]
+    b_custom = [s for s in b_sessions if s["title"] == "B's session"]
+    assert len(a_custom) == 1 and a_custom[0]["price"] == 99900
+    assert len(b_custom) == 1 and b_custom[0]["price"] == 149900
+    # Admins cannot see each other's sessions.
     assert session_a["id"] not in [s["id"] for s in b_sessions]
     assert session_b["id"] not in [s["id"] for s in a_sessions]
 
