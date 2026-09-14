@@ -7,11 +7,12 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Spinner } from '@/components/common/Skeleton';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { TIMEZONES } from '@/lib/constants';
 import type { AvailabilityException } from '@/types';
-import { Clock, Trash2, Save, Calendar, Check, Sparkles } from 'lucide-react';
+import { Clock, Trash2, Save, Calendar, Check, Sparkles, Copy, AlertCircle } from 'lucide-react';
 
 const DAYS_ORDER = [
   { index: 1, name: 'Mon', fullName: 'Monday' },
@@ -63,6 +64,11 @@ export function AvailabilityPage() {
     6: { start: '10:00', end: '14:00' },
     0: { start: '10:00', end: '14:00' },
   });
+
+  // Vacation mode state
+  const [vacationMode, setVacationMode] = useState(false);
+  const [vacationStart, setVacationStart] = useState('');
+  const [vacationEnd, setVacationEnd] = useState('');
 
   // Load everything from the backend on mount. No localStorage, no seeded defaults: an
   // empty result means the admin genuinely has no hours yet, and a failure says so.
@@ -142,23 +148,66 @@ export function AvailabilityPage() {
     setBlocks((prev) => prev.filter((b) => b.id !== id));
   };
 
-  const handleApplyPreset = (preset: 'standard' | 'extended' | 'clear') => {
+  const handleApplyPreset = (preset: 'business' | 'morning' | 'evening' | 'clear') => {
     if (preset === 'clear') {
       setBlocks([]);
       return;
     }
 
-    const start = preset === 'standard' ? '09:00' : '10:00';
-    const end = preset === 'standard' ? '17:00' : '18:00';
+    let presetBlocks: DayBlock[] = [];
+    switch (preset) {
+      case 'business':
+        presetBlocks = [1, 2, 3, 4, 5].map((dayIndex, idx) => ({
+          id: `preset-${dayIndex}-${Date.now()}-${idx}`,
+          day_of_week: dayIndex,
+          start_time: '09:00',
+          end_time: '17:00',
+        }));
+        break;
+      case 'morning':
+        presetBlocks = [1, 2, 3, 4, 5, 6].map((dayIndex, idx) => ({
+          id: `preset-${dayIndex}-${Date.now()}-${idx}`,
+          day_of_week: dayIndex,
+          start_time: '08:00',
+          end_time: '13:00',
+        }));
+        break;
+      case 'evening':
+        presetBlocks = [
+          ...([1, 2, 3, 4, 5].map((dayIndex, idx) => ({
+            id: `preset-${dayIndex}-${Date.now()}-${idx}`,
+            day_of_week: dayIndex,
+            start_time: '18:00',
+            end_time: '21:00',
+          }))),
+          ...([6, 0].map((dayIndex, idx) => ({
+            id: `preset-${dayIndex}-${Date.now()}-${idx + 5}`,
+            day_of_week: dayIndex,
+            start_time: '10:00',
+            end_time: '16:00',
+          }))),
+        ];
+        break;
+    }
+    setBlocks(presetBlocks);
+  };
 
-    setBlocks(
-      [1, 2, 3, 4, 5].map((dayIndex, idx) => ({
-        id: `preset-${dayIndex}-${Date.now()}-${idx}`,
-        day_of_week: dayIndex,
-        start_time: start,
-        end_time: end,
-      }))
-    );
+  const handleCopyToWeekdays = () => {
+    const mondayBlocks = blocks.filter((b) => b.day_of_week === 1);
+    if (mondayBlocks.length === 0) return;
+
+    const newBlocks = [...blocks.filter((b) => b.day_of_week !== 1)];
+    for (let dayIndex = 2; dayIndex <= 5; dayIndex++) {
+      for (const mondayBlock of mondayBlocks) {
+        newBlocks.push({
+          id: `copied-${dayIndex}-${Date.now()}`,
+          day_of_week: dayIndex,
+          start_time: mondayBlock.start_time,
+          end_time: mondayBlock.end_time,
+        });
+      }
+    }
+    setBlocks(newBlocks);
   };
 
   const handleSave = async () => {
@@ -267,18 +316,26 @@ export function AvailabilityPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => handleApplyPreset('standard')}
+          onClick={() => handleApplyPreset('business')}
           className="h-7 text-[11px] rounded-lg border-border hover:bg-surface"
         >
-          Weekdays 9 AM – 5 PM
+          Business (9 AM – 5 PM)
         </Button>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => handleApplyPreset('extended')}
+          onClick={() => handleApplyPreset('morning')}
           className="h-7 text-[11px] rounded-lg border-border hover:bg-surface"
         >
-          Weekdays 10 AM – 6 PM
+          Morning Shifts (8 AM – 1 PM)
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleApplyPreset('evening')}
+          className="h-7 text-[11px] rounded-lg border-border hover:bg-surface"
+        >
+          Evenings & Weekends
         </Button>
         <Button
           variant="ghost"
@@ -309,6 +366,19 @@ export function AvailabilityPage() {
                   <span className="font-bold text-sm text-text-primary w-20">
                     {day.name}
                   </span>
+                  {day.index === 1 && blocksForDay.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopyToWeekdays}
+                      className="h-6 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 flex items-center gap-1"
+                      title="Apply Monday hours to Tue–Fri"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy to weekdays</span>
+                    </Button>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -398,6 +468,61 @@ export function AvailabilityPage() {
             </SelectContent>
           </Select>
         </CardContent>
+      </Card>
+
+      {/* Vacation Mode */}
+      <Card className={vacationMode ? 'border-amber-200 bg-amber-50/40 dark:bg-amber-950/10' : ''}>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {vacationMode && <AlertCircle className="w-4 h-4 text-amber-600" />}
+              <CardTitle className="text-base">Vacation Mode</CardTitle>
+            </div>
+            <Switch
+              checked={vacationMode}
+              onCheckedChange={setVacationMode}
+              aria-label="Toggle vacation mode"
+            />
+          </div>
+          <CardDescription>
+            {vacationMode
+              ? 'No slots will be available to book during this period'
+              : 'Toggle to block all bookings during a specific date range'}
+          </CardDescription>
+        </CardHeader>
+        {vacationMode && (
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="vacation-start" className="text-xs">From Date</Label>
+                <Input
+                  id="vacation-start"
+                  type="date"
+                  value={vacationStart}
+                  onChange={(e) => setVacationStart(e.target.value)}
+                  className="h-10 text-xs"
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="vacation-end" className="text-xs">To Date</Label>
+                <Input
+                  id="vacation-end"
+                  type="date"
+                  value={vacationEnd}
+                  onChange={(e) => setVacationEnd(e.target.value)}
+                  className="h-10 text-xs"
+                  required
+                />
+              </div>
+            </div>
+            {vacationStart && vacationEnd && (
+              <div className="p-2 bg-white dark:bg-slate-900 rounded-lg text-xs text-text-secondary border border-border">
+                Vacation: {new Date(vacationStart).toLocaleDateString()} – {new Date(vacationEnd).toLocaleDateString()}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Exceptions / Holidays */}
