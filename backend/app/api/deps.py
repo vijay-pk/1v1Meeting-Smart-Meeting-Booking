@@ -5,7 +5,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import User
+from datetime import timezone
+from app.models.models import User, UserSecurityState
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 
@@ -78,6 +79,20 @@ def get_current_user(
             detail="This account is no longer active. Please contact the administrator if you believe this is a mistake.",
             headers=REVOKED_HEADER,
         )
+
+    # A credential changed after this token was issued (e.g. the password): the session is
+    # over. Tokens from before iat existed carry none and are treated as issued at 0.
+    security_state = db.query(UserSecurityState).filter(UserSecurityState.user_id == user.id).first()
+    if security_state is not None:
+        valid_after = security_state.tokens_valid_after
+        if valid_after.tzinfo is None:
+            valid_after = valid_after.replace(tzinfo=timezone.utc)
+        if int(payload.get("iat") or 0) < int(valid_after.timestamp()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your sign-in details changed. Please sign in again.",
+                headers={**REVOKED_HEADER, "WWW-Authenticate": "Bearer"},
+            )
 
     return user
 

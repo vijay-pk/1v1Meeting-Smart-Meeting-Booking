@@ -50,6 +50,12 @@ suite is order-independent and leaves nothing behind in the development database
   happened, and the booking horizon is enforced.
 - `test_session_hours.py` — 19 tests on per-meeting-type hours: slots are working hours ∩
   the type's window, busy time and bookings still block, validation, isolation.
+- `test_reminders.py` — 18 tests on meeting reminders: confirmed-only, exactly once,
+  cancel/reschedule/started skips, business-timezone lead, Super-Admin-only setting, cron secret.
+- `test_super_admin_account.py` — 17 tests on the Super Admin's own account: role gate,
+  current password for username/email/password, uniqueness, old sessions revoked.
+- `test_image_upload.py` — 15 tests on photo optimization: resize without upscale, WebP,
+  EXIF/GPS stripped, orientation, alpha, bombs and broken files refused, per-admin paths.
 - `test_onboarding.py` — 20 tests on first-time setup status: each step derived from
   persisted rows, completion recorded once, per-admin isolation, signup seeds no sessions.
 
@@ -332,6 +338,31 @@ theirs. `backend/test_persistence.py` (44 tests) is the guard.
 - **Share / Preview** use `lib/publicUrl.ts` (`VITE_APP_URL`, falling back to
   `window.location.origin`) and the username from the onboarding response -- never
   localStorage or `authStore.profile`, which is how the dashboard opened `/undefined`.
+
+## Meeting reminders, Super Admin account, photo optimization
+
+- **Reminders** (`services/reminders.py`): `meeting_reminders` rows, unique per
+  `(booking_id, booking_start_time)`, claimed pending -> sending with a conditional UPDATE, so
+  nothing is ever sent twice. Only `status == "confirmed"` bookings; a changed start_time
+  skips the old row and schedules a new one; never sent after the meeting started. Lead time
+  comes from `platform_settings["meeting_reminder"]` (Super Admin, choices 5/10/15/30/60/120/
+  1440 min, default 5) and is copied onto the row at creation, so changing the setting never
+  moves an existing reminder. Delivered as an in-app `Notification` (type `meeting_reminder`)
+  plus a Resend email to the host. Runs in an in-process loop (main.py lifespan) **and** via
+  `POST /api/internal/reminders/run` with `X-Cron-Secret` -- the loop does not run while a
+  free Render instance sleeps, so production needs an external cron on that endpoint.
+- The notification bell (`TopBar.tsx`) now reads `/api/notifications` (polled). It used to
+  read a Supabase table the backend never writes.
+- **Super Admin account** (`api/super_admin_settings.py`, page `/super-admin/settings`):
+  name, username (= booking URL and sign-in name), email, password. Username/email/password
+  changes require the current password. A password change writes `user_security_state`;
+  `deps.get_current_user` refuses tokens whose `iat` predates it (tokens now carry `iat`).
+  The old "Login Info" dialog only wrote to the zustand store and changed nothing real.
+  No email verification exists in this backend.
+- **Photo optimization** (`services/image_optimizer.py`, called by `POST /api/upload`):
+  JPEG/PNG/WebP are decoded (40 MP cap), EXIF-orientated, metadata stripped, fitted to 1024px
+  without upscaling, stored as WebP q82 in Supabase Storage. An already-small, metadata-free
+  JPEG/WebP that would grow is kept as is. GIF/AVIF pass through. Needs Pillow.
 
 ## Import from SuperProfile
 

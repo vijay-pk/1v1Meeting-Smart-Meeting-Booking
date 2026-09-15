@@ -309,6 +309,67 @@ class DeletedAdminIdentity(Base):
     reason = Column(String(255), nullable=True)
 
 
+class PlatformSetting(Base):
+    """
+    Platform-wide configuration owned by the Super Admin, one JSON value per key.
+
+    Currently holds "meeting_reminder". Keyed rather than one column per setting so a new
+    platform setting does not need a column (and therefore a hand-applied migration).
+    """
+    __tablename__ = "platform_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON, nullable=False, default=dict)
+    updated_by = Column(String(36), nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class MeetingReminder(Base):
+    """
+    One scheduled "upcoming meeting" reminder to the host of one booking.
+
+    The unique key is (booking_id, booking_start_time): a booking gets at most one reminder
+    per start time, however many workers or cron calls run. A booking whose start_time
+    changes no longer matches its row, so the old reminder is skipped and a new row is created
+    for the new time. `lead_minutes` is copied from the Super Admin setting when the row is
+    created, so changing the setting later never moves a reminder already scheduled.
+
+    Status: pending -> sending -> sent | failed, or skipped (booking cancelled, no longer
+    confirmed, rescheduled, or the meeting already started). The pending -> sending claim is a
+    conditional UPDATE, which is what makes a double send impossible.
+    """
+    __tablename__ = "meeting_reminders"
+    __table_args__ = (
+        Index("ux_meeting_reminders_booking_start", "booking_id", "booking_start_time", unique=True),
+    )
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    booking_id = Column(String(36), ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False, index=True)
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    booking_start_time = Column(String(30), nullable=False)
+    lead_minutes = Column(Integer, nullable=False)
+    remind_at = Column(DateTime, nullable=False, index=True)  # naive UTC
+    status = Column(String(20), default="pending", nullable=False, index=True)
+    sent_at = Column(DateTime, nullable=True)
+    email_sent = Column(Boolean, default=False, nullable=False)
+    detail = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class UserSecurityState(Base):
+    """
+    Tokens issued before `tokens_valid_after` are refused for this user.
+
+    Written when a credential changes (currently: the Super Admin's password), so every other
+    signed-in session of that account ends. A separate table so users without a row -- nearly
+    everyone -- are unaffected, and so no column has to be added to `users`.
+    """
+    __tablename__ = "user_security_state"
+
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    tokens_valid_after = Column(DateTime, nullable=False)
+
+
 class AdminOnboarding(Base):
     """
     Records that an admin finished first-time setup. One row per admin, written once.

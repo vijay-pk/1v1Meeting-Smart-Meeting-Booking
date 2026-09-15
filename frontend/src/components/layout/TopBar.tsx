@@ -9,7 +9,7 @@ import { TEST_MODE, APP_NAME } from '@/lib/constants';
 import { Badge } from '@/components/ui/badge';
 import { useState, useEffect } from 'react';
 import type { Notification } from '@/types';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/format';
 
 export function TopBar({
@@ -35,69 +35,39 @@ export function TopBar({
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
+  // Notifications come from the FastAPI notifications table -- where new-booking, calendar
+  // and meeting-reminder notices are written. This used to read a Supabase table the backend
+  // never writes to, keyed on an auth-store id nothing populates, so the bell was always empty.
+  // Polled rather than pushed: the backend has no socket, and a minute is fine for a reminder
+  // that is scheduled minutes ahead.
   useEffect(() => {
-    if (!profile?.id) return;
-
-    // Fetch initial notifications
-    const fetchNotifications = async () => {
-      try {
-        const { data } = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('admin_id', profile.id)
-          .order('created_at', { ascending: false })
-          .limit(20);
-
-        if (data) setNotifications(data as Notification[]);
-      } catch (e) {}
-    };
-
-    fetchNotifications();
-
-    let channel: any = null;
-    try {
-      channel = supabase
-        .channel('admin-notifications')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `admin_id=eq.${profile.id}`,
-          },
-          (payload) => {
-            setNotifications((prev) => [payload.new as Notification, ...prev]);
-          }
-        )
-        .subscribe();
-    } catch (e) {}
-
+    if (!localStorage.getItem('bmm_auth_token')) return;
+    let cancelled = false;
+    const load = () =>
+      api
+        .getNotifications()
+        .then((rows) => {
+          if (!cancelled) setNotifications(rows as unknown as Notification[]);
+        })
+        .catch(() => {});
+    load();
+    const timer = window.setInterval(load, 60_000);
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [profile?.id]);
+  }, []);
 
   const markAsRead = async (notificationId: string) => {
-    await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('id', notificationId);
-
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
     );
+    await api.markNotificationRead(notificationId).catch(() => {});
   };
 
   const markAllAsRead = async () => {
-    if (!profile?.id) return;
-    await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('admin_id', profile.id)
-      .eq('is_read', false);
-
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    await api.markAllNotificationsRead().catch(() => {});
   };
 
   return (

@@ -30,6 +30,8 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_email, normalize_email
 from app.models.models import (
     AdminOnboarding,
+    MeetingReminder,
+    UserSecurityState,
     User,
     AdminProfile,
     Session as SessionModel,
@@ -195,6 +197,12 @@ def permanently_delete_admin(
             db.query(RazorpayConnection)
             .filter(RazorpayConnection.admin_id == admin_id)
             .delete(synchronize_session=False)
+        )
+        db.query(MeetingReminder).filter(MeetingReminder.admin_id == admin_id).delete(
+            synchronize_session=False
+        )
+        db.query(UserSecurityState).filter(UserSecurityState.user_id == admin_id).delete(
+            synchronize_session=False
         )
         db.query(SessionTimeWindow).filter(SessionTimeWindow.admin_id == admin_id).delete(
             synchronize_session=False

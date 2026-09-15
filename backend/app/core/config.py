@@ -117,6 +117,16 @@ class Settings(BaseSettings):
     # Must be an address on a domain verified in Resend, or sends are rejected.
     EMAIL_FROM_ADDRESS: str = os.getenv("EMAIL_FROM_ADDRESS", "")
 
+    # Meeting reminders.
+    # The in-process worker checks for due reminders every REMINDER_POLL_SECONDS while the
+    # server is running. A host that sleeps when idle (Render's free tier) runs no code while
+    # asleep, so there CRON_SECRET should also be set and an external scheduler should call
+    # POST /api/internal/reminders/run with the X-Cron-Secret header every minute. Without a
+    # CRON_SECRET that endpoint does not exist.
+    REMINDER_WORKER_ENABLED: bool = os.getenv("REMINDER_WORKER_ENABLED", "true").lower() in ("1", "true", "yes")
+    REMINDER_POLL_SECONDS: int = int(os.getenv("REMINDER_POLL_SECONDS", "60"))
+    CRON_SECRET: str = os.getenv("CRON_SECRET", "")
+
     @property
     def EMAIL_ENABLED(self) -> bool:
         """Email is on only when it can actually be delivered."""

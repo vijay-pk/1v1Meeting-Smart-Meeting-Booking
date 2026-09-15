@@ -15,6 +15,7 @@ httpx>=0.27.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 python-dateutil>=2.9.0
+Pillow>=10.3.0  # server-side profile photo optimization (services/image_optimizer.py)
 tzdata>=2024.1  # zoneinfo needs an IANA database on slim Linux images and Windows
 google-api-python-client>=2.120.0
 google-auth>=2.28.0

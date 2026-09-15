@@ -17,6 +17,7 @@ import { CalendarPage } from '@/pages/admin/CalendarPage';
 
 // Super Admin Pages
 import { SuperAdminDashboardPage } from '@/pages/super-admin/SuperAdminDashboardPage';
+import { SuperAdminSettingsPage } from '@/pages/super-admin/SuperAdminSettingsPage';
 import { SuperAdminLoginPage } from '@/pages/auth/SuperAdminLoginPage';
 import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 
@@ -83,6 +84,7 @@ export const App: React.FC = () => {
 
         {/* Super Admin console */}
         <Route path="/super-admin" element={<SuperAdminDashboardPage />} />
+        <Route path="/super-admin/settings" element={<SuperAdminSettingsPage />} />
 
         {/* Individual Admin Portal */}
         <Route element={<AdminLayout />}>

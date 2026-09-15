@@ -482,6 +482,17 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
 
     db.commit()
 
+    # 5b. Schedule the host's "upcoming meeting" reminder with the Super Admin's current
+    #     setting. After the commit and never fatal: the reminder worker also schedules any
+    #     confirmed booking that is missing one, so a failure here only delays it.
+    try:
+        from app.services.reminders import ensure_reminder
+
+        ensure_reminder(db, booking)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Could not schedule the reminder for booking %s", booking.id)
+
     # 6. No automatic booking email.
     #
     # Deliberate product decision: a confirmed booking sends nothing from this application.

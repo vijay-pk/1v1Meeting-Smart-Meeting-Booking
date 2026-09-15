@@ -117,6 +117,31 @@ export function warmUpBackend(): void {
   fetch(`${API_BASE.replace(/\/api$/, '')}/health`, { method: 'GET' }).catch(() => {});
 }
 
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  booking_id?: string | null;
+  is_read: boolean;
+  created_at: string | null;
+}
+
+export interface SuperAdminAccount {
+  id: string;
+  name: string;
+  username: string | null;
+  email: string;
+  role: string;
+}
+
+export interface ReminderSettings {
+  enabled: boolean;
+  lead_minutes: number;
+  choices: number[];
+  updated_at: string | null;
+}
+
 export interface OnboardingStatus {
   profile: boolean;
   working_hours: boolean;
@@ -292,6 +317,82 @@ export const api = {
   getMe: async () => {
     const res = await request(`/auth/me`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
+    return res.json();
+  },
+
+  // --- In-app notifications (FastAPI notifications table) ---
+  getNotifications: async (): Promise<AppNotification[]> => {
+    const res = await request(`/notifications/`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load notifications.');
+    return res.json();
+  },
+
+  markNotificationRead: async (id: string) => {
+    const res = await request(`/notifications/${encodeURIComponent(id)}/read`, { method: 'POST', headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not update that notification.');
+  },
+
+  markAllNotificationsRead: async () => {
+    const res = await request(`/notifications/read-all`, { method: 'POST', headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not update notifications.');
+  },
+
+  // --- Super Admin: own account and platform settings ---
+  superAdminGetAccount: async (): Promise<SuperAdminAccount> => {
+    const res = await request(`/super-admin/account`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load your account.');
+    return res.json();
+  },
+
+  superAdminUpdateAccount: async (body: {
+    name?: string;
+    username?: string;
+    email?: string;
+    current_password?: string;
+  }): Promise<SuperAdminAccount> => {
+    const res = await request(`/super-admin/account`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await failure(res, 'Could not save your account.');
+    const data = await res.json();
+    // Keep the shell's cached identity in step with the server.
+    if (data.username) localStorage.setItem('bmm_logged_username', data.username);
+    if (data.name) localStorage.setItem('bmm_logged_admin_name', data.name);
+    return data;
+  },
+
+  superAdminChangePassword: async (body: {
+    current_password: string;
+    new_password: string;
+    confirm_password: string;
+  }): Promise<{ message: string }> => {
+    const res = await request(`/super-admin/account/password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await failure(res, 'Could not change your password.');
+    const data = await res.json();
+    // Every older session was just revoked server-side; this browser gets the fresh token.
+    if (data.access_token) localStorage.setItem('bmm_auth_token', data.access_token);
+    return { message: data.message };
+  },
+
+  superAdminGetReminderSettings: async (): Promise<ReminderSettings> => {
+    const res = await request(`/super-admin/settings/reminders`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load reminder settings.');
+    return res.json();
+  },
+
+  superAdminUpdateReminderSettings: async (body: { enabled: boolean; lead_minutes: number }): Promise<ReminderSettings> => {
+    const res = await request(`/super-admin/settings/reminders`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await failure(res, 'Could not save reminder settings.');
     return res.json();
   },
 
@@ -711,6 +812,9 @@ export const api = {
     saved_as: string;
     type: string;
     size: number;
+    /** Bytes received, before server-side optimization. */
+    original_size?: number;
+    optimized?: boolean;
   }> => {
     const formData = new FormData();
     formData.append('file', file);

@@ -174,3 +174,34 @@ async def send_admin_new_booking_notification(
         f'{_meeting_link_block(meet_link)}'
     )
     return await _send(admin_email, f"New booking: {client_name} — {session_title}", html)
+
+
+async def send_meeting_reminder_email(
+    admin_email: str,
+    admin_name: str,
+    client_name: str,
+    session_title: str,
+    start_time: str,
+    meet_link: Optional[str],
+) -> bool:
+    """Reminds the host of a meeting about to start. Returns True only if accepted."""
+    from html import escape
+
+    safe_client = escape(client_name or "your client")
+    safe_title = escape(session_title or "Meeting")
+    html = _shell(
+        "Upcoming meeting",
+        f'<p>Hi {escape(admin_name or "")},</p>'
+        f'<p>You have a meeting with <strong>{safe_client}</strong>.</p>'
+        f'<p style="margin:18px 0;padding:14px 16px;background:#F5F7FA;border-radius:8px;">'
+        f'<strong>{safe_title}</strong><br>{_format_when(start_time)}</p>'
+        + (
+            _meeting_link_block(escape(meet_link, quote=True))
+            if meet_link
+            # The client-facing "link is still being generated" wording would be wrong here:
+            # the host needs to know there is no link to join.
+            else '<p style="color:#5D4037;">No Google Meet link was created for this booking. '
+                 'Send your client a meeting link before the session.</p>'
+        )
+    )
+    return await _send(admin_email, f"Upcoming meeting: {client_name} — {session_title}", html)

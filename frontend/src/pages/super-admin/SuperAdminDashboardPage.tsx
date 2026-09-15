@@ -183,7 +183,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
   // Modals state
   const [isAddAdminOpen, setIsAddAdminOpen] = useState(false);
   const [isAddMeetingModalOpen, setIsAddMeetingModalOpen] = useState(false);
-  const [isSuperAdminCredsOpen, setIsSuperAdminCredsOpen] = useState(false);
   const [isEmailCredsOpen, setIsEmailCredsOpen] = useState(false);
   const [targetAdminForEmail, setTargetAdminForEmail] = useState<AdminUser | null>(null);
 
@@ -201,13 +200,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [newMtDuration, setNewMtDuration] = useState<number>(30);
   const [newMtOrigPrice, setNewMtOrigPrice] = useState<string>('999');
   const [newMtOfferPrice, setNewMtOfferPrice] = useState<string>('499');
-
-  // Super Admin Credentials Edit State
-  const [masterUsername, setMasterUsername] = useState(currentSuperAdmin.username);
-  const [masterEmail, setMasterEmail] = useState(currentSuperAdmin.email);
-  // Never a default credential: an empty field means "leave the password unchanged".
-  const [masterPassword, setMasterPassword] = useState('');
-  const [credsSavedNotice, setCredsSavedNotice] = useState(false);
 
   // Super Admin's own settings & integrations state
 
@@ -443,16 +435,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
     setTimeout(() => setNotice(''), 6000);
   };
 
-  const handleSaveMasterCreds = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateSuperAdminCredentials(masterUsername.trim(), masterEmail.trim(), masterPassword.trim());
-    setCredsSavedNotice(true);
-    setTimeout(() => {
-      setCredsSavedNotice(false);
-      setIsSuperAdminCredsOpen(false);
-    }, 1200);
-  };
-
   const generateGmailComposeLink = (admin: AdminUser) => {
     const to = encodeURIComponent(admin.email);
     const subject = encodeURIComponent(`Your admin portal access`);
@@ -520,15 +502,15 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             />
 
             {/* Master Credentials Settings Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsSuperAdminCredsOpen(true)}
-              className="text-xs font-semibold px-3 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/30 flex items-center gap-1.5 cursor-pointer"
+            {/* Account details and platform settings, saved on the server. This used to open a
+                dialog that only wrote to this browser's local store and changed no real login. */}
+            <Link
+              to="/super-admin/settings"
+              className="text-xs font-semibold px-3 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>Login Info</span>
-            </Button>
+              <span>Account & Settings</span>
+            </Link>
 
             {/* My Portal Settings (Requirement 7: Master Admin is like other admins) */}
             <Link
@@ -1502,84 +1484,6 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 </a>
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* =========================================================================
-          MODAL 4: SUPER ADMIN CREDENTIALS EDITOR
-         ========================================================================= */}
-      <Dialog open={isSuperAdminCredsOpen} onOpenChange={setIsSuperAdminCredsOpen}>
-        <DialogContent className="sm:max-w-md p-6 sm:p-8 rounded-3xl bg-surface">
-          <DialogHeader>
-            <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
-              <Key className="w-4 h-4" />
-              <span>Owner Access Settings</span>
-            </div>
-            <DialogTitle className="text-xl font-extrabold text-text-primary">
-              Customize Super Admin Login Credentials
-            </DialogTitle>
-            <DialogDescription className="text-xs text-text-tertiary">
-              You can set your own custom username, owner email, and master password.
-            </DialogDescription>
-          </DialogHeader>
-
-          {credsSavedNotice ? (
-            <div className="p-4 bg-emerald-50 text-emerald-800 rounded-2xl border border-emerald-200 text-center space-y-1 my-2">
-              <Check className="w-6 h-6 mx-auto text-emerald-600" />
-              <p className="font-bold text-xs">Credentials Updated Successfully!</p>
-              <p className="text-[11px] text-emerald-600">You can now use these credentials on the Admin Login portal.</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSaveMasterCreds} className="space-y-4 pt-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-text-secondary">Master Username</Label>
-                <Input
-                  required
-                  value={masterUsername}
-                  onChange={(e) => setMasterUsername(e.target.value)}
-                  className="h-10 text-xs rounded-xl font-mono"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-text-secondary">Owner Email</Label>
-                <Input
-                  type="email"
-                  required
-                  value={masterEmail}
-                  onChange={(e) => setMasterEmail(e.target.value)}
-                  className="h-10 text-xs rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-text-secondary">Master Password</Label>
-                <Input
-                  required
-                  value={masterPassword}
-                  onChange={(e) => setMasterPassword(e.target.value)}
-                  className="h-10 text-xs rounded-xl font-mono"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsSuperAdminCredsOpen(false)}
-                  className="rounded-xl text-xs cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs px-5 cursor-pointer"
-                >
-                  Save Master Credentials
-                </Button>
-              </div>
-            </form>
           )}
         </DialogContent>
       </Dialog>

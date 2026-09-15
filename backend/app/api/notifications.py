@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -24,8 +26,13 @@ def get_my_notifications(
             "type": n.type,
             "title": n.title,
             "message": n.message,
+            "booking_id": n.booking_id,
             "is_read": n.is_read,
-            "created_at": n.created_at.isoformat() if n.created_at else None
+            # Stored as naive UTC; say so, or a browser reads it as local time ("5h ago").
+            "created_at": (
+                (n.created_at if n.created_at.tzinfo else n.created_at.replace(tzinfo=timezone.utc)).isoformat()
+                if n.created_at else None
+            )
         }
         for n in notifications
     ]
@@ -44,3 +51,16 @@ def mark_notification_read(
         n.is_read = True
         db.commit()
     return {"message": "Marked as read"}
+
+
+@router.post("/read-all")
+def mark_all_notifications_read(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    db.query(Notification).filter(
+        Notification.admin_id == current_admin.id,
+        Notification.is_read == False,  # noqa: E712
+    ).update({Notification.is_read: True}, synchronize_session=False)
+    db.commit()
+    return {"message": "Marked all as read"}

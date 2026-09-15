@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -112,9 +113,23 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing BookMyMeet backend application...")
     log_database_target()
     seed_initial_data()
+
+    # Meeting reminders run on the server, never in a browser. See services/reminders.py.
+    reminder_stop = asyncio.Event()
+    reminder_task = None
+    if settings.REMINDER_WORKER_ENABLED:
+        from app.services.reminders import reminder_worker
+
+        reminder_task = asyncio.create_task(reminder_worker(reminder_stop))
     yield
     # Shutdown
     logger.info("Shutting down backend...")
+    reminder_stop.set()
+    if reminder_task:
+        try:
+            await asyncio.wait_for(reminder_task, timeout=10)
+        except Exception:  # noqa: BLE001
+            reminder_task.cancel()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

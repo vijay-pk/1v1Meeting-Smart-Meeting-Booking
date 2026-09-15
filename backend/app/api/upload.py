@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin
 from app.core.database import get_db
 from app.models.models import MediaAsset, User
+from app.services.image_optimizer import ImageOptimizationError, optimize_profile_image
 from app.services.supabase_storage import (
     build_object_path,
     is_configured,
@@ -93,9 +94,20 @@ async def upload_file(
         )
     content_type, extension = sniffed
 
+    # Decode, orient, strip metadata, scale to profile size and re-encode as WebP. CPU work,
+    # so it runs off the event loop. Nothing is stored if the image cannot be decoded.
+    try:
+        from starlette.concurrency import run_in_threadpool
+
+        optimized = await run_in_threadpool(optimize_profile_image, content, content_type, extension)
+    except ImageOptimizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    stored = optimized.content
+    content_type, extension = optimized.content_type, optimized.extension
+
     object_path = build_object_path(current_admin.id, extension)
     try:
-        url = await upload_object(object_path, content, content_type)
+        url = await upload_object(object_path, stored, content_type)
     except SupabaseStorageNotConfigured as exc:
         raise HTTPException(status_code=503, detail=STORAGE_UNAVAILABLE) from exc
     except SupabaseStorageError as exc:
@@ -107,7 +119,7 @@ async def upload_file(
         owner_id=current_admin.id,
         filename=(file.filename or f"upload{extension}")[:255],
         content_type=content_type,
-        byte_size=total,
+        byte_size=len(stored),
         storage_provider="supabase",
         storage_path=object_path,
         public_url=url,
@@ -123,7 +135,9 @@ async def upload_file(
         "filename": file.filename,
         "saved_as": asset.id,
         "type": "photo",
-        "size": total,
+        "size": len(stored),
+        "original_size": total,
+        "optimized": optimized.optimized,
     }
 
 

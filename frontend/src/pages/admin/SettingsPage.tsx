@@ -534,8 +534,13 @@ function ProfileCustomizer({
         throw new Error('Upload returned no URL');
       }
       setPhotoUrl(res.url);
-      setPhotoUploadSuccess('Picture uploaded.');
-      setTimeout(() => setPhotoUploadSuccess(''), 4000);
+      const kb = Math.max(1, Math.round((res.size || 0) / 1024));
+      setPhotoUploadSuccess(
+        res.optimized
+          ? `Profile photo uploaded successfully. Image optimized to ${kb} KB — save your profile to publish it.`
+          : 'Profile photo uploaded successfully — save your profile to publish it.'
+      );
+      setTimeout(() => setPhotoUploadSuccess(''), 8000);
     } catch (err: any) {
       // There is deliberately no local fallback. This used to read the file with FileReader
       // and put the resulting base64 data: URI into photo_url, which then got saved into the
@@ -956,7 +961,7 @@ function ProfileCustomizer({
                           {isUploadingPhoto ? (
                             <>
                               <Loader2 className="w-2.5 h-2.5 animate-spin mr-1" />
-                              Uploading...
+                              Optimizing…
                             </>
                           ) : (
                             <>
@@ -1005,7 +1010,7 @@ function ProfileCustomizer({
                     </div>
                     <div>
                       <p className="text-xs font-bold text-text-secondary">
-                        {isUploadingPhoto ? 'Uploading image from device...' : 'Click to add picture from device'}
+                        {isUploadingPhoto ? 'Optimizing and uploading your photo…' : 'Click to add picture from device'}
                       </p>
                       <p className="text-[10px] text-text-tertiary mt-0.5">
                         PNG, JPG, JPEG, WEBP, GIF (up to 8MB)

@@ -503,8 +503,10 @@ def test_an_uploaded_photo_goes_to_supabase_storage(admin, db, fake_storage):
 
     assert len(fake_storage) == 1
     object_path, (stored_bytes, content_type) = next(iter(fake_storage.items()))
-    assert stored_bytes == PNG_BYTES
-    assert content_type == "image/png"
+    # Photos are optimized before storage (services/image_optimizer.py): the stored object is
+    # the re-encoded WebP of the upload, not the original bytes.
+    assert stored_bytes[:4] == b"RIFF" and stored_bytes[8:12] == b"WEBP"
+    assert content_type == "image/webp"
 
     row = db.query(MediaAsset).filter(MediaAsset.public_url == url).one()
     assert row.owner_id == admin["id"]
@@ -524,7 +526,7 @@ def test_the_object_path_is_built_from_the_admin_not_the_filename(admin, fake_st
 
     object_path = next(iter(fake_storage))
     assert object_path.startswith("profile/" + admin["id"] + "/avatar/")
-    assert object_path.endswith(".png")
+    assert object_path.endswith(".webp")
     assert ".." not in object_path
     assert "passwd" not in object_path
 
@@ -587,7 +589,8 @@ def test_a_photo_survives_a_restart(admin, fake_storage):
     from app.main import app as rebuilt_app
     body = TestClient(rebuilt_app).get("/api/profiles/public/" + admin["username"]).json()
     assert body["profile_photo"] == url
-    assert next(iter(fake_storage.values()))[0] == PNG_BYTES
+    # Stored optimized (WebP), and still there after the rebuild.
+    assert next(iter(fake_storage.values()))[1] == "image/webp"
 
 
 def test_uploading_requires_authentication():
@@ -684,7 +687,8 @@ def test_a_real_image_wearing_the_wrong_name_is_accepted(admin, fake_storage):
         files={"file": ("notes.txt", io.BytesIO(PNG_BYTES), "text/plain")},
     )
     assert res.status_code == 200, res.text
-    assert next(iter(fake_storage)).endswith(".png")
+    # The name never decides the extension: the decoded PNG is stored as optimized WebP.
+    assert next(iter(fake_storage)).endswith(".webp")
 
 
 def test_deleting_an_admin_removes_their_media(tracked, db, fake_storage):
