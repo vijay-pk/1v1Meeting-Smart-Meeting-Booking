@@ -70,6 +70,8 @@ export interface MeetingType {
   max_bookings_per_day: number | null;
   color_id: number;
   sort_order: number;
+  /** This type's own bookable hours; null = the admin's general availability. */
+  available_hours?: { day_of_week: number; start_time: string; end_time: string }[] | null;
   created_at: string;
   updated_at: string;
 }

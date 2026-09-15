@@ -3,7 +3,9 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { buildPublicProfileUrl } from '@/lib/publicUrl';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
+import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
 import {
@@ -50,7 +52,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { getVideoEmbedUrl, INTRO_VIDEO_LABEL } from '@/lib/video';
 import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 
-type SettingsTab = 'profile' | 'payment' | 'calendar' | 'email';
+type SettingsTab = 'profile' | 'meeting-types' | 'availability' | 'payment' | 'calendar' | 'email';
+
+const SETTINGS_TABS: SettingsTab[] = ['profile', 'meeting-types', 'availability', 'payment', 'calendar', 'email'];
+
+/** Canonical URL of each section; Profile is the Settings root. */
+function settingsPath(tab: SettingsTab): string {
+  return tab === 'profile' ? '/admin/settings' : `/admin/settings/${tab}`;
+}
 
 const THEME_PRESETS = [
   {
@@ -91,14 +100,21 @@ const THEME_PRESETS = [
 ];
 
 export function SettingsPage() {
-  // ?tab=payment lets the setup screen open the Razorpay step directly.
+  // The section lives in the URL (/admin/settings/availability), so every section can be
+  // linked to, bookmarked and reached with the back button. ?tab= is still honoured: the
+  // Google OAuth callback returns to /admin/settings?tab=calendar&connected=true.
+  const { section } = useParams<{ section?: string }>();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-    const requested = searchParams.get('tab');
-    return requested === 'payment' || requested === 'calendar' || requested === 'email'
-      ? requested
-      : 'profile';
-  });
+  const navigate = useNavigate();
+  const requestedTab = section || searchParams.get('tab') || 'profile';
+  const activeTab: SettingsTab = (SETTINGS_TABS as string[]).includes(requestedTab)
+    ? (requestedTab as SettingsTab)
+    : 'profile';
+  const setActiveTab = (tab: SettingsTab) => {
+    // Keep ?from=setup so the "Back to setup" bar survives switching sections.
+    const from = searchParams.get('from');
+    navigate(from ? `${settingsPath(tab)}?from=${encodeURIComponent(from)}` : settingsPath(tab));
+  };
   const { admins, updateAdminProfile, currentSuperAdmin } = useBookingStore();
   const { profile } = useAuthStore();
 
@@ -284,11 +300,13 @@ export function SettingsPage() {
 
   const [copied, setCopied] = useState(false);
 
-  const tabs: { id: SettingsTab; label: string; icon: any }[] = [
-    { id: 'profile', label: 'Profile & Customizer', icon: Palette },
-    { id: 'payment', label: 'Razorpay Payment Setup', icon: CreditCard },
-    { id: 'calendar', label: 'Google Calendar', icon: CalendarIcon },
-    { id: 'email', label: 'Email & Notifications', icon: Mail },
+  const tabs: { id: SettingsTab; label: string; description: string; icon: any }[] = [
+    { id: 'profile', label: 'Profile', description: 'Manage your public booking profile', icon: Palette },
+    { id: 'meeting-types', label: 'Meeting Types', description: 'Configure the sessions you offer', icon: Video },
+    { id: 'availability', label: 'Availability', description: 'Set when clients can book you', icon: Clock },
+    { id: 'payment', label: 'Payments', description: 'Manage your payment gateway', icon: CreditCard },
+    { id: 'calendar', label: 'Google Calendar', description: 'Calendar sync and Meet links', icon: CalendarIcon },
+    { id: 'email', label: 'Email & Notifications', description: 'Booking emails and alerts', icon: Mail },
   ];
 
   // Only from the loaded server row: before that, currentAdmin can be a placeholder whose
@@ -360,22 +378,29 @@ export function SettingsPage() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar */}
         <nav className="lg:w-60 flex-shrink-0">
-          <ul className="scroll-x flex gap-1.5 rounded-2xl border border-border bg-surface p-2 lg:flex-col lg:overflow-visible">
+          {/* Two columns of touch targets on a phone -- every section visible without sideways
+              scrolling -- and a labelled list with descriptions beside the content from lg. */}
+          <ul className="grid grid-cols-2 gap-1.5 rounded-2xl border border-border bg-surface p-2 sm:grid-cols-3 lg:grid-cols-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
-                <li key={tab.id}>
+                <li key={tab.id} className="min-w-0">
                   <button
                     onClick={() => setActiveTab(tab.id)}
                     aria-current={activeTab === tab.id ? 'page' : undefined}
-                    className={`press flex h-11 w-full items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 text-xs font-bold transition-all cursor-pointer ${
+                    className={`press flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold transition-all cursor-pointer ${
                       activeTab === tab.id
                         ? 'bg-orange-50 font-extrabold text-orange-700 shadow-2xs'
                         : 'text-text-secondary hover:bg-surface-tertiary hover:text-text-primary'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block leading-tight">{tab.label}</span>
+                      <span className="hidden text-[11px] font-medium leading-snug text-text-tertiary lg:block">
+                        {tab.description}
+                      </span>
+                    </span>
                   </button>
                 </li>
               );
@@ -414,7 +439,9 @@ export function SettingsPage() {
         </nav>
 
         {/* Tab Content */}
-        <div className="flex-1 max-w-3xl">
+        <div className="min-w-0 flex-1 max-w-3xl">
+          {activeTab === 'meeting-types' && <MeetingTypesPage />}
+          {activeTab === 'availability' && <AvailabilityPage />}
           {activeTab === 'profile' && (
             <ProfileCustomizer
               admin={currentAdmin}

@@ -220,7 +220,7 @@ export function DashboardPage() {
             <Share2 className="w-4 h-4" />
             Share Link
           </Button>
-          <Link to="/admin/availability">
+          <Link to="/admin/settings/availability">
             <Button variant="outline" className="w-full" size="sm">
               <Lock className="w-4 h-4" />
               Block Time
@@ -248,7 +248,7 @@ export function DashboardPage() {
               Preview
             </Button>
           )}
-          <Link to="/admin/meeting-types">
+          <Link to="/admin/settings/meeting-types">
             <Button variant="outline" className="w-full" size="sm">
               <Plus className="w-4 h-4" />
               New Meeting

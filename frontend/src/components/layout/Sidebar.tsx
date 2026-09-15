@@ -6,8 +6,6 @@ import {
   Users,
   CreditCard,
   Settings,
-  Clock,
-  Video,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -24,8 +22,6 @@ export const NAV_ITEMS = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/bookings', icon: CalendarDays, label: 'Bookings' },
   { to: '/admin/calendar', icon: Calendar, label: 'Calendar' },
-  { to: '/admin/meeting-types', icon: Video, label: 'Meeting Types' },
-  { to: '/admin/availability', icon: Clock, label: 'Availability' },
   { to: '/admin/customers', icon: Users, label: 'Customers' },
   { to: '/admin/payments', icon: CreditCard, label: 'Payments' },
 ];

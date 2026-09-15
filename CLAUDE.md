@@ -48,6 +48,8 @@ suite is order-independent and leaves nothing behind in the development database
 - `test_booking_integrity.py` — 19 tests on the guarantees below: the hold is consumed, one
   slot yields one booking, no meeting link is ever fabricated, email reports what actually
   happened, and the booking horizon is enforced.
+- `test_session_hours.py` — 19 tests on per-meeting-type hours: slots are working hours ∩
+  the type's window, busy time and bookings still block, validation, isolation.
 - `test_onboarding.py` — 20 tests on first-time setup status: each step derived from
   persisted rows, completion recorded once, per-admin isolation, signup seeds no sessions.
 
@@ -130,6 +132,15 @@ exceptions − occupying bookings − active locks − buffers. Note the weekday
 availability almost always live there. `max_advance_days` and past dates are enforced here —
 the column existed from the first schema and was read by nothing, so any future date was
 bookable.
+
+**Per-meeting-type hours** (`session_time_windows`, one row per weekday, exposed as
+`available_hours` on sessions): a session with rows is only bookable inside them *and* the
+admin's working hours; a weekday without a row offers nothing for that session; no rows =
+general availability. A table, not columns, so create_all ships it. `PUT /sessions/{id}`
+touches it only when `available_hours` is sent (`null` clears). The meeting-type form no
+longer shows buffers, advance notice, horizon, cancellation window, max/day or colour; the
+stored buffer/notice/horizon columns and their defaults still drive the engine. The
+"Allow rescheduling" switch has never been persisted (no column; loads as on).
 
 **`GET /api/availability/slot-counts`** returns per-day counts for the date strip in one
 request, running the same engine per day so a pill's count can never disagree with the slots
@@ -381,6 +392,10 @@ against a live fetch of superprofile.bio.** Do not claim otherwise without re-te
 
 ## Frontend map (`frontend/src/`)
 
+- **Settings sections** are URL routes: `/admin/settings/:section` (`meeting-types`,
+  `availability`, `payment`, `calendar`, `email`; Profile is the root). Meeting Types and
+  Availability left the sidebar; `/admin/meeting-types` and `/admin/availability` redirect,
+  keeping the query string. `?tab=` still works for the Google OAuth return.
 - **Routing** — `App.tsx`, one flat `<Routes>`, no lazy loading. Several aliases point at the same three funnel pages (`/book/:username/schedule/:meetingId`, `/:username/schedule/:meetingId`, `/schedule/:meetingId` all render `TimeAvailabilityPage`). `/:username` is a catch-all that must stay last. Admin pages sit under a pathless `<Route element={<AdminLayout/>}>`.
 - **Stores** — only two. `authStore.ts` (no persist; hydrates synchronously from localStorage, then races `supabase.auth.getSession()` against a 600ms timeout) and `bookingStore.ts` (persist, whole state, no `partialize`). There is no separate admin or super-admin store — super-admin state is `currentSuperAdmin` inside `bookingStore`.
 - **`lib/api.ts` is the only door to the backend** — one `request()` wrapper, one

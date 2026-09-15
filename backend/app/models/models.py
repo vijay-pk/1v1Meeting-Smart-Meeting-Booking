@@ -91,6 +91,46 @@ class Session(Base):
 
     admin = relationship("User", back_populates="sessions")
     bookings = relationship("Booking", back_populates="meeting_type")
+    time_windows = relationship(
+        "SessionTimeWindow",
+        cascade="all, delete-orphan",
+        order_by="SessionTimeWindow.day_of_week",
+        lazy="selectin",
+    )
+
+    @property
+    def available_hours(self):
+        """This session's own bookable hours, or None when it uses the admin's general hours."""
+        if not self.time_windows:
+            return None
+        return [
+            {"day_of_week": w.day_of_week, "start_time": w.start_time, "end_time": w.end_time}
+            for w in self.time_windows
+        ]
+
+
+class SessionTimeWindow(Base):
+    """
+    An optional per-session restriction: on this weekday, this session may only be booked
+    between these times. Slots are the intersection of these windows with the admin's working
+    hours, so a window can narrow the day but never open hours the admin does not work.
+
+    A session with no rows uses the admin's general availability -- which is what every
+    session created before this table existed does. A session with rows is not offered on a
+    weekday that has none. Times are "HH:MM" wall clock in BUSINESS_TIMEZONE, the same frame
+    as AvailabilityRule.
+
+    A table rather than columns on `sessions`: create_all ships a new table on deploy, while a
+    new column the ORM selects before a hand-applied migration would break every session query.
+    """
+    __tablename__ = "session_time_windows"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    day_of_week = Column(Integer, nullable=False)  # 0=Sunday ... 6=Saturday
+    start_time = Column(String(10), nullable=False)  # HH:MM
+    end_time = Column(String(10), nullable=False)    # HH:MM
 
 class AvailabilityRule(Base):
     __tablename__ = "availability_rules"

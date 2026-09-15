@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 
 // Layouts
@@ -8,8 +8,6 @@ import { PublicLayout } from '@/components/layout/PublicLayout';
 
 // Admin Pages
 import { DashboardPage } from '@/pages/admin/DashboardPage';
-import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
-import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
 import { BookingsPage } from '@/pages/admin/BookingsPage';
 import { PaymentsPage } from '@/pages/admin/PaymentsPage';
 import { CustomersPage } from '@/pages/admin/CustomersPage';
@@ -39,6 +37,11 @@ import { CancelBookingPage } from '@/pages/public/CancelBookingPage';
 import { RescheduleBookingPage } from '@/pages/public/RescheduleBookingPage';
 
 import { warmUpBackend } from '@/lib/api';
+
+function RedirectWithSearch({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+}
 
 export const App: React.FC = () => {
   useEffect(() => {
@@ -87,11 +90,14 @@ export const App: React.FC = () => {
           <Route path="/admin/setup" element={<SetupPage />} />
           <Route path="/admin/bookings" element={<BookingsPage />} />
           <Route path="/admin/calendar" element={<CalendarPage />} />
-          <Route path="/admin/meeting-types" element={<MeetingTypesPage />} />
-          <Route path="/admin/availability" element={<AvailabilityPage />} />
+          {/* Meeting Types and Availability live inside Settings. The old paths redirect so
+              bookmarks and existing links keep working, carrying their query string along. */}
+          <Route path="/admin/meeting-types" element={<RedirectWithSearch to="/admin/settings/meeting-types" />} />
+          <Route path="/admin/availability" element={<RedirectWithSearch to="/admin/settings/availability" />} />
           <Route path="/admin/customers" element={<CustomersPage />} />
           <Route path="/admin/payments" element={<PaymentsPage />} />
           <Route path="/admin/settings" element={<SettingsPage />} />
+          <Route path="/admin/settings/:section" element={<SettingsPage />} />
         </Route>
 
         {/* Dynamic Personal Admin Root URL: yourdomain.com/:username & yourdomain.com/bookings/:username */}

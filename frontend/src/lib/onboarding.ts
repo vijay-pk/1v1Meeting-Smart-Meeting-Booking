@@ -25,19 +25,19 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     key: 'working_hours',
     label: 'Working Hours',
     description: 'The weekly hours clients can book. Start from the default and adjust.',
-    link: '/admin/availability',
+    link: '/admin/settings/availability',
   },
   {
     key: 'meeting_type',
     label: 'Active Meeting Type',
     description: 'At least one active session with its duration and your price.',
-    link: '/admin/meeting-types',
+    link: '/admin/settings/meeting-types',
   },
   {
     key: 'gateway',
     label: 'Connect Gateway',
     description: 'Your own Razorpay account, so payments settle directly to you.',
-    link: '/admin/settings?tab=payment',
+    link: '/admin/settings/payment',
   },
 ];
 

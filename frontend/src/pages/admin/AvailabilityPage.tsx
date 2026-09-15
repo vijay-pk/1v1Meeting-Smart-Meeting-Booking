@@ -408,7 +408,7 @@ export function AvailabilityPage() {
                   {/* Add Block Form.
                       Free time entry rather than a fixed 30-minute dropdown, so any start
                       and end can be typed (or picked from the browser's own time control). */}
-                  <div className="flex items-center gap-2 mt-1 sm:mt-0">
+                  <div className="flex flex-wrap items-center gap-2 mt-1 sm:mt-0">
                     <Input
                       type="time"
                       aria-label={`${day.fullName} start time`}

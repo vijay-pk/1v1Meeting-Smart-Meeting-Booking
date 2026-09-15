@@ -21,7 +21,13 @@ import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
-import { CURRENCIES, CALENDAR_COLORS } from '@/lib/constants';
+import { CURRENCIES } from '@/lib/constants';
+import {
+  SessionHoursField,
+  draftFromWindows,
+  windowsFromDraft,
+  type SessionHoursDraft,
+} from '@/components/admin/SessionHoursField';
 import type { MeetingType, Currency } from '@/types';
 import {
   Plus,
@@ -32,7 +38,6 @@ import {
   DollarSign,
   GripVertical,
   AlertCircle,
-  Check,
 } from 'lucide-react';
 
 const DEFAULT_MEETING: Partial<MeetingType> = {
@@ -62,6 +67,7 @@ export function MeetingTypesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Partial<MeetingType> | null>(null);
+  const [hoursDraft, setHoursDraft] = useState<SessionHoursDraft>(() => draftFromWindows(null));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -94,6 +100,7 @@ export function MeetingTypesPage() {
           reschedule_allowed: true,
           color_id: 1,
           sort_order: s.sort_order || 1,
+          available_hours: s.available_hours ?? null,
           created_at: s.created_at || new Date().toISOString(),
           updated_at: s.updated_at || new Date().toISOString(),
         })) as MeetingType[]
@@ -112,12 +119,15 @@ export function MeetingTypesPage() {
 
   const openCreate = () => {
     setEditingMeeting({ ...DEFAULT_MEETING });
+    setHoursDraft(draftFromWindows(null));
     setError('');
     setDialogOpen(true);
   };
 
   const openEdit = (meeting: MeetingType) => {
     setEditingMeeting({ ...meeting });
+    // Loaded from the saved rows, so editing never resets a window that exists.
+    setHoursDraft(draftFromWindows(meeting.available_hours));
     setError('');
     setDialogOpen(true);
   };
@@ -133,6 +143,12 @@ export function MeetingTypesPage() {
       return;
     }
 
+    const hours = windowsFromDraft(hoursDraft);
+    if ('error' in hours && hours.error) {
+      setError(hours.error);
+      return;
+    }
+
     setSaving(true);
     setError('');
 
@@ -145,6 +161,7 @@ export function MeetingTypesPage() {
         original_price: editingMeeting.original_price || null,
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
+        available_hours: 'windows' in hours ? hours.windows : null,
       };
 
       // Not swallowed: a rejected save must be shown, not hidden behind a refetch that
@@ -249,14 +266,6 @@ export function MeetingTypesPage() {
                   <div className="flex items-start gap-4 min-w-0 flex-1">
                     <div className="flex items-center gap-2 shrink-0 pt-1">
                       <GripVertical className="w-4 h-4 text-text-tertiary cursor-grab" />
-                      <div
-                        className="w-3 h-3 rounded-full shrink-0"
-                        style={{
-                          backgroundColor:
-                            CALENDAR_COLORS.find((c) => c.id === meeting.color_id)?.hex ||
-                            '#3b82f6',
-                        }}
-                      />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -287,8 +296,8 @@ export function MeetingTypesPage() {
                           <Video className="w-3.5 h-3.5" />
                           Google Meet
                         </span>
-                        {meeting.buffer_after_minutes > 0 && (
-                          <span>Buffer: {meeting.buffer_after_minutes}min after</span>
+                        {meeting.available_hours && meeting.available_hours.length > 0 && (
+                          <span>Specific hours</span>
                         )}
                         {meeting.reschedule_allowed && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
@@ -308,6 +317,7 @@ export function MeetingTypesPage() {
                       variant="ghost"
                       size="icon-touch"
                       onClick={() => openEdit(meeting)}
+                      aria-label={`Edit ${meeting.name}`}
                     >
                       <Edit2 className="w-4 h-4" />
                     </Button>
@@ -315,6 +325,7 @@ export function MeetingTypesPage() {
                       variant="ghost"
                       size="icon-touch"
                       onClick={() => handleDelete(meeting.id)}
+                      aria-label={`Delete ${meeting.name}`}
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -334,8 +345,8 @@ export function MeetingTypesPage() {
             <DialogTitle>
               {editingMeeting?.id ? 'Edit Meeting Type' : 'New Meeting Type'}
             </DialogTitle>
-            <DialogDescription>
-              Configure the details for this meeting type
+            <DialogDescription className="sr-only">
+              Name, duration, price and when this meeting type can be booked
             </DialogDescription>
           </DialogHeader>
 
@@ -348,10 +359,9 @@ export function MeetingTypesPage() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="mt-name">Meeting Name *</Label>
+              <Label htmlFor="mt-name">Name *</Label>
               <Input
                 id="mt-name"
-                placeholder="30-Minute Developer Consultation"
                 value={editingMeeting?.name || ''}
                 onChange={(e) =>
                   setEditingMeeting((m) => ({ ...m, name: e.target.value }))
@@ -363,7 +373,6 @@ export function MeetingTypesPage() {
               <Label htmlFor="mt-description">Description</Label>
               <Textarea
                 id="mt-description"
-                placeholder="Describe what this meeting covers..."
                 value={editingMeeting?.description || ''}
                 onChange={(e) =>
                   setEditingMeeting((m) => ({ ...m, description: e.target.value }))
@@ -425,7 +434,6 @@ export function MeetingTypesPage() {
                 id="mt-price"
                 type="text"
                 inputMode="numeric"
-                placeholder="999"
                 value={
                   editingMeeting?.price
                     ? String(Math.floor(editingMeeting.price / 100))
@@ -450,110 +458,6 @@ export function MeetingTypesPage() {
               </p>
             </div>
 
-            <Separator />
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="mt-buffer-before">Buffer before (min)</Label>
-                <Input
-                  id="mt-buffer-before"
-                  type="number"
-                  value={editingMeeting?.buffer_before_minutes || 0}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      buffer_before_minutes: parseInt(e.target.value) || 0,
-                    }))
-                  }
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mt-buffer-after">Buffer after (min)</Label>
-                <Input
-                  id="mt-buffer-after"
-                  type="number"
-                  value={editingMeeting?.buffer_after_minutes || 0}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      buffer_after_minutes: parseInt(e.target.value) || 0,
-                    }))
-                  }
-                  min="0"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="mt-advance">Min advance notice (hours)</Label>
-                <Input
-                  id="mt-advance"
-                  type="number"
-                  value={editingMeeting?.min_advance_hours || 2}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      min_advance_hours: parseInt(e.target.value) || 2,
-                    }))
-                  }
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mt-horizon">Max booking horizon (days)</Label>
-                <Input
-                  id="mt-horizon"
-                  type="number"
-                  value={editingMeeting?.max_advance_days || 60}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      max_advance_days: parseInt(e.target.value) || 60,
-                    }))
-                  }
-                  min="1"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="mt-cancel-window">Cancellation window (hours)</Label>
-                <Input
-                  id="mt-cancel-window"
-                  type="number"
-                  value={editingMeeting?.cancellation_window_hours || 24}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      cancellation_window_hours: parseInt(e.target.value) || 24,
-                    }))
-                  }
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mt-max-daily">Max bookings/day</Label>
-                <Input
-                  id="mt-max-daily"
-                  type="number"
-                  placeholder="Unlimited"
-                  value={editingMeeting?.max_bookings_per_day ?? ''}
-                  onChange={(e) =>
-                    setEditingMeeting((m) => ({
-                      ...m,
-                      max_bookings_per_day: e.target.value
-                        ? parseInt(e.target.value)
-                        : null,
-                    }))
-                  }
-                  min="1"
-                />
-              </div>
-            </div>
-
             <div className="flex items-center justify-between p-3 rounded-lg border border-border">
               <div>
                 <p className="text-sm font-medium">Allow rescheduling</p>
@@ -562,6 +466,7 @@ export function MeetingTypesPage() {
                 </p>
               </div>
               <Switch
+                aria-label="Allow rescheduling"
                 checked={editingMeeting?.reschedule_allowed ?? true}
                 onCheckedChange={(checked) =>
                   setEditingMeeting((m) => ({ ...m, reschedule_allowed: checked }))
@@ -569,31 +474,9 @@ export function MeetingTypesPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Calendar Color</Label>
-              <div className="flex flex-wrap gap-2">
-                {CALENDAR_COLORS.map((color) => (
-                  <button
-                    key={color.id}
-                    type="button"
-                    onClick={() =>
-                      setEditingMeeting((m) => ({ ...m, color_id: color.id }))
-                    }
-                    className={`w-8 h-8 rounded-full transition-all cursor-pointer ${
-                      editingMeeting?.color_id === color.id
-                        ? 'ring-2 ring-offset-2 ring-primary-500 scale-110'
-                        : 'hover:scale-110'
-                    }`}
-                    style={{ backgroundColor: color.hex }}
-                    title={color.name}
-                  >
-                    {editingMeeting?.color_id === color.id && (
-                      <Check className="w-4 h-4 text-white mx-auto" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Separator />
+
+            <SessionHoursField value={hoursDraft} onChange={setHoursDraft} />
           </div>
 
           <DialogFooter>

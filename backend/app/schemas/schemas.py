@@ -119,6 +119,11 @@ class AdminProfileResponse(BaseModel):
         from_attributes = True
 
 # Session schemas
+class SessionTimeWindowItem(BaseModel):
+    day_of_week: int  # 0=Sunday ... 6=Saturday
+    start_time: str   # HH:MM
+    end_time: str     # HH:MM
+
 class SessionCreate(BaseModel):
     title: str
     description: Optional[str] = ""
@@ -131,6 +136,8 @@ class SessionCreate(BaseModel):
     buffer_after_minutes: int = 10
     min_advance_hours: int = 2
     max_advance_days: int = 30
+    # None or [] = use the admin's general availability.
+    available_hours: Optional[List[SessionTimeWindowItem]] = None
 
 class SessionUpdate(BaseModel):
     title: Optional[str] = None
@@ -144,6 +151,8 @@ class SessionUpdate(BaseModel):
     buffer_after_minutes: Optional[int] = None
     min_advance_hours: Optional[int] = None
     max_advance_days: Optional[int] = None
+    # Omitted = unchanged. null or [] = back to the admin's general availability.
+    available_hours: Optional[List[SessionTimeWindowItem]] = None
 
 class SessionResponse(BaseModel):
     id: str
@@ -159,6 +168,7 @@ class SessionResponse(BaseModel):
     buffer_after_minutes: int
     min_advance_hours: int
     max_advance_days: int
+    available_hours: Optional[List[SessionTimeWindowItem]] = None
 
     class Config:
         from_attributes = True

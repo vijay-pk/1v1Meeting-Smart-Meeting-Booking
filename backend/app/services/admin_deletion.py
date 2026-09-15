@@ -33,6 +33,7 @@ from app.models.models import (
     User,
     AdminProfile,
     Session as SessionModel,
+    SessionTimeWindow,
     AvailabilityRule,
     AvailabilityException,
     GoogleConnection,
@@ -194,6 +195,9 @@ def permanently_delete_admin(
             db.query(RazorpayConnection)
             .filter(RazorpayConnection.admin_id == admin_id)
             .delete(synchronize_session=False)
+        )
+        db.query(SessionTimeWindow).filter(SessionTimeWindow.admin_id == admin_id).delete(
+            synchronize_session=False
         )
         sessions_deleted = (
             db.query(SessionModel)

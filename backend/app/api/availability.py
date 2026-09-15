@@ -246,7 +246,13 @@ async def get_available_slots(
         }
 
     # 2. Fetch Session details
-    session_obj = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    # Scoped to this admin: another admin's session id must not be priced and timed against
+    # this admin's calendar.
+    session_obj = (
+        db.query(SessionModel)
+        .filter(SessionModel.id == session_id, SessionModel.admin_id == user.id)
+        .first()
+    )
     if not session_obj or not session_obj.is_active:
         raise HTTPException(status_code=404, detail="Session not found or inactive")
 
@@ -340,6 +346,36 @@ async def get_available_slots(
             continue
         if window_end > window_start:
             working_windows.append((window_start, window_end))
+
+    # 4b. This session's own hours, if it has any. Slots come from the intersection with the
+    #     working hours, so a session window narrows the day but never opens time the admin
+    #     does not work. A session with windows is not offered on a weekday without one.
+    if session_obj.time_windows:
+        session_windows = []
+        for w in session_obj.time_windows:
+            if w.day_of_week != day_of_week:
+                continue
+            try:
+                session_windows.append((
+                    datetime.combine(target_date, datetime.strptime(w.start_time[:5], "%H:%M").time()),
+                    datetime.combine(target_date, datetime.strptime(w.end_time[:5], "%H:%M").time()),
+                ))
+            except ValueError:
+                continue
+        if not session_windows:
+            return {
+                "timezone": settings.BUSINESS_TIMEZONE,
+                "available_slots": [],
+                "date": date_str,
+                "admin_id": user.id,
+                "message": "This session is not offered on this day."
+            }
+        working_windows = [
+            (max(ws, ss), min(we, se))
+            for ws, we in working_windows
+            for ss, se in session_windows
+            if max(ws, ss) < min(we, se)
+        ]
 
     if not working_windows:
         return {
