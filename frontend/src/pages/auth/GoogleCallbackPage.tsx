@@ -90,7 +90,7 @@ export function GoogleCallbackPage() {
             const created = await api.googleAuthComplete(token, chosenUsername);
             sessionStorage.removeItem('bmm_pending_username');
             localStorage.removeItem('bmm_pending_username');
-            await finishSignIn(created.role);
+            await finishSignIn(created.role, true);
             return;
           } catch (autoErr: any) {
             // If the preferred handle had a validation collision, fallback to manual selection
@@ -110,7 +110,7 @@ export function GoogleCallbackPage() {
   }, []);
 
   /** Mirrors the password login path: hydrate the store, then route by role. */
-  const finishSignIn = async (role?: string) => {
+  const finishSignIn = async (role?: string, isNewAccount = false) => {
     try {
       const bp = await api.getMyProfile();
       if (bp) {
@@ -170,7 +170,10 @@ export function GoogleCallbackPage() {
     }
 
     const effectiveRole = role || localStorage.getItem('bmm_current_user_role');
-    navigate(effectiveRole === 'super_admin' ? '/super-admin' : '/admin', { replace: true });
+    // A just-created account goes to first-time setup; the dashboard sends anyone else who
+    // has not finished setup there too, from the server's record rather than this flag.
+    const adminHome = isNewAccount ? '/admin/setup' : '/admin';
+    navigate(effectiveRole === 'super_admin' ? '/super-admin' : adminHome, { replace: true });
   };
 
 
@@ -181,7 +184,7 @@ export function GoogleCallbackPage() {
     setPhase('creating');
     try {
       const result = await api.googleAuthComplete(accessToken, username.trim().toLowerCase());
-      await finishSignIn(result.role);
+      await finishSignIn(result.role, true);
     } catch (err: any) {
       setPhase('choose-username');
 

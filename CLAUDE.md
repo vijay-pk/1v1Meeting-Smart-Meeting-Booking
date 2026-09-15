@@ -32,7 +32,7 @@ Swagger at `http://127.0.0.1:8000/docs`, health at `/health`.
 
 **Tests** (`cd backend`):
 ```
-pytest -q                                                          # all 329
+pytest -q                                                          # all tests
 pytest test_api.py::test_slot_lock_double_booking_protection -v    # single test
 ```
 Ten test files. Every one of them builds the rows it needs and tears them down, so the
@@ -48,6 +48,8 @@ suite is order-independent and leaves nothing behind in the development database
 - `test_booking_integrity.py` — 19 tests on the guarantees below: the hold is consumed, one
   slot yields one booking, no meeting link is ever fabricated, email reports what actually
   happened, and the booking horizon is enforced.
+- `test_onboarding.py` — 20 tests on first-time setup status: each step derived from
+  persisted rows, completion recorded once, per-admin isolation, signup seeds no sessions.
 
 `test_security.py`, `test_payment_flow.py`, `test_admin_deletion.py`,
 `test_superprofile_import.py` and `test_booking_integrity.py` encode fail-closed
@@ -299,6 +301,26 @@ theirs. `backend/test_persistence.py` (44 tests) is the guard.
   errors with `.catch(() => {})`, so a rejected price save looked like the price had reset
   itself. All three are gone -- the API is the only source, and load and save failures are
   shown.
+
+## First-time setup and the dashboard link
+
+- **`GET /api/profiles/me/onboarding`** (`services/onboarding.py`) is the only place setup
+  status is decided: `profile` (name + username + saved photo), `working_hours` (an active
+  rule with end > start), `meeting_type` (an active session), `gateway` (this admin's
+  Razorpay row, `connected`). The browser used to compute this -- two steps hardcoded, two
+  read from an auth store whose `initialize()` nothing calls -- and said "1 of 4" to admins
+  who had done three. Do not re-derive it in a component.
+- **`admin_onboarding`** records, once, the first time all four are done. It is what keeps a
+  later Razorpay disconnect from sending an established admin back to setup; the checklist
+  shows the regression instead. A table, not a column, so `create_all` ships it with no
+  migration. `permanently_delete_admin` removes it.
+- Signup and new Google accounts go to `/admin/setup`; the dashboard redirects any
+  `role == "admin"` without that record there. Steps are completed on their existing pages
+  (`?from=setup` shows a "Back to setup" bar; Settings honours `?tab=payment`). Razorpay is
+  required to finish setup -- the owner's decision.
+- **Share / Preview** use `lib/publicUrl.ts` (`VITE_APP_URL`, falling back to
+  `window.location.origin`) and the username from the onboarding response -- never
+  localStorage or `authStore.profile`, which is how the dashboard opened `/undefined`.
 
 ## Import from SuperProfile
 

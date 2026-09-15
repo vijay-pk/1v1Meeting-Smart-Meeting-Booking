@@ -7,6 +7,7 @@ from app.models.models import (
 )
 from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, SessionResponse
 from app.api.deps import get_current_admin
+from app.services.onboarding import get_onboarding_status
 
 router = APIRouter()
 
@@ -140,6 +141,24 @@ def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session
         "google_connected": g_connected,
         "google_email": g_email
     }
+
+@router.get("/me/onboarding")
+def get_my_onboarding_status(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    First-time setup status for the signed-in admin, computed from persisted rows.
+
+    The one source for the setup screen, the dashboard checklist, and the username the
+    dashboard builds its public link from. Nothing here reads client-supplied state.
+    """
+    if not current_admin.profile:
+        _ensure_profile(db, current_admin)
+        db.commit()
+        db.refresh(current_admin)
+    return get_onboarding_status(db, current_admin)
+
 
 @router.put("/me")
 def update_my_profile(

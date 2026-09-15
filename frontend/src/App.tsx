@@ -14,6 +14,7 @@ import { BookingsPage } from '@/pages/admin/BookingsPage';
 import { PaymentsPage } from '@/pages/admin/PaymentsPage';
 import { CustomersPage } from '@/pages/admin/CustomersPage';
 import { SettingsPage } from '@/pages/admin/SettingsPage';
+import { SetupPage } from '@/pages/admin/SetupPage';
 import { CalendarPage } from '@/pages/admin/CalendarPage';
 
 // Super Admin Pages
@@ -83,6 +84,7 @@ export const App: React.FC = () => {
         {/* Individual Admin Portal */}
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<DashboardPage />} />
+          <Route path="/admin/setup" element={<SetupPage />} />
           <Route path="/admin/bookings" element={<BookingsPage />} />
           <Route path="/admin/calendar" element={<CalendarPage />} />
           <Route path="/admin/meeting-types" element={<MeetingTypesPage />} />

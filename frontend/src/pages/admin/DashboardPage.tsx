@@ -28,46 +28,46 @@ import {
   Plus,
   MapPin,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { Booking, DashboardStats } from '@/types';
 import { useBookingStore } from '@/stores/bookingStore';
+import { ErrorNote } from '@/components/common/ErrorNote';
+import { PublicLinkRow, usePublicLinkShare } from '@/components/admin/PublicLink';
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
+import { ONBOARDING_STEPS, isStepDone } from '@/lib/onboarding';
 
 export function DashboardPage() {
   const { profile } = useAuthStore();
-  const { bookings: storeBookings, meetingTypes } = useBookingStore();
+  const { bookings: storeBookings } = useBookingStore();
+  const navigate = useNavigate();
+  // Hides the card for this visit only. It changes no step and writes nothing.
   const [dismissedChecklist, setDismissedChecklist] = useState(false);
 
-  // Compute checklist completion
-  const checklistSteps = [
-    {
-      id: 'profile',
-      label: 'Profile & Photo',
-      completed: !!(profile?.full_name && profile?.photo_url),
-      link: '/admin/settings',
-    },
-    {
-      id: 'hours',
-      label: 'Working Hours',
-      completed: true, // Auto-set for all new admins
-      link: '/admin/availability',
-    },
-    {
-      id: 'meeting',
-      label: 'Active Meeting Type',
-      completed: (meetingTypes?.length || 0) > 0,
-      link: '/admin/meeting-types',
-    },
-    {
-      id: 'integrations',
-      label: 'Connect Gateway',
-      completed: false, // Can be checked manually by admin
-      link: '/admin/settings',
-    },
-  ];
+  // Every step, the count and the username for the public link come from the server.
+  const { status: onboarding, error: onboardingError, loading: onboardingLoading, refresh } =
+    useOnboardingStatus();
+  const { url: publicUrl, state: shareState, share, inputRef } = usePublicLinkShare(onboarding?.username);
 
-  const completedSteps = checklistSteps.filter(s => s.completed).length;
-  const allComplete = completedSteps === checklistSteps.length;
-  const showChecklist = !allComplete && !dismissedChecklist;
+  // First-time setup comes before the dashboard. An admin who has finished it once is never
+  // sent back, even if a step later regresses -- the checklist below shows that instead.
+  useEffect(() => {
+    if (onboarding && onboarding.role === 'admin' && !onboarding.setup_completed) {
+      navigate('/admin/setup', { replace: true });
+    }
+  }, [onboarding, navigate]);
+
+  const completedSteps = onboarding?.completed_count ?? 0;
+  const totalSteps = onboarding?.total_count ?? ONBOARDING_STEPS.length;
+  const allComplete = !!onboarding && completedSteps === totalSteps;
+  const showChecklist = !!onboarding && !allComplete && !dismissedChecklist;
+
+  const handleShare = () => {
+    if (!publicUrl) {
+      navigate('/admin/settings');
+      return;
+    }
+    void share();
+  };
 
   // Instant fallback data calculation
   const getInitialStats = (): DashboardStats => {
@@ -157,6 +157,10 @@ export function DashboardPage() {
         }
       />
 
+      {onboardingError && !onboarding && (
+        <ErrorNote message={`Couldn't load your setup status. ${onboardingError}`} onRetry={() => void refresh()} />
+      )}
+
       {/* Setup Checklist */}
       {showChecklist && (
         <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
@@ -173,59 +177,92 @@ export function DashboardPage() {
             <div className="w-full bg-blue-200 rounded-full h-2 mt-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${(completedSteps / checklistSteps.length) * 100}%` }}
+                style={{ width: `${(completedSteps / totalSteps) * 100}%` }}
               ></div>
             </div>
-            <p className="text-xs text-blue-700 mt-1">{completedSteps} of {checklistSteps.length} complete</p>
+            <p className="text-xs text-blue-700 mt-1">{completedSteps} of {totalSteps} complete</p>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {checklistSteps.map((step) => (
-                <Link key={step.id} to={step.link}>
-                  <div className="p-3 rounded-lg bg-white hover:bg-blue-100 transition cursor-pointer">
-                    <div className="flex items-center gap-2 mb-1">
-                      {step.completed ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-blue-400" />
-                      )}
-                      <p className="text-xs font-semibold text-text-primary">{step.label}</p>
+              {ONBOARDING_STEPS.map((step) => {
+                const done = isStepDone(onboarding, step.key);
+                return (
+                  <Link key={step.key} to={step.link}>
+                    <div className="p-3 rounded-lg bg-white hover:bg-blue-100 transition cursor-pointer">
+                      <div className="flex items-center gap-2 mb-1">
+                        {done ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        ) : (
+                          <Circle className="w-4 h-4 text-blue-400" />
+                        )}
+                        <p className="text-xs font-semibold text-text-primary">{step.label}</p>
+                      </div>
+                      <p className="text-[10px] text-text-tertiary">{done ? 'Done' : 'Complete this'}</p>
                     </div>
-                    <p className="text-[10px] text-text-tertiary">{step.completed ? 'Done' : 'Complete this'}</p>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
       )}
 
       {/* Quick Action Bar */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Link to={`/${profile?.username}`} target="_blank">
-          <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" size="sm">
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Button
+            type="button"
+            onClick={handleShare}
+            disabled={!onboarding}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+            size="sm"
+          >
             <Share2 className="w-4 h-4" />
             Share Link
           </Button>
-        </Link>
-        <Link to="/admin/availability">
-          <Button variant="outline" className="w-full" size="sm">
-            <Lock className="w-4 h-4" />
-            Block Time
-          </Button>
-        </Link>
-        <Link to={`/${profile?.username}`} target="_blank">
-          <Button variant="outline" className="w-full" size="sm">
-            <EyeIcon className="w-4 h-4" />
-            Preview
-          </Button>
-        </Link>
-        <Link to="/admin/meeting-types">
-          <Button variant="outline" className="w-full" size="sm">
-            <Plus className="w-4 h-4" />
-            New Meeting
-          </Button>
-        </Link>
+          <Link to="/admin/availability">
+            <Button variant="outline" className="w-full" size="sm">
+              <Lock className="w-4 h-4" />
+              Block Time
+            </Button>
+          </Link>
+          {publicUrl ? (
+            // A plain anchor to the absolute public URL: the same page and API a client
+            // gets, opened without the admin's session mattering at all.
+            <a href={publicUrl} target="_blank" rel="noopener noreferrer">
+              <Button type="button" variant="outline" className="w-full" size="sm" tabIndex={-1}>
+                <EyeIcon className="w-4 h-4" />
+                Preview
+              </Button>
+            </a>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              size="sm"
+              disabled={!onboarding}
+              onClick={() => navigate('/admin/settings')}
+            >
+              <EyeIcon className="w-4 h-4" />
+              Preview
+            </Button>
+          )}
+          <Link to="/admin/meeting-types">
+            <Button variant="outline" className="w-full" size="sm">
+              <Plus className="w-4 h-4" />
+              New Meeting
+            </Button>
+          </Link>
+        </div>
+        <PublicLinkRow
+          url={publicUrl}
+          state={shareState}
+          inputRef={inputRef}
+          loading={onboardingLoading && !onboarding}
+          error={onboarding ? '' : onboardingError}
+          onRetry={() => void refresh()}
+        />
       </div>
 
       {/* Stats Grid */}
@@ -319,13 +356,13 @@ export function DashboardPage() {
               title="No upcoming meetings"
               description="Share your booking page to start receiving appointments."
               action={
-                profile?.username ? (
-                  <Link to={`/book/${profile.username}`} target="_blank">
-                    <Button variant="outline" size="touch">
+                publicUrl ? (
+                  <a href={publicUrl} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="touch" tabIndex={-1}>
                       <ExternalLink className="w-3.5 h-3.5" />
                       View booking page
                     </Button>
-                  </Link>
+                  </a>
                 ) : undefined
               }
             />

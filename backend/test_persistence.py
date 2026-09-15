@@ -741,14 +741,9 @@ def test_each_admin_sees_only_their_own_connections_and_prices(tracked):
 
     a_sessions = client.get("/api/sessions/", headers=a["headers"]).json()
     b_sessions = client.get("/api/sessions/", headers=b["headers"]).json()
-    # Each admin gets 2 default starter sessions, plus any custom sessions they create.
-    a_custom = [s for s in a_sessions if s["title"] == "A's session"]
-    b_custom = [s for s in b_sessions if s["title"] == "B's session"]
-    assert len(a_custom) == 1 and a_custom[0]["price"] == 99900
-    assert len(b_custom) == 1 and b_custom[0]["price"] == 149900
-    # Admins cannot see each other's sessions.
-    assert session_a["id"] not in [s["id"] for s in b_sessions]
-    assert session_b["id"] not in [s["id"] for s in a_sessions]
+    # Signup seeds no sessions, so each admin sees exactly the one they created.
+    assert [(s["title"], s["price"]) for s in a_sessions] == [("A's session", 99900)]
+    assert [(s["title"], s["price"]) for s in b_sessions] == [("B's session", 149900)]
 
 
 def test_one_admin_disconnecting_does_not_affect_another(tracked, db):

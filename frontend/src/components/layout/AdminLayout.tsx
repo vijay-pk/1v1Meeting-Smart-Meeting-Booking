@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
+import { Outlet, Navigate, Link, useLocation, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { MobileTabBar } from './MobileTabBar';
@@ -15,6 +16,8 @@ export function AdminLayout() {
   // Mounted here and nowhere on a public route: the dark theme attribute lives exactly as
   // long as an admin screen is on the page (see hooks/useAdminTheme.ts).
   const { preference, setPreference } = useAdminTheme();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const loggedToken = localStorage.getItem('bmm_auth_token');
   const loggedAdminId = localStorage.getItem('bmm_logged_admin_id');
@@ -70,6 +73,16 @@ export function AdminLayout() {
         {/* pb-24 on mobile keeps the last row of content clear of the fixed tab bar. */}
         <main className="flex-1 p-4 pb-24 sm:p-6 lg:pb-6">
           <div className="mx-auto w-full max-w-6xl">
+            {/* Setup steps are done on their own pages; this is the way back. */}
+            {searchParams.get('from') === 'setup' && location.pathname !== '/admin/setup' && (
+              <Link
+                to="/admin/setup"
+                className="press mb-4 flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2.5 text-sm font-semibold text-primary-700 hover:bg-primary-100"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back to setup — save your changes here first
+              </Link>
+            )}
             <Outlet />
           </div>
         </main>

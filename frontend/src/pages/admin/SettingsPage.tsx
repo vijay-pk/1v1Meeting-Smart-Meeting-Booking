@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
+import { buildPublicProfileUrl } from '@/lib/publicUrl';
+import { useSearchParams } from 'react-router-dom';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
 import {
@@ -89,7 +91,14 @@ const THEME_PRESETS = [
 ];
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  // ?tab=payment lets the setup screen open the Razorpay step directly.
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const requested = searchParams.get('tab');
+    return requested === 'payment' || requested === 'calendar' || requested === 'email'
+      ? requested
+      : 'profile';
+  });
   const { admins, updateAdminProfile, currentSuperAdmin } = useBookingStore();
   const { profile } = useAuthStore();
 
@@ -282,12 +291,20 @@ export function SettingsPage() {
     { id: 'email', label: 'Email & Notifications', icon: Mail },
   ];
 
-  const publicProfileUrl = `${window.location.origin}/${currentAdmin?.username || ''}`;
+  // Only from the loaded server row: before that, currentAdmin can be a placeholder whose
+  // username is 'admin', and copying that would hand a client somebody else's page.
+  const publicProfileUrl =
+    (profileLoaded && buildPublicProfileUrl(currentAdmin?.username)) || '';
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(publicProfileUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!publicProfileUrl) return;
+    navigator.clipboard?.writeText(publicProfileUrl).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {}
+    );
   };
 
   return (
@@ -329,7 +346,7 @@ export function SettingsPage() {
           </button>
 
           <a
-            href={publicProfileUrl}
+            href={publicProfileUrl || undefined}
             target="_blank"
             rel="noreferrer"
             className="press inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm shadow-orange-600/20 transition hover:bg-orange-500 sm:h-9 sm:flex-none"
@@ -384,7 +401,7 @@ export function SettingsPage() {
               </button>
               <span className="text-amber-400">•</span>
               <a
-                href={publicProfileUrl}
+                href={publicProfileUrl || undefined}
                 target="_blank"
                 rel="noreferrer"
                 className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline flex items-center gap-1"

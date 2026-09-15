@@ -117,6 +117,19 @@ export function warmUpBackend(): void {
   fetch(`${API_BASE.replace(/\/api$/, '')}/health`, { method: 'GET' }).catch(() => {});
 }
 
+export interface OnboardingStatus {
+  profile: boolean;
+  working_hours: boolean;
+  meeting_type: boolean;
+  gateway: boolean;
+  completed_count: number;
+  total_count: number;
+  setup_completed: boolean;
+  setup_completed_at: string | null;
+  username: string | null;
+  role: string;
+}
+
 /** Reads the backend's error detail, falling back to a message the user can act on. */
 async function failure(res: Response, fallback: string): Promise<Error> {
   const body = await res.json().catch(() => ({} as any));
@@ -286,6 +299,14 @@ export const api = {
   getMyProfile: async () => {
     const res = await request(`/profiles/me`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
+    return res.json();
+  },
+
+  // First-time setup status, derived server-side from this admin's persisted rows. Throws
+  // on failure: an unreachable server must never read as "nothing is set up yet".
+  getOnboardingStatus: async (): Promise<OnboardingStatus> => {
+    const res = await request(`/profiles/me/onboarding`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load your setup status.');
     return res.json();
   },
 

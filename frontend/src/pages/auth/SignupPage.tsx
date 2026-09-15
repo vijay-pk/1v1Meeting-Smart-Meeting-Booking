@@ -116,7 +116,8 @@ export function SignupPage() {
       localStorage.setItem('bmm_logged_username', data.username || username);
       localStorage.setItem('bmm_logged_admin_name', data.name || fullName);
 
-      navigate('/admin');
+      // A brand-new account goes through first-time setup before the dashboard.
+      navigate('/admin/setup');
     } catch (err: any) {
       // This used to test `message.includes('Failed to fetch')` to substitute friendlier
       // copy. That string no longer reaches here -- lib/api.ts converts the browser's raw

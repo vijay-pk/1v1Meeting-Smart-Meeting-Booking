@@ -269,6 +269,27 @@ class DeletedAdminIdentity(Base):
     reason = Column(String(255), nullable=True)
 
 
+class AdminOnboarding(Base):
+    """
+    Records that an admin finished first-time setup. One row per admin, written once.
+
+    Whether each setup step is done is never stored: services/onboarding.py derives it from
+    the rows that actually make a page bookable (profile, availability, sessions, Razorpay).
+    This row answers the one question those rows cannot -- "has this admin already been
+    through setup?" -- so that disconnecting Razorpay later shows the step as outstanding on
+    the dashboard instead of locking an established admin back into the setup screen.
+
+    A separate table rather than a column on admin_profiles on purpose: create_all adds a
+    missing table by itself, but never a missing column, and a column the ORM selects before
+    a hand-applied migration reaches production would break every profile query -- the
+    public booking page included.
+    """
+    __tablename__ = "admin_onboarding"
+
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    completed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class ProfileImport(Base):
     """
     One "Import from SuperProfile" attempt by one admin.
