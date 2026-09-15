@@ -93,3 +93,32 @@ export function formatRelativeTime(isoString: string): string {
   if (diffDay < 7) return `${diffDay}d ago`;
   return format(date, 'MMM d');
 }
+
+/**
+ * A stored booking time, as the wall clock it records.
+ *
+ * Booking start/end times are the host's business-timezone wall clock with a cosmetic
+ * trailing "Z" ("2026-09-15T21:48:00Z" means 9:48 PM in that zone, not UTC). `new Date()` on
+ * that string reads it as UTC and the browser then shifts it into its own zone, which is how a
+ * 9:48 PM IST booking was shown as 3:18 AM the next day. Dropping the marker and parsing the
+ * components as local time makes date-fns print exactly the stored clock time, whatever zone
+ * the viewer's browser is in.
+ */
+export function parseBookingWallClock(value: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(value || '');
+  if (!match) return new Date(NaN);
+  const [, y, mo, d, h, mi, s] = match;
+  return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || 0));
+}
+
+/**
+ * A real instant sent by the server (created_at and similar).
+ *
+ * Older responses serialize naive UTC with no offset, which a browser reads as local time --
+ * "about 6 hours ago" for something created a minute ago in IST. A missing offset means UTC.
+ */
+export function parseServerInstant(value: string): Date {
+  if (!value) return new Date(NaN);
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(value);
+  return new Date(hasZone ? value : `${value}Z`);
+}

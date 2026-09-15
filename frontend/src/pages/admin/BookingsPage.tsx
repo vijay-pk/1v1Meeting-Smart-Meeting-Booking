@@ -4,6 +4,7 @@ import { BOOKING_STATUS_LABELS, BOOKING_STATUS_COLORS, CURRENCIES } from '@/lib/
 import type { Booking } from '@/types';
 import { formatDistanceToNow, format } from 'date-fns';
 import { CalendarDays } from 'lucide-react';
+import { parseBookingWallClock, parseServerInstant } from '@/lib/format';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { SkeletonList } from '@/components/common/Skeleton';
@@ -168,11 +169,12 @@ export function BookingsPage() {
               cell: (booking) => (
                 <div>
                   <p className="text-text-primary">
-                    {format(new Date(booking.start_time), 'MMM d, yyyy')}
+                    {format(parseBookingWallClock(booking.start_time), 'MMM d, yyyy')}
                   </p>
                   <p className="text-xs text-text-tertiary">
-                    {format(new Date(booking.start_time), 'h:mm a')} –{' '}
-                    {format(new Date(booking.end_time), 'h:mm a')}
+                    {format(parseBookingWallClock(booking.start_time), 'h:mm a')} –{' '}
+                    {format(parseBookingWallClock(booking.end_time), 'h:mm a')}
+                    {booking.customer_timezone ? ` (${booking.customer_timezone})` : ''}
                   </p>
                 </div>
               ),
@@ -209,7 +211,7 @@ export function BookingsPage() {
               collapse: true,
               cell: (booking) => (
                 <span className="text-xs text-text-tertiary">
-                  {formatDistanceToNow(new Date(booking.created_at), { addSuffix: true })}
+                  {formatDistanceToNow(parseServerInstant(booking.created_at), { addSuffix: true })}
                 </span>
               ),
             },
@@ -303,11 +305,11 @@ function BookingDetailModal({
             </h3>
             <p className="text-sm font-medium">{booking.meeting_type?.name}</p>
             <p className="text-sm text-text-secondary">
-              {format(new Date(booking.start_time), 'EEEE, MMMM d, yyyy')}
+              {format(parseBookingWallClock(booking.start_time), 'EEEE, MMMM d, yyyy')}
             </p>
             <p className="text-sm text-text-secondary">
-              {format(new Date(booking.start_time), 'h:mm a')} –{' '}
-              {format(new Date(booking.end_time), 'h:mm a')} ({booking.customer_timezone})
+              {format(parseBookingWallClock(booking.start_time), 'h:mm a')} –{' '}
+              {format(parseBookingWallClock(booking.end_time), 'h:mm a')} ({booking.customer_timezone})
             </p>
           </section>
 
@@ -391,7 +393,7 @@ function BookingDetailModal({
             <div className="space-y-2 text-xs text-text-secondary">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-primary-500" />
-                Booking created — {format(new Date(booking.created_at), 'MMM d, h:mm a')}
+                Booking created — {format(parseServerInstant(booking.created_at), 'MMM d, h:mm a')}
               </div>
               {booking.payment_status === 'completed' && (
                 <div className="flex items-center gap-2">
@@ -420,7 +422,7 @@ function BookingDetailModal({
               {booking.cancelled_at && (
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-red-500" />
-                  Cancelled — {format(new Date(booking.cancelled_at), 'MMM d, h:mm a')}
+                  Cancelled — {format(parseServerInstant(booking.cancelled_at), 'MMM d, h:mm a')}
                 </div>
               )}
             </div>

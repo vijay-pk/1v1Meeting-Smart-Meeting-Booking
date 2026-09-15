@@ -143,7 +143,11 @@ def get_admin_bookings(
             "duration_minutes": b.meeting_type.duration_minutes if b.meeting_type else 30,
             "price": b.meeting_type.price if b.meeting_type else 0,
             "google_meet_link": b.google_meet_link,
-            "created_at": b.created_at.isoformat() if b.created_at else None
+            # Stored as naive UTC; say so, or the browser reads it as local time.
+            "created_at": (
+                (b.created_at if b.created_at.tzinfo else b.created_at.replace(tzinfo=timezone.utc)).isoformat()
+                if b.created_at else None
+            )
         })
     return results
 
