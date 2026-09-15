@@ -112,6 +112,24 @@ export function parseBookingWallClock(value: string): Date {
 }
 
 /**
+ * The current time in `timezone`, in the same wall-clock frame as parseBookingWallClock, so
+ * "is this booking upcoming / today" compares like with like in any browser zone.
+ */
+export function wallClockNow(timezone: string): Date {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+    return parseBookingWallClock(`${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`);
+  } catch {
+    return new Date();
+  }
+}
+
+/**
  * A real instant sent by the server (created_at and similar).
  *
  * Older responses serialize naive UTC with no offset, which a browser reads as local time --

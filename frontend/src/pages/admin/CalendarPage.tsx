@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   format,
   addMonths,
@@ -11,9 +11,11 @@ import {
   isSameMonth,
   isSameDay,
   isToday,
-  parseISO
 } from 'date-fns';
 import { useBookingStore } from '@/stores/bookingStore';
+import { api } from '@/lib/api';
+import { parseBookingWallClock } from '@/lib/format';
+import { ErrorNote } from '@/components/common/ErrorNote';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,7 +37,7 @@ import {
 import { Link } from 'react-router-dom';
 
 export function CalendarPage() {
-  const { bookings, admins, meetingTypes } = useBookingStore();
+  const { admins } = useBookingStore();
   const { profile } = useAuthStore();
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -53,15 +55,36 @@ export function CalendarPage() {
     admins.find((a) => a.id === loggedAdminId || a.username === loggedAdminId) ||
     admins[0];
 
-  // Filter bookings for this admin (or all if super admin and no filter)
-  const myBookings = useMemo(() => {
-    return bookings.filter(
-      (b) =>
-        b.admin_id === loggedAdminId ||
-        b.assigned_admin_id === loggedAdminId ||
-        !b.admin_id
-    );
-  }, [bookings, loggedAdminId]);
+  // This admin's bookings from the backend the booking flow writes to. The calendar used to
+  // read the browser store, which nothing fills with real bookings, so it was always empty.
+  // The endpoint scopes to the signed-in admin server-side.
+  const [myBookings, setMyBookings] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const loadBookings = () => {
+    setLoadError('');
+    api
+      .getMyBookings()
+      .then((rows: any[]) =>
+        setMyBookings(
+          (Array.isArray(rows) ? rows : []).map((row) => ({
+            id: row.id,
+            start_time: row.start_time,
+            end_time: row.end_time,
+            timezone: row.timezone,
+            status: row.status,
+            session_title: row.session_title,
+            customer_name: row.client_name,
+            customer_email: row.client_email,
+            customer_phone: row.client_phone,
+            google_meet_url: row.google_meet_link,
+          }))
+        )
+      )
+      .catch((err: any) => setLoadError(err?.message || 'Could not load your bookings.'));
+  };
+  useEffect(() => {
+    loadBookings();
+  }, []);
 
   // Calendar days calculation
   const monthStart = startOfMonth(currentDate);
@@ -75,7 +98,7 @@ export function CalendarPage() {
     const map = new Map<string, any[]>();
     myBookings.forEach((b) => {
       try {
-        const d = parseISO(b.start_time);
+        const d = parseBookingWallClock(b.start_time);
         const key = format(d, 'yyyy-MM-dd');
         const existing = map.get(key) || [];
         existing.push(b);
@@ -144,6 +167,8 @@ export function CalendarPage() {
           </Link>
         </div>
       </div>
+
+      {loadError && <ErrorNote message={loadError} onRetry={loadBookings} />}
 
       {/* Main calendar view.
           `hidden sm:block` on the month branch: a 7-column grid inside a 272px phone column
@@ -251,7 +276,7 @@ export function CalendarPage() {
                           }}
                           className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 truncate cursor-pointer hover:bg-emerald-100"
                         >
-                          {format(parseISO(b.start_time), 'HH:mm')} {b.customer_name?.split(' ')[0]}
+                          {format(parseBookingWallClock(b.start_time), 'HH:mm')} {b.customer_name?.split(' ')[0]}
                         </div>
                       ))}
                       {dayBookings.length > 2 && (
@@ -305,8 +330,8 @@ export function CalendarPage() {
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                           <Clock className="w-3.5 h-3.5 text-orange-600" />
                           <span>
-                            {format(parseISO(booking.start_time), 'hh:mm a')} –{' '}
-                            {format(parseISO(booking.end_time), 'hh:mm a')}
+                            {format(parseBookingWallClock(booking.start_time), 'hh:mm a')} –{' '}
+                            {format(parseBookingWallClock(booking.end_time), 'hh:mm a')}
                           </span>
                         </div>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase">
@@ -368,11 +393,11 @@ export function CalendarPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-text-primary">
-                        {format(parseISO(b.start_time), 'EEEE, MMMM d, yyyy')}
+                        {format(parseBookingWallClock(b.start_time), 'EEEE, MMMM d, yyyy')}
                       </span>
                       <span className="text-xs text-text-tertiary">•</span>
                       <span className="text-xs font-mono font-bold text-orange-600">
-                        {format(parseISO(b.start_time), 'hh:mm a')} – {format(parseISO(b.end_time), 'hh:mm a')}
+                        {format(parseBookingWallClock(b.start_time), 'hh:mm a')} – {format(parseBookingWallClock(b.end_time), 'hh:mm a')}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-text-secondary">
@@ -428,11 +453,11 @@ export function CalendarPage() {
               <div className="p-3 bg-surface-secondary rounded-xl space-y-1">
                 <p className="text-text-tertiary font-semibold">Scheduled Date & Time</p>
                 <p className="font-bold text-text-primary text-sm">
-                  {format(parseISO(selectedBooking.start_time), 'EEEE, MMMM d, yyyy')}
+                  {format(parseBookingWallClock(selectedBooking.start_time), 'EEEE, MMMM d, yyyy')}
                 </p>
                 <p className="font-mono text-orange-600 font-bold">
-                  {format(parseISO(selectedBooking.start_time), 'hh:mm a')} –{' '}
-                  {format(parseISO(selectedBooking.end_time), 'hh:mm a')}
+                  {format(parseBookingWallClock(selectedBooking.start_time), 'hh:mm a')} –{' '}
+                  {format(parseBookingWallClock(selectedBooking.end_time), 'hh:mm a')}
                 </p>
               </div>
 

@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/stores/authStore';
-import { supabase } from '@/lib/supabase';
-import { formatPrice, formatDate, formatTime } from '@/lib/format';
+import { formatPrice, parseBookingWallClock, wallClockNow } from '@/lib/format';
+import { format } from 'date-fns';
+import { api } from '@/lib/api';
 import {
   CalendarDays,
   Clock,
@@ -30,7 +31,6 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Booking, DashboardStats } from '@/types';
-import { useBookingStore } from '@/stores/bookingStore';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { PublicLinkRow, usePublicLinkShare } from '@/components/admin/PublicLink';
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
@@ -38,7 +38,6 @@ import { ONBOARDING_STEPS, isStepDone } from '@/lib/onboarding';
 
 export function DashboardPage() {
   const { profile } = useAuthStore();
-  const { bookings: storeBookings } = useBookingStore();
   const navigate = useNavigate();
   // Hides the card for this visit only. It changes no step and writes nothing.
   const [dismissedChecklist, setDismissedChecklist] = useState(false);
@@ -69,69 +68,70 @@ export function DashboardPage() {
     void share();
   };
 
-  // Instant fallback data calculation
-  const getInitialStats = (): DashboardStats => {
-    const adminId = profile?.id || localStorage.getItem('bmm_logged_admin_id');
-    const myBookings = storeBookings.filter(
-      (b) => b.admin_id === adminId || b.assigned_admin_id === adminId || !b.admin_id
-    );
-    const confirmed = myBookings.filter((b) => b.status === 'confirmed');
-    const revenue = confirmed.reduce((sum, b) => sum + 149700, 0);
+  // Stats and upcoming meetings from the backend the booking flow writes to. This used to
+  // count the browser store (always empty, and "revenue" was a hardcoded ₹1,497 per booking)
+  // and read upcoming meetings from the separate Supabase database, so a real booking never
+  // appeared here.
+  const [stats, setStats] = useState<DashboardStats>({
+    todays_meetings: 0,
+    upcoming_meetings: 0,
+    total_bookings: 0,
+    total_revenue: 0,
+    pending_payments: 0,
+    cancelled_meetings: 0,
+    currency: 'INR',
+  });
+  const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
+  const [bookingsError, setBookingsError] = useState('');
+  const [loading] = useState(false);
 
-    return {
-      todays_meetings: 0,
-      upcoming_meetings: confirmed.length,
-      total_bookings: myBookings.length,
-      total_revenue: revenue,
-      pending_payments: 0,
-      cancelled_meetings: myBookings.filter((b) => b.status === 'cancelled').length,
-      currency: 'INR',
-    };
+  const loadBookings = () => {
+    setBookingsError('');
+    api
+      .getMyBookings()
+      .then((rows: any[]) => {
+        const all = Array.isArray(rows) ? rows : [];
+        // Booking times are wall clock in the booking's timezone, so "now" and "today" are
+        // taken in that zone too -- never the browser's.
+        const zone = all[0]?.timezone || 'Asia/Kolkata';
+        const now = wallClockNow(zone);
+        const today = format(now, 'yyyy-MM-dd');
+        const confirmed = all.filter((b) => b.status === 'confirmed');
+        const upcoming = confirmed
+          .filter((b) => parseBookingWallClock(b.start_time) >= now)
+          .sort((a, b) => parseBookingWallClock(a.start_time).getTime() - parseBookingWallClock(b.start_time).getTime());
+
+        setStats({
+          todays_meetings: confirmed.filter((b) => String(b.start_time).slice(0, 10) === today).length,
+          upcoming_meetings: upcoming.length,
+          // Abandoned checkouts are not bookings.
+          total_bookings: all.filter((b) => !['pending_payment', 'expired'].includes(b.status)).length,
+          // Real, captured payments only; simulated test payments are not revenue.
+          total_revenue: all
+            .filter((b) => b.payment_status === 'completed')
+            .reduce((sum, b) => sum + (Number(b.price) || 0), 0),
+          pending_payments: 0,
+          cancelled_meetings: all.filter((b) => b.status === 'cancelled').length,
+          currency: 'INR',
+        });
+        setUpcomingBookings(
+          upcoming.slice(0, 5).map((b) => ({
+            id: b.id,
+            status: b.status,
+            start_time: b.start_time,
+            end_time: b.end_time,
+            google_meet_url: b.google_meet_link,
+            customer: { name: b.client_name, email: b.client_email },
+            meeting_type: { name: b.session_title },
+          })) as unknown as Booking[]
+        );
+      })
+      .catch((err: any) => setBookingsError(err?.message || 'Could not load your bookings.'));
   };
 
-  const [stats, setStats] = useState<DashboardStats>(getInitialStats);
-  const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>(() => {
-    const adminId = profile?.id || localStorage.getItem('bmm_logged_admin_id');
-    return storeBookings.filter(
-      (b) => b.admin_id === adminId || b.assigned_admin_id === adminId || !b.admin_id
-    ).slice(0, 5);
-  });
-  const [loading, setLoading] = useState(false); // Instant render!
-
   useEffect(() => {
-    const adminId = profile?.id || localStorage.getItem('bmm_logged_admin_id');
-    if (!adminId) return;
-
-    const fetchDashboardData = async () => {
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Supabase timeout')), 800)
-        );
-
-        const fetchPromise = (async () => {
-          const now = new Date().toISOString();
-          const { data: upcoming } = await supabase
-            .from('bookings')
-            .select('*, customer:customers(*), meeting_type:meeting_types(*), payment:payments(*)')
-            .eq('admin_id', adminId)
-            .in('status', ['confirmed', 'payment_received'])
-            .gte('start_time', now)
-            .order('start_time', { ascending: true })
-            .limit(5);
-
-          if (upcoming && upcoming.length > 0) {
-            setUpcomingBookings(upcoming as Booking[]);
-          }
-        })();
-
-        await Promise.race([fetchPromise, timeoutPromise]);
-      } catch (error) {
-        // Kept instant local data
-      }
-    };
-
-    fetchDashboardData();
-  }, [profile?.id]);
+    loadBookings();
+  }, []);
 
   if (loading) {
     return (
@@ -159,6 +159,9 @@ export function DashboardPage() {
 
       {onboardingError && !onboarding && (
         <ErrorNote message={`Couldn't load your setup status. ${onboardingError}`} onRetry={() => void refresh()} />
+      )}
+      {bookingsError && (
+        <ErrorNote message={`Couldn't load your bookings. ${bookingsError}`} onRetry={loadBookings} />
       )}
 
       {/* Setup Checklist */}
@@ -304,7 +307,7 @@ export function DashboardPage() {
                   {upcomingBookings[0].customer?.name || 'Client'}
                 </h3>
                 <p className="text-sm text-text-secondary mb-3">
-                  {upcomingBookings[0].meeting_type?.name} • {formatTime(upcomingBookings[0].start_time, profile?.timezone || 'Asia/Kolkata')}
+                  {upcomingBookings[0].meeting_type?.name} • {format(parseBookingWallClock(upcomingBookings[0].start_time), 'EEE, MMM d · h:mm a')}
                 </p>
                 {upcomingBookings[0].notes && (
                   <p className="text-xs text-text-tertiary mb-3">Notes: {upcomingBookings[0].notes}</p>
@@ -322,7 +325,8 @@ export function DashboardPage() {
                     Join Meet
                   </a>
                 )}
-                <Link to={`/admin/bookings/${upcomingBookings[0].id}`}>
+                {/* There is no per-booking route; the bookings list holds the details. */}
+                <Link to="/admin/bookings">
                   <Button variant="outline" size="sm">
                     Details
                   </Button>
@@ -371,7 +375,7 @@ export function DashboardPage() {
               {upcomingBookings.slice(1).map((booking) => (
                 <Link
                   key={booking.id}
-                  to={`/admin/bookings/${booking.id}`}
+                  to="/admin/bookings"
                   className="press flex flex-col gap-3 rounded-xl border border-border p-4 transition-all duration-150 hover:border-primary-200 hover:bg-primary-50/30 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -397,10 +401,10 @@ export function DashboardPage() {
                   <div className="flex shrink-0 flex-wrap items-center gap-3 pl-13 sm:gap-4 sm:pl-0">
                     <div className="hidden text-right sm:block">
                       <p className="text-sm font-medium text-text-primary">
-                        {formatDate(booking.start_time, profile?.timezone || 'Asia/Kolkata', 'MMM d')}
+                        {format(parseBookingWallClock(booking.start_time), 'MMM d')}
                       </p>
                       <p className="text-xs text-text-secondary">
-                        {formatTime(booking.start_time, profile?.timezone || 'Asia/Kolkata')}
+                        {format(parseBookingWallClock(booking.start_time), 'h:mm a')}
                       </p>
                     </div>
                     <StatusBadge status={booking.status} />
