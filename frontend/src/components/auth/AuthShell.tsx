@@ -51,7 +51,7 @@ export function AuthShell({
 
       <main
         className={cn(
-          'mx-auto flex w-full flex-1 flex-col justify-center px-4 py-6 sm:px-6 sm:py-10',
+          'mx-auto flex w-full min-w-0 flex-1 flex-col justify-center px-4 py-4 sm:px-6 sm:py-10',
           wide ? 'max-w-6xl' : 'max-w-md'
         )}
       >
@@ -66,7 +66,7 @@ export function AuthShell({
           <div className={cn(aside && 'lg:col-span-5 lg:order-2')}>
             <div className="mb-5 text-center">
               {icon && <div className="mb-3 flex justify-center">{icon}</div>}
-              <h1 className="text-2xl font-bold tracking-tight text-text-primary">{title}</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">{title}</h1>
               {subtitle && (
                 <p className="mt-1.5 text-sm text-text-secondary">{subtitle}</p>
               )}
@@ -83,7 +83,7 @@ export function AuthShell({
 
       <footer className="safe-b mx-auto w-full max-w-6xl px-4 py-6 text-center text-xs text-text-tertiary sm:px-6">
         <p>
-          © {new Date().getFullYear()} {APP_NAME}. 1:1 booking for independent professionals.
+          © {new Date().getFullYear()} {APP_NAME}
         </p>
       </footer>
     </div>

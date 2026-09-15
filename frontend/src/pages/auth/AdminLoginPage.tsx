@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, Lock, Mail, ArrowRight, UserPlus } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight } from 'lucide-react';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
 import { ErrorNote } from '@/components/common/ErrorNote';
@@ -143,22 +143,12 @@ export const AdminLoginPage: React.FC = () => {
   return (
     <AuthShell
       title="Sign in"
-      subtitle="One login for admins and the platform owner."
       icon={
         <img
           src="/logo.png"
           alt="BookMyMeet Logo"
           className="h-12 w-12 object-contain rounded-2xl shadow-sm"
         />
-      }
-      footer={
-        <Link
-          to="/signup"
-          className="press inline-flex h-10 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-text-secondary transition hover:bg-surface-tertiary"
-        >
-          <span>Create account</span>
-          <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-        </Link>
       }
     >
       <div className="space-y-3">
@@ -178,7 +168,6 @@ export const AdminLoginPage: React.FC = () => {
           icon={Mail}
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
-          placeholder="you@example.com"
         />
 
         <AuthField
@@ -190,7 +179,6 @@ export const AdminLoginPage: React.FC = () => {
           icon={Lock}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
           labelAction={
             <span className="text-[11px] text-text-tertiary">Contact your admin to reset</span>
           }
@@ -217,11 +205,11 @@ export const AdminLoginPage: React.FC = () => {
         </Button>
       </form>
 
-      <div className="mt-5 border-t border-border pt-4 text-center">
-        <p className="text-xs text-text-secondary">
-          Want to take bookings of your own?{' '}
+      <div className="mt-5 text-center">
+        <p className="text-sm text-text-secondary">
+          Don&rsquo;t have an account?{' '}
           <Link to="/signup" className="font-semibold text-primary-600 hover:underline">
-            Create an admin account
+            Sign up
           </Link>
         </p>
       </div>

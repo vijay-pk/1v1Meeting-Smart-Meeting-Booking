@@ -2,33 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { api, warmUpBackend, SLOW_REQUEST_MS } from '@/lib/api';
-import { sanitizeUsername, validateUsername, USERNAME_RULE_TEXT } from '@/lib/username';
+import { sanitizeUsername, validateUsername } from '@/lib/username';
 import { useUsernameAvailability } from '@/hooks/useUsernameAvailability';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { AuthField, PasswordToggle } from '@/components/auth/AuthField';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { Spinner } from '@/components/common/Skeleton';
-import {
-  UserPlus,
-  Mail,
-  Lock,
-  User,
-  AtSign,
-  Phone,
-  ShieldCheck,
-  Calendar,
-  CreditCard,
-  Sparkles,
-  ArrowRight,
-  Globe
-} from 'lucide-react';
+import { Mail, Lock, User, AtSign } from 'lucide-react';
+
+// A shorter form of USERNAME_RULE_TEXT for the idle helper line. The full sentence is still
+// what validation reports when a name breaks the rule.
+const USERNAME_HINT = '3–30 characters · lowercase letters, numbers, dots, dashes or underscores';
 
 export function SignupPage() {
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -108,7 +98,6 @@ export function SignupPage() {
         name: fullName,
         email,
         password,
-        phone,
         username,
       });
 
@@ -167,7 +156,7 @@ export function SignupPage() {
 
     switch (usernameStatus.kind) {
       case 'idle':
-        return { hint: USERNAME_RULE_TEXT };
+        return { hint: USERNAME_HINT };
       case 'invalid':
         return { error: usernameStatus.reason };
       case 'checking':
@@ -183,78 +172,7 @@ export function SignupPage() {
   })();
 
   return (
-    <AuthShell
-      wide
-      title="Create your account"
-      subtitle="Your booking page is live the moment you finish."
-      footer={
-        <Link
-          to="/admin/login"
-          className="press inline-flex h-10 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-text-secondary transition hover:bg-surface-tertiary"
-        >
-          <span>Sign in</span>
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </Link>
-      }
-      aside={
-        <div className="space-y-5">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Personal booking pages for 1:1 sessions</span>
-          </div>
-
-          <h2 className="text-2xl font-black leading-tight tracking-tight text-text-primary sm:text-4xl">
-            Launch your 1:1 booking page in{' '}
-            <span className="text-primary-600">60 seconds</span>.
-          </h2>
-
-          <p className="max-w-xl text-sm leading-relaxed text-text-secondary sm:text-base">
-            Accept paid 1-to-1 appointments, drop the scheduling emails, connect your Google
-            Calendar, and collect payments straight through your own Razorpay account.
-          </p>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              {
-                Icon: Globe,
-                tone: 'bg-primary-50 text-primary-600',
-                title: 'Your own URL',
-                body: <>Claim <code className="font-mono text-[11px] text-primary-700">{host}/username</code> with your own theme, video and bio.</>,
-              },
-              {
-                Icon: Calendar,
-                tone: 'bg-blue-50 text-blue-600',
-                title: 'Google Calendar & Meet',
-                body: 'Busy slots are subtracted automatically, and every confirmed booking gets a Meet link.',
-              },
-              {
-                Icon: CreditCard,
-                tone: 'bg-emerald-50 text-emerald-600',
-                title: 'Your own Razorpay',
-                body: 'Connect your own keys, encrypted at rest. Payments settle directly to you.',
-              },
-              {
-                Icon: ShieldCheck,
-                tone: 'bg-purple-50 text-purple-600',
-                title: 'No double bookings',
-                body: 'Slots are held while a client pays, so two people can never take the same time.',
-              },
-            ].map((feature) => (
-              <div
-                key={feature.title}
-                className="space-y-1.5 rounded-2xl border border-border bg-surface p-4"
-              >
-                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${feature.tone}`}>
-                  <feature.Icon className="h-4 w-4" aria-hidden="true" />
-                </div>
-                <h3 className="text-sm font-bold text-text-primary">{feature.title}</h3>
-                <p className="text-xs leading-relaxed text-text-tertiary">{feature.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      }
-    >
+    <AuthShell title="Create your account">
       <div className="space-y-3">
         <GoogleAuthButton
           label="Sign up with Google"
@@ -279,21 +197,19 @@ export function SignupPage() {
           required
           autoComplete="name"
           icon={User}
-          placeholder="Your full name"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
         />
 
         <AuthField
           id="signup-username"
-          label="Username & personal URL"
+          label="Username"
           type="text"
           required
           minLength={3}
           maxLength={30}
           autoComplete="off"
           icon={AtSign}
-          placeholder="yourname"
           value={username}
           onChange={(e) => handleUsernameChange(e.target.value)}
           reserveHelper
@@ -307,21 +223,8 @@ export function SignupPage() {
           required
           autoComplete="email"
           icon={Mail}
-          placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-        />
-
-        <AuthField
-          id="signup-phone"
-          label="Phone number"
-          type="tel"
-          autoComplete="tel"
-          icon={Phone}
-          placeholder="Optional"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          hint="Optional — used only for booking notifications."
         />
 
         <AuthField
@@ -332,10 +235,9 @@ export function SignupPage() {
           minLength={6}
           autoComplete="new-password"
           icon={Lock}
-          placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          hint="Minimum 6 characters."
+          hint="At least 6 characters."
           trailing={
             <PasswordToggle
               visible={showPassword}
@@ -363,10 +265,7 @@ export function SignupPage() {
               {serverWaking ? 'Waking the server…' : 'Creating your page…'}
             </>
           ) : (
-            <>
-              <UserPlus className="h-4 w-4" aria-hidden="true" />
-              Create my booking page
-            </>
+            'Create account'
           )}
         </Button>
         {serverWaking && (
@@ -377,9 +276,9 @@ export function SignupPage() {
         )}
       </form>
 
-      <div className="mt-4 border-t border-border pt-3 text-center">
-        <p className="text-xs text-text-secondary">
-          Already registered?{' '}
+      <div className="mt-5 text-center">
+        <p className="text-sm text-text-secondary">
+          Already have an account?{' '}
           <Link to="/admin/login" className="font-semibold text-primary-600 hover:underline">
             Sign in
           </Link>
