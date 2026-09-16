@@ -396,7 +396,7 @@ export function AvailabilityPage() {
                         <button
                           type="button"
                           onClick={() => removeBlock(block.id)}
-                          className="text-red-500 hover:text-red-700 ml-1 font-bold text-xs cursor-pointer"
+                          className="press -mr-1.5 ml-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700 font-bold text-xs cursor-pointer sm:h-6 sm:w-6"
                           title="Remove time block"
                         >
                           ✕

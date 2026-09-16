@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, CheckCircle2, Loader2, Calendar, Clock, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { formatDate, formatTime } from '@/lib/format';
+import { formatBookingDate, formatBookingTime } from '@/lib/format';
 import type { Booking } from '@/types';
 
 export const CancelBookingPage: React.FC = () => {
@@ -120,8 +120,8 @@ export const CancelBookingPage: React.FC = () => {
                 Try again
               </Button>
             </div>
-            <Link to="/">
-              <Button variant="outline" className="mt-2">
+            <Link to="/" className="mt-2 inline-block">
+              <Button variant="outline" tabIndex={-1}>
                 Back to Home
               </Button>
             </Link>
@@ -178,9 +178,9 @@ export const CancelBookingPage: React.FC = () => {
               </p>
               <div className="flex items-center gap-2 text-text-secondary text-xs">
                 <Calendar className="w-4 h-4" />
-                <span>{formatDate(booking.start_time, tz)}</span>
+                <span>{formatBookingDate(booking.start_time)}</span>
                 <Clock className="w-4 h-4 ml-2" />
-                <span>{formatTime(booking.start_time, tz)} – {formatTime(booking.end_time, tz)}</span>
+                <span>{formatBookingTime(booking.start_time)} – {formatBookingTime(booking.end_time)} ({tz})</span>
               </div>
             </div>
           )}

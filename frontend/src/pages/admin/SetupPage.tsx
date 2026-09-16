@@ -98,7 +98,7 @@ export function SetupPage() {
                     {done ? (
                       <Link
                         to={setupLink(step)}
-                        className="shrink-0 text-xs font-semibold text-emerald-700 hover:underline"
+                        className="press inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 hover:underline sm:min-h-9"
                       >
                         Done · Edit
                       </Link>

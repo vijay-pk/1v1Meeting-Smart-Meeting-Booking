@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
-import { formatPrice } from '@/lib/format';
+import { formatPrice, formatBookingDate, formatBookingTime } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
 import type { AdminUser, MeetingType, WeeklyScheduleBlock } from '@/types';
 import {
@@ -693,7 +693,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                               href={`/${adm.username}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-mono truncate block"
+                              className="press -my-1 inline-flex min-h-11 w-full items-center truncate rounded px-1 font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-400 sm:min-h-6"
                             >
                               /{adm.username}
                             </a>
@@ -845,7 +845,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                       <button
                         type="button"
                         onClick={() => handleOpenAddMeetingModal(currentSuperAdmin.id)}
-                        className="text-blue-600 font-bold underline ml-1 cursor-pointer"
+                        className="press -my-2 ml-1 inline-flex min-h-11 items-center rounded px-1 font-bold text-blue-600 underline cursor-pointer sm:min-h-6"
                       >
                         + Add one now
                       </button>
@@ -1077,7 +1077,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                       href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"
+                      className="press -my-1 inline-flex min-h-11 items-center gap-0.5 rounded px-1 text-[10px] font-bold text-emerald-700 hover:underline sm:min-h-6"
                     >
                       <span>Open Razorpay</span>
                       <ExternalLink className="w-2.5 h-2.5" />
@@ -1160,15 +1160,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   bookings.map((b) => (
                     <tr key={b.id} className="hover:bg-surface-secondary/60 transition-colors">
                       <td className="py-3.5 px-3 font-semibold text-slate-800">
-                        {new Date(b.start_time).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })}{' '}
-                        •{' '}
-                        {new Date(b.start_time).toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        {formatBookingDate(b.start_time, 'MMM d')} • {formatBookingTime(b.start_time)}
                       </td>
                       <td className="py-3.5 px-3 font-medium text-text-secondary">
                         {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}

@@ -111,6 +111,18 @@ export function parseBookingWallClock(value: string): Date {
   return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || 0));
 }
 
+/** A stored booking time as a date, e.g. "Tuesday, 15 September 2026". */
+export function formatBookingDate(value: string, pattern = 'EEEE, d MMMM yyyy'): string {
+  const date = parseBookingWallClock(value);
+  return Number.isNaN(date.getTime()) ? value : format(date, pattern);
+}
+
+/** A stored booking time as a clock time, e.g. "9:48 PM". */
+export function formatBookingTime(value: string): string {
+  const date = parseBookingWallClock(value);
+  return Number.isNaN(date.getTime()) ? value : format(date, 'h:mm a');
+}
+
 /**
  * The current time in `timezone`, in the same wall-clock frame as parseBookingWallClock, so
  * "is this booking upcoming / today" compares like with like in any browser zone.

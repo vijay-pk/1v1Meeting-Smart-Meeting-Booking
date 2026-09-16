@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { formatDate, formatTime, formatPrice } from '@/lib/format';
+import { formatBookingDate, formatBookingTime, formatPrice } from '@/lib/format';
 import type { Booking } from '@/types';
 import {
   CheckCircle2,
@@ -156,7 +156,7 @@ export const BookingStatusPage: React.FC = () => {
             <div className="flex justify-between">
               <span className="text-text-secondary">Date & Time</span>
               <span className="font-semibold text-text-primary text-right">
-                {formatDate(booking.start_time, tz)}, {formatTime(booking.start_time, tz)} – {formatTime(booking.end_time, tz)}
+                {formatBookingDate(booking.start_time)}, {formatBookingTime(booking.start_time)} – {formatBookingTime(booking.end_time)} ({tz})
               </span>
             </div>
             <div className="flex justify-between">

@@ -369,7 +369,7 @@ export const SuperProfileHomePage: React.FC = () => {
           <div className="text-right">
             <button
               onClick={handleCopyLink}
-              className="inline-flex items-center gap-1 text-xs text-amber-100/90 hover:text-white font-medium border-b border-amber-200/40 pb-0.5 transition cursor-pointer"
+              className="press inline-flex min-h-11 items-center gap-1 rounded-lg px-1.5 text-xs font-medium text-amber-100/90 transition hover:bg-white/10 hover:text-white cursor-pointer sm:min-h-9"
             >
               <span>{copied ? 'Link Copied!' : 'Share Profile'}</span>
               <Share2 className="w-3 h-3" />

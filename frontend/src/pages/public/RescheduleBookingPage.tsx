@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
-import { formatDate, formatTime } from '@/lib/format';
+import { formatBookingDate, formatBookingTime } from '@/lib/format';
 import type { Booking, MeetingType, TimeSlot } from '@/types';
 import {
   Calendar as CalendarIcon,
@@ -246,7 +246,7 @@ export const RescheduleBookingPage: React.FC = () => {
           </div>
           <CardTitle className="text-xl font-bold">Pick a new date and time</CardTitle>
           <CardDescription>
-            Current booking: {booking?.start_time ? `${formatDate(booking.start_time, tz)} at ${formatTime(booking.start_time, tz)}` : ''}
+            Current booking: {booking?.start_time ? `${formatBookingDate(booking.start_time)} at ${formatBookingTime(booking.start_time)} (${tz})` : ''}
           </CardDescription>
         </CardHeader>
 

@@ -573,7 +573,7 @@ export const TimeAvailabilityPage: React.FC = () => {
               </div>
               <Link
                 to={profileLink}
-                className="text-xs font-bold text-orange-600 hover:text-orange-700 underline"
+                className="press -my-2 inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-bold text-orange-600 underline hover:bg-orange-50 hover:text-orange-700 sm:min-h-9"
               >
                 Change
               </Link>

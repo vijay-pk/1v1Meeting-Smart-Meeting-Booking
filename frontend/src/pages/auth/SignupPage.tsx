@@ -279,7 +279,7 @@ export function SignupPage() {
       <div className="mt-5 text-center">
         <p className="text-sm text-text-secondary">
           Already have an account?{' '}
-          <Link to="/admin/login" className="font-semibold text-primary-600 hover:underline">
+          <Link to="/admin/login" className="press -my-2 inline-flex min-h-11 items-center rounded-lg px-1.5 font-semibold text-primary-600 hover:underline">
             Sign in
           </Link>
         </p>

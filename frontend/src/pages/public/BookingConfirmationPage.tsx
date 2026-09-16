@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
-import { formatDate, formatTime, formatPrice, getTimezoneAbbr } from '@/lib/format';
+import { formatBookingDate, formatBookingTime, formatPrice } from '@/lib/format';
 import type { Booking } from '@/types';
 import {
   CheckCircle2,
@@ -241,7 +241,7 @@ export const BookingConfirmationPage: React.FC = () => {
                 <div>
                   <p className="text-xs text-text-secondary">Date</p>
                   <p className="text-sm font-semibold text-text-primary">
-                    {formatDate(booking.start_time, tz)}
+                    {formatBookingDate(booking.start_time)}
                   </p>
                 </div>
               </div>
@@ -251,8 +251,8 @@ export const BookingConfirmationPage: React.FC = () => {
                 <div>
                   <p className="text-xs text-text-secondary">Time</p>
                   <p className="text-sm font-semibold text-text-primary">
-                    {formatTime(booking.start_time, tz)} – {formatTime(booking.end_time, tz)}{' '}
-                    <span className="text-xs text-text-tertiary">({getTimezoneAbbr(tz)})</span>
+                    {formatBookingTime(booking.start_time)} – {formatBookingTime(booking.end_time)}{' '}
+                    <span className="text-xs text-text-tertiary">({tz})</span>
                   </p>
                 </div>
               </div>

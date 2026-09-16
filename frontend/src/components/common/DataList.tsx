@@ -125,8 +125,11 @@ export function DataList<T>({
       </ul>
 
       {/* Tablet and up: the original table. */}
-      <div className="hidden md:block">
-        <table className="w-full">
+      {/* Tablet and up: the table. It can still be wider than a 768px window, so it gets its
+          own horizontal scroller -- the outer card is overflow-hidden, and without this the
+          last columns (Meet, Created) were simply cut off with no way to reach them. */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[640px]">
           <thead className="border-b border-border bg-surface-secondary">
             <tr>
               {columns.map((column) => (

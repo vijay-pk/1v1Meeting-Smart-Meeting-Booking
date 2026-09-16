@@ -8,7 +8,7 @@ export const PrivacyPolicyPage: React.FC = () => {
       <div className="max-w-3xl mx-auto space-y-8">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition"
+          className="press -ml-2 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-slate-400 hover:text-white transition"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Home</span>

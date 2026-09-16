@@ -704,7 +704,7 @@ function ProfileCustomizer({
               href={currentPublicLink}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-orange-600 font-bold hover:underline"
+              className="press -my-1 inline-flex min-h-11 items-center rounded px-1 font-mono font-bold text-orange-600 hover:underline sm:min-h-6"
             >
               /{currentDisplaySlug}
             </a>.
@@ -755,7 +755,7 @@ function ProfileCustomizer({
                 href={`${window.location.origin}/${username}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-orange-600 font-mono font-bold hover:underline"
+                className="press -my-1 inline-flex min-h-11 items-center break-all rounded px-1 font-mono font-bold text-orange-600 hover:underline sm:min-h-6"
               >
                 {window.location.origin}/{username || 'your-slug'}
               </a>
@@ -943,7 +943,7 @@ function ProfileCustomizer({
                         <button
                           type="button"
                           onClick={() => setPhotoUrl('')}
-                          className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-0.5"
+                          className="press inline-flex min-h-11 shrink-0 items-center gap-0.5 rounded-lg text-[10px] font-medium text-red-600 hover:text-red-700 cursor-pointer sm:min-h-6"
                         >
                           <Trash2 className="w-2.5 h-2.5" />
                           Remove
@@ -1093,7 +1093,7 @@ function ProfileCustomizer({
                     <button
                       type="button"
                       onClick={() => setIntroVideo('')}
-                      className="text-[10px] text-red-600 hover:text-red-700 font-medium cursor-pointer flex items-center gap-1"
+                      className="press inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg text-[10px] font-medium text-red-600 hover:text-red-700 cursor-pointer sm:min-h-6"
                     >
                       <Trash2 className="w-3 h-3" />
                       <span>Remove Video</span>
@@ -1769,7 +1769,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           <button
             type="button"
             onClick={() => setShowGuide(!showGuide)}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+            className="press inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 cursor-pointer sm:min-h-8"
           >
             <span>{showGuide ? 'Collapse' : 'Expand Guide'}</span>
             {showGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -1887,7 +1887,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
             <button
               type="button"
               onClick={() => setShowSecret(!showSecret)}
-              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+              className="press inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 cursor-pointer sm:min-h-8"
             >
               {showSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               <span>{showSecret ? 'Hide Secret' : 'Show Secret'}</span>
