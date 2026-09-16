@@ -205,12 +205,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
   // Hosts the admin dark theme for this route (see hooks/useAdminTheme.ts).
   const { preference: themePreference, setPreference: setThemePreference } = useAdminTheme();
-  const [masterSuperChat, setMasterSuperChat] = useState(
-    currentSuperAdmin.social_links?.super_chat || currentSuperAdmin.super_chat_url || ''
-  );
-  const [masterTelegram, setMasterTelegram] = useState(
-    currentSuperAdmin.social_links?.telegram || ''
-  );
   const [masterGoogleEmail, setMasterGoogleEmail] = useState(currentSuperAdmin.google_email || '');
   // Never default to "connected": the server row decides, and it is loaded below.
   const [masterGoogleConnected, setMasterGoogleConnected] = useState(false);
@@ -224,12 +218,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
 
   const handleSaveMasterProfileSettings = async () => {
     updateAdminProfile(currentSuperAdmin.id, {
-      super_chat_url: masterSuperChat.trim(),
-      social_links: {
-        ...currentSuperAdmin.social_links,
-        super_chat: masterSuperChat.trim(),
-        telegram: masterTelegram.trim(),
-      },
       razorpay_key_id: masterRzpKey.trim(),
       razorpay_configured: !!masterRzpKey.trim(),
       google_email: masterGoogleEmail.trim(),
@@ -954,7 +942,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         </div>
 
         {/* =========================================================================
-            SECTION 2B: SUPER ADMIN PROFILE, SUPER CHAT & INTEGRATIONS
+            SECTION 2B: SUPER ADMIN PROFILE & INTEGRATIONS
             (Requirement: Master Admin parity with regular consultants)
            ========================================================================= */}
         <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
@@ -965,14 +953,14 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <span className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-black text-xs">
                     2B
                   </span>
-                  <span>My Profile, Super Chat & Personal Integrations</span>
+                  <span>My Profile & Personal Integrations</span>
                 </h2>
                 <Badge className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] font-bold">
                   Master Consultant Parity
                 </Badge>
               </div>
               <p className="text-xs text-text-tertiary mt-1">
-                Configure your own SuperProfile import, Super Chat priority messaging link, Razorpay credentials, and Google Calendar sync for <strong>{currentSuperAdmin.full_name || 'your account'}</strong>.
+                Configure your own Razorpay credentials and Google Calendar sync for <strong>{currentSuperAdmin.full_name || 'your account'}</strong>.
               </p>
             </div>
 

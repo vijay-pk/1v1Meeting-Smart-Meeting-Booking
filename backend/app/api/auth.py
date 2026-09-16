@@ -373,5 +373,4 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
         "cover_image": profile.cover_image if profile else "",
         "intro_video": profile.intro_video if profile else "",
         "theme_settings": profile.theme_settings if profile else {},
-        "social_links": profile.social_links if profile else {}
     }

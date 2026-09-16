@@ -106,7 +106,6 @@ export const PaymentCheckoutPage: React.FC = () => {
       bio: remoteProfile.bio,
       email: '',
       theme_settings: remoteProfile.theme_settings,
-      social_links: remoteProfile.social_links,
       razorpay_key_id: remoteProfile.razorpay_key_id,
       razorpay_configured: remoteProfile.razorpay_configured,
     } as AdminUser;

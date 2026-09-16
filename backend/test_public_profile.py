@@ -356,7 +356,6 @@ def test_changing_only_the_bio_leaves_everything_else_alone(admin, db):
         profile_photo=photo,
         intro_video="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         title="Growth mentor",
-        social_links={"instagram": "https://instagram.com/me"},
     )
 
     _set_profile(admin, bio="Only the bio changed")
@@ -366,17 +365,16 @@ def test_changing_only_the_bio_leaves_everything_else_alone(admin, db):
     assert row.profile_photo == photo
     assert row.intro_video == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert row.title == "Growth mentor"
-    assert row.social_links["instagram"] == "https://instagram.com/me"
 
 
 def test_a_partial_theme_update_keeps_the_rest_of_the_theme(admin, db):
     """
-    theme_settings and social_links are merged, not replaced.
+    theme_settings is merged, not replaced.
 
     The settings form sends theme_settings as just {button_color, bg_gradient}. Replacing the
     whole JSON column with that dropped every other key the public page reads -- show_video,
-    show_stats, show_socials, card_style, button_text_color -- so an admin who changed a
-    colour silently turned parts of their own page off.
+    show_stats, card_style, button_text_color -- so an admin who changed a colour silently
+    turned parts of their own page off.
     """
     _set_profile(admin, theme_settings={
         "theme": "amber",
@@ -387,8 +385,6 @@ def test_a_partial_theme_update_keeps_the_rest_of_the_theme(admin, db):
         "show_stats": True,
         "card_style": "rounded",
     })
-    _set_profile(admin, social_links={"instagram": "https://instagram.com/me"})
-
     # A colour-only save, exactly as the settings form sends it.
     _set_profile(admin, theme_settings={"button_color": "#222222", "bg_gradient": "from-x via-y to-z"})
 
@@ -399,18 +395,57 @@ def test_a_partial_theme_update_keeps_the_rest_of_the_theme(admin, db):
     assert theme["show_stats"] is True
     assert theme["card_style"] == "rounded"
     assert theme["button_text_color"] == "#FFFFFF"
-    # A save that never mentioned social links cannot have touched them.
-    assert _stored(admin, db).social_links["instagram"] == "https://instagram.com/me"
 
 
 def test_a_merged_field_can_still_be_cleared(admin, db):
     """Merging preserves untouched keys; a key the caller does send still wins, including ""."""
-    _set_profile(admin, social_links={"instagram": "https://instagram.com/me", "website": "https://me.dev"})
-    _set_profile(admin, social_links={"instagram": ""})
+    _set_profile(admin, theme_settings={"button_color": "#111111", "card_style": "rounded"})
+    _set_profile(admin, theme_settings={"button_color": ""})
 
-    links = _stored(admin, db).social_links
-    assert links["instagram"] == ""
-    assert links["website"] == "https://me.dev"
+    theme = _stored(admin, db).theme_settings
+    assert theme["button_color"] == ""
+    assert theme["card_style"] == "rounded"
+
+
+# =======================================================================================
+# Social and Super Chat links: removed from the product, kept in the database
+# =======================================================================================
+
+def test_social_links_are_not_exposed_by_either_profile_endpoint(admin):
+    """
+    The social media and Super Chat sections were removed from the profile page. Nothing
+    publishes those links any more, so neither payload carries them.
+    """
+    mine = client.get("/api/profiles/me", headers=admin["headers"]).json()
+    public = _public(admin["username"]).json()
+    assert "social_links" not in mine
+    assert "social_links" not in public
+
+
+def test_social_links_cannot_be_written_and_existing_values_are_left_alone(admin, db):
+    """
+    The column still holds whatever an admin saved before the feature was removed. A caller
+    sending social_links changes nothing -- and does not fail, so an old client cannot be
+    told its save was rejected.
+    """
+    session = SessionLocal()
+    try:
+        row = session.query(AdminProfile).filter(AdminProfile.user_id == admin["id"]).one()
+        row.social_links = {"instagram": "https://instagram.com/me"}
+        session.commit()
+    finally:
+        session.close()
+
+    res = client.put("/api/profiles/me", headers=admin["headers"], json={
+        "bio": "Bio still saves",
+        "social_links": {"instagram": "https://instagram.com/attacker", "telegram": "https://t.me/x"},
+    })
+    assert res.status_code == 200
+
+    db.expire_all()
+    row = _stored(admin, db)
+    assert row.bio == "Bio still saves"
+    assert row.social_links == {"instagram": "https://instagram.com/me"}
 
 
 def test_an_omitted_field_is_never_treated_as_a_clear(admin, db):
@@ -423,7 +458,6 @@ def test_an_omitted_field_is_never_treated_as_a_clear(admin, db):
         "profile_photo": None,
         "intro_video": None,
         "title": None,
-        "social_links": None,
     })
 
     assert _stored(admin, db).profile_photo == photo

@@ -136,7 +136,6 @@ export function GoogleCallbackPage() {
           avatar_color: 'bg-indigo-600',
           avatar_letter: bp.name ? bp.name.charAt(0).toUpperCase() : 'A',
           theme_settings: bp.theme_settings || {},
-          social_links: bp.social_links || {},
         };
 
         if (bp.profile_photo) {

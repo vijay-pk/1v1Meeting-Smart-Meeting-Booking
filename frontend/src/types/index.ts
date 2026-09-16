@@ -95,7 +95,6 @@ export interface AdminThemeSettings {
   card_style?: string;
   show_video?: boolean;
   show_stats?: boolean;
-  show_socials?: boolean;
 }
 
 export interface CustomSectionItem {
@@ -106,16 +105,6 @@ export interface CustomSectionItem {
   button_url?: string;
   badge?: string;
   image_url?: string;
-}
-
-export interface AdminSocialLinks {
-  instagram?: string;
-  whatsapp?: string;
-  linkedin?: string;
-  youtube?: string;
-  website?: string;
-  super_chat?: string;
-  telegram?: string;
 }
 
 export interface AdminUser {
@@ -138,8 +127,6 @@ export interface AdminUser {
   phone?: string;
   password?: string;
   theme_settings?: AdminThemeSettings;
-  social_links?: AdminSocialLinks;
-  super_chat_url?: string;
   custom_sections?: CustomSectionItem[];
   google_connected?: boolean;
   google_email?: string;

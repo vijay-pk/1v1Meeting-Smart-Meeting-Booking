@@ -89,7 +89,6 @@ export const SuperProfileHomePage: React.FC = () => {
         bio: remoteProfile.bio,
         email: '',
         theme_settings: remoteProfile.theme_settings,
-        social_links: remoteProfile.social_links,
         razorpay_key_id: remoteProfile.razorpay_key_id,
         razorpay_configured: remoteProfile.razorpay_configured,
       };
@@ -364,51 +363,6 @@ export const SuperProfileHomePage: React.FC = () => {
                 {activeAdmin.heading_text || activeAdmin.title}
               </p>
 
-              {/* Social Media Links */}
-              {activeAdmin.social_links && (
-                <div className="flex items-center gap-2 mt-2">
-                  {activeAdmin.social_links.whatsapp && (
-                    <a
-                      href={`https://wa.me/${activeAdmin.social_links.whatsapp.replace(/[^0-9]/g, '')}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 hover:bg-emerald-500/30 transition"
-                    >
-                      WhatsApp
-                    </a>
-                  )}
-                  {activeAdmin.social_links.linkedin && (
-                    <a
-                      href={activeAdmin.social_links.linkedin}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30 hover:bg-blue-500/30 transition"
-                    >
-                      LinkedIn
-                    </a>
-                  )}
-                  {activeAdmin.social_links.instagram && (
-                    <a
-                      href={activeAdmin.social_links.instagram}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-200 border border-pink-400/30 hover:bg-pink-500/30 transition"
-                    >
-                      Instagram
-                    </a>
-                  )}
-                  {activeAdmin.social_links.website && (
-                    <a
-                      href={activeAdmin.social_links.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30 hover:bg-white/30 transition"
-                    >
-                      Website
-                    </a>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
@@ -467,39 +421,6 @@ export const SuperProfileHomePage: React.FC = () => {
               {adminMeetings.length} Offerings
             </span>
           </div>
-
-          {/* Priority Super Chat Card */}
-          {(activeAdmin.social_links?.super_chat || activeAdmin.super_chat_url) && (
-            <a
-              href={activeAdmin.social_links?.super_chat || activeAdmin.super_chat_url}
-              target="_blank"
-              rel="noreferrer"
-              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-red-500/10 border border-amber-300/40 hover:border-amber-400 flex items-center justify-between gap-4 transition-all shadow-sm hover:shadow-md cursor-pointer group"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white font-black flex items-center justify-center text-xl shadow-md group-hover:scale-105 transition-transform">
-                  ⚡
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Ask a Priority Question / Super Chat
-                    </h3>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
-                      Instant Priority
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Have a quick question or want direct advice? Send a priority message to {activeAdmin.full_name}.
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-orange-600 text-white shadow-xs group-hover:bg-orange-500 transition-colors flex items-center gap-1 shrink-0">
-                <span>Chat Now</span>
-                <span>→</span>
-              </span>
-            </a>
-          )}
 
           {/* Uploaded Custom Sections & Links */}
           {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (

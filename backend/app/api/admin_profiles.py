@@ -92,7 +92,6 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
         "about_me_text": profile.about_me_text,
         "welcome_message": profile.welcome_message,
         "theme_settings": profile.theme_settings or {},
-        "social_links": profile.social_links or {},
         "status": user.status,
         "sessions": sessions_list,
         "razorpay_configured": rp_configured,
@@ -135,7 +134,6 @@ def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session
         "custom_description": profile.custom_description,
         "welcome_message": profile.welcome_message,
         "theme_settings": profile.theme_settings or {},
-        "social_links": profile.social_links or {},
         "razorpay_configured": rp_configured,
         "razorpay_key_id": rp_key_id,
         "google_connected": g_connected,
@@ -192,24 +190,23 @@ def update_my_profile(
         if val is not None:
             setattr(profile, field, val)
 
-    # JSON columns are MERGED, not replaced. The settings form sends theme_settings as just
+    # theme_settings is MERGED, not replaced. The settings form sends it as just
     # {button_color, bg_gradient}; replacing the column with that dropped every other key the
-    # public page reads (show_video, show_stats, show_socials, card_style,
-    # button_text_color), so changing a colour quietly turned other parts of the page off.
-    # Merging means a caller that sends one key changes one key, and a key it does send --
-    # including to "" -- still wins.
-    for field in ("theme_settings", "social_links"):
-        val = getattr(updates, field, None)
-        if val is None:
-            continue
-        if isinstance(val, dict):
-            existing = getattr(profile, field) or {}
-            merged = {**existing, **val}
+    # public page reads (show_video, show_stats, card_style, button_text_color), so changing a
+    # colour quietly turned other parts of the page off. Merging means a caller that sends one
+    # key changes one key, and a key it does send -- including to "" -- still wins.
+    #
+    # social_links is deliberately absent: the social and Super Chat links were removed from
+    # the profile page, so nothing writes them any more. The column and whatever it already
+    # holds are left alone rather than dropped.
+    if updates.theme_settings is not None:
+        if isinstance(updates.theme_settings, dict):
+            existing = profile.theme_settings or {}
             # SQLAlchemy does not track in-place mutation of a JSON column, so assign a new
             # dict rather than updating the existing one.
-            setattr(profile, field, merged)
+            profile.theme_settings = {**existing, **updates.theme_settings}
         else:
-            setattr(profile, field, val)
+            profile.theme_settings = updates.theme_settings
 
     db.commit()
     db.refresh(profile)
@@ -225,7 +222,6 @@ def update_my_profile(
         "cover_image": profile.cover_image,
         "intro_video": profile.intro_video,
         "theme_settings": profile.theme_settings,
-        "social_links": profile.social_links
     }
 
 # The old unauthenticated POST /scrape-superprofile endpoint has been removed. It fetched an

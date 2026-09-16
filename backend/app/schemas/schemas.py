@@ -68,14 +68,6 @@ class ThemeSettings(BaseModel):
     card_style: Optional[str] = "rounded"
     show_video: Optional[bool] = True
     show_stats: Optional[bool] = True
-    show_socials: Optional[bool] = True
-
-class SocialLinks(BaseModel):
-    instagram: Optional[str] = ""
-    whatsapp: Optional[str] = ""
-    linkedin: Optional[str] = ""
-    youtube: Optional[str] = ""
-    website: Optional[str] = ""
 
 class AdminProfileUpdate(BaseModel):
     name: Optional[str] = None
@@ -91,7 +83,6 @@ class AdminProfileUpdate(BaseModel):
     custom_description: Optional[str] = None
     welcome_message: Optional[str] = None
     theme_settings: Optional[Dict[str, Any]] = None
-    social_links: Optional[Dict[str, Any]] = None
 
 class AdminProfileResponse(BaseModel):
     id: str
@@ -113,7 +104,6 @@ class AdminProfileResponse(BaseModel):
     custom_description: Optional[str] = None
     welcome_message: Optional[str] = None
     theme_settings: Optional[Dict[str, Any]] = None
-    social_links: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -220,7 +210,6 @@ class PublicAdminProfile(BaseModel):
     about_me_text: Optional[str]
     welcome_message: Optional[str]
     theme_settings: Optional[Dict[str, Any]]
-    social_links: Optional[Dict[str, Any]]
     status: str
     sessions: List[SessionResponse]
     razorpay_configured: Optional[bool] = False

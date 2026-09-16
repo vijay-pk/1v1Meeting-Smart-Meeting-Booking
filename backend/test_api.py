@@ -120,7 +120,6 @@ def test_admin_profile_customization(admin_account):
         "intro_video": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "heading_text": "Accelerate your brand",
         "theme_settings": {"theme": "emerald", "button_color": "#059669"},
-        "social_links": {"linkedin": "https://linkedin.com/in/example"},
     })
     assert update_res.status_code == 200
 

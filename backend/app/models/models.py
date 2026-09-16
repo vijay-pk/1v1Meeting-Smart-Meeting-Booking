@@ -55,15 +55,12 @@ class AdminProfile(Base):
         "card_style": "rounded",
         "show_video": True,
         "show_stats": True,
-        "show_socials": True
     })
-    social_links = Column(JSON, default=lambda: {
-        "instagram": "",
-        "whatsapp": "",
-        "linkedin": "",
-        "youtube": "",
-        "website": ""
-    })
+    # Legacy. The social media and Super Chat links were removed from the profile page and
+    # from the public page, so nothing reads or writes this any more. The column stays because
+    # it holds what admins saved before that, and dropping it would destroy their data for no
+    # gain; it is simply never exposed by the API.
+    social_links = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -80,7 +80,6 @@ export const AdminLoginPage: React.FC = () => {
               bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
               button_color: '#D32F2F',
             },
-            social_links: bp.social_links || {},
           };
 
           if (bp.profile_photo) {

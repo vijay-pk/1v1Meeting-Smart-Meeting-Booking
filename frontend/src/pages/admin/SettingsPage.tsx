@@ -7,7 +7,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
 import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
 import { TIMEZONES } from '@/lib/constants';
-import type { AdminUser, AdminThemeSettings, AdminSocialLinks } from '@/types';
+import type { AdminUser, AdminThemeSettings } from '@/types';
 import {
   User,
   Settings as SettingsIcon,
@@ -187,7 +187,6 @@ export function SettingsPage() {
               bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
               button_color: '#D32F2F',
             },
-            social_links: bp.social_links || {},
             razorpay_configured: bp.razorpay_configured,
             razorpay_key_id: bp.razorpay_key_id,
             google_connected: bp.google_connected,
@@ -294,7 +293,6 @@ export function SettingsPage() {
         bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
         button_color: '#D32F2F',
       },
-      social_links: {},
     } as AdminUser;
   }, [liveAdmin, admins, storedAdminId, storedUsername, storedAdminName, isSuperAdmin, currentSuperAdmin, profile]);
 
@@ -489,14 +487,6 @@ function ProfileCustomizer({
   const [buttonColor, setButtonColor] = useState(admin.theme_settings?.button_color || '#D32F2F');
   const [bgGradient, setBgGradient] = useState(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
 
-  // Socials & Priority Links
-  const [whatsapp, setWhatsapp] = useState(admin.social_links?.whatsapp || '');
-  const [linkedin, setLinkedin] = useState(admin.social_links?.linkedin || '');
-  const [instagram, setInstagram] = useState(admin.social_links?.instagram || '');
-  const [youtube, setYoutube] = useState(admin.social_links?.youtube || '');
-  const [website, setWebsite] = useState(admin.social_links?.website || '');
-  const [superChat, setSuperChat] = useState(admin.social_links?.super_chat || admin.super_chat_url || '');
-  const [telegram, setTelegram] = useState(admin.social_links?.telegram || '');
   const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
 
   // Media Upload & Selection States (Profile Photo only keeps device upload)
@@ -578,24 +568,17 @@ function ProfileCustomizer({
     }
     setButtonColor(admin.theme_settings?.button_color || '#D32F2F');
     setBgGradient(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
-    setWhatsapp(admin.social_links?.whatsapp || '');
-    setLinkedin(admin.social_links?.linkedin || '');
-    setInstagram(admin.social_links?.instagram || '');
-    setYoutube(admin.social_links?.youtube || '');
-    setWebsite(admin.social_links?.website || '');
-    setSuperChat(admin.social_links?.super_chat || admin.super_chat_url || '');
-    setTelegram(admin.social_links?.telegram || '');
     setCustomSections(admin.custom_sections || []);
   }, [admin.id, admin.username, admin.photo_url, admin.intro_video]);
 
   const handleAddSection = () => {
     const newSec = {
       id: `sec-${Date.now()}`,
-      title: 'Ask a Priority Question / Super Chat',
-      description: 'Send a direct priority message or query with guaranteed response time.',
-      button_text: 'Send Message ⚡',
-      button_url: superChat || 'https://',
-      badge: 'Priority DM',
+      title: '',
+      description: '',
+      button_text: '',
+      button_url: '',
+      badge: '',
     };
     setCustomSections((prev) => [...prev, newSec]);
   };
@@ -640,16 +623,6 @@ function ProfileCustomizer({
       return;
     }
 
-    const socialLinks = {
-      whatsapp,
-      linkedin,
-      instagram,
-      youtube,
-      website,
-      super_chat: superChat.trim(),
-      telegram: telegram.trim(),
-    };
-
     const updates: Partial<AdminUser> = {
       username: cleanUsername,
       full_name: name,
@@ -665,8 +638,6 @@ function ProfileCustomizer({
         button_color: buttonColor,
         bg_gradient: bgGradient,
       },
-      social_links: socialLinks,
-      super_chat_url: superChat.trim(),
       custom_sections: customSections,
     };
 
@@ -684,7 +655,6 @@ function ProfileCustomizer({
         profile_photo: photoUrl,
         intro_video: introVideo,
         theme_settings: { button_color: buttonColor, bg_gradient: bgGradient },
-        social_links: socialLinks,
       });
     } catch (e: any) {
       setSaving(false);
@@ -1233,107 +1203,25 @@ function ProfileCustomizer({
         </div>
       </div>
 
-      {/* Social Links */}
+      {/* 4. Custom Uploaded Sections & Resource Blocks */}
       <div className="space-y-4 pt-4 border-t border-border">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary">4. Social Media Links</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs">WhatsApp Number / Link</Label>
-            <Input
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(e.target.value)}
-              placeholder="+91 9876543210"
-              className="text-xs rounded-xl"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">LinkedIn Profile URL</Label>
-            <Input
-              value={linkedin}
-              onChange={(e) => setLinkedin(e.target.value)}
-              placeholder="https://linkedin.com/in/..."
-              className="text-xs rounded-xl"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Instagram Handle or URL</Label>
-            <Input
-              value={instagram}
-              onChange={(e) => setInstagram(e.target.value)}
-              placeholder="https://instagram.com/..."
-              className="text-xs rounded-xl"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Website URL</Label>
-            <Input
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="https://..."
-              className="text-xs rounded-xl"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Super Chat & Priority Links */}
-      <div className="space-y-4 pt-4 border-t border-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex items-center gap-1.5">
-              <span>5. Super Chat & Direct Messaging Link</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">Priority DM</span>
-            </h3>
-            <p className="text-[11px] text-text-tertiary mt-0.5">
-              Add your paid Super Chat or direct priority message link (SuperProfile, Telegram, or WhatsApp).
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold flex items-center gap-1">
-              <span>⚡ Super Chat / Ask Me Anything URL</span>
-            </Label>
-            <Input
-              value={superChat}
-              onChange={(e) => setSuperChat(e.target.value)}
-              placeholder="https://superprofile.bio/chat/yourname"
-              className="text-xs rounded-xl"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold flex items-center gap-1">
-              <span>💬 Telegram Handle or VIP Channel URL</span>
-            </Label>
-            <Input
-              value={telegram}
-              onChange={(e) => setTelegram(e.target.value)}
-              placeholder="https://t.me/yourusername"
-              className="text-xs rounded-xl"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Custom Uploaded Sections & Resource Blocks */}
-      <div className="space-y-4 pt-4 border-t border-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex items-center gap-1.5">
-              <span>6. Custom Sections & Resource Uploads</span>
+        {/* Stacks below sm: the heading, its badge and the button fought over a 272px column. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex flex-wrap items-center gap-1.5">
+              <span>4. Custom Sections & Resource Uploads</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
                 {customSections.length} Sections
               </span>
             </h3>
             <p className="text-[11px] text-text-tertiary mt-0.5">
-              Upload custom highlighted cards on your public page (e.g. Free Guides, VIP Community, Super Chat, Portfolio).
+              Upload custom highlighted cards on your public page (e.g. Free Guides, Portfolio).
             </p>
           </div>
           <Button
             type="button"
             onClick={handleAddSection}
-            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 h-8 rounded-xl cursor-pointer flex items-center gap-1"
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 h-9 rounded-xl cursor-pointer flex w-full items-center justify-center gap-1 sm:h-8 sm:w-auto"
           >
             <Plus className="w-3 h-3" />
             <span>+ Add Section</span>
@@ -1342,7 +1230,7 @@ function ProfileCustomizer({
 
         {customSections.length === 0 ? (
           <div className="p-4 rounded-xl border border-dashed border-border text-center text-xs text-text-tertiary">
-            No custom sections uploaded yet. Click "+ Add Section" to feature custom links, guides, or ask-me-anything banners on your public page.
+            No custom sections uploaded yet. Click "+ Add Section" to feature custom links or guides on your public page.
           </div>
         ) : (
           <div className="space-y-3">
@@ -1362,13 +1250,13 @@ function ProfileCustomizer({
                   <Input
                     value={sec.title}
                     onChange={(e) => handleUpdateSection(sec.id, 'title', e.target.value)}
-                    placeholder="Section Title (e.g. Ask a Priority Question)"
+                    placeholder="Section Title"
                     className="text-xs rounded-lg bg-surface h-8 font-semibold"
                   />
                   <Input
                     value={sec.badge || ''}
                     onChange={(e) => handleUpdateSection(sec.id, 'badge', e.target.value)}
-                    placeholder="Badge Tag (e.g. ⚡ Super Chat, Free, Popular)"
+                    placeholder="Badge Tag (e.g. Free, Popular)"
                     className="text-xs rounded-lg bg-surface h-8"
                   />
                 </div>
@@ -1382,7 +1270,7 @@ function ProfileCustomizer({
                   <Input
                     value={sec.button_text || ''}
                     onChange={(e) => handleUpdateSection(sec.id, 'button_text', e.target.value)}
-                    placeholder="Button Label (e.g. Ask Now ⚡, Download PDF)"
+                    placeholder="Button Label (e.g. Download PDF)"
                     className="text-xs rounded-lg bg-surface h-8"
                   />
                   <Input
