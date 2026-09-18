@@ -77,7 +77,14 @@ export function Sidebar() {
       className={cn(
         // Hidden below lg: on a phone this 260px column left ~100px for the page. The same
         // destinations are reachable from MobileTabBar + its More sheet.
-        'relative hidden lg:flex flex-col h-dvh shrink-0 bg-sidebar-bg border-r border-sidebar-border transition-[width] duration-300',
+        //
+        // The document is the scroll container (one scrollbar; TopBar is sticky inside it).
+        // A plain flex item scrolled away with the page and left the light shell background
+        // where the sidebar had been, so it is sticky to the viewport at full viewport height.
+        // Sticky rather than fixed: it keeps its place in the flex row, so the content column
+        // follows the 260/72px collapse without a margin kept in sync by hand. self-start
+        // stops the row from stretching it to the page height, which would defeat sticky.
+        'sticky top-0 self-start hidden lg:flex flex-col h-dvh shrink-0 bg-sidebar-bg border-r border-sidebar-border transition-[width] duration-300',
         collapsed ? 'w-[72px]' : 'w-[260px]'
       )}
     >
