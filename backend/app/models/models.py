@@ -91,7 +91,7 @@ class Session(Base):
     time_windows = relationship(
         "SessionTimeWindow",
         cascade="all, delete-orphan",
-        order_by="SessionTimeWindow.day_of_week",
+        order_by=lambda: (SessionTimeWindow.day_of_week, SessionTimeWindow.start_time),
         lazy="selectin",
     )
 
@@ -102,7 +102,7 @@ class Session(Base):
             return None
         return [
             {"day_of_week": w.day_of_week, "start_time": w.start_time, "end_time": w.end_time}
-            for w in self.time_windows
+            for w in sorted(self.time_windows, key=lambda w: (w.day_of_week, w.start_time))
         ]
 
 
@@ -114,7 +114,8 @@ class SessionTimeWindow(Base):
 
     A session with no rows uses the admin's general availability -- which is what every
     session created before this table existed does. A session with rows is not offered on a
-    weekday that has none. Times are "HH:MM" wall clock in BUSINESS_TIMEZONE, the same frame
+    weekday that has none. A weekday may have several rows (10:00-12:00 and 16:00-17:00);
+    sessions.py rejects overlapping or repeated ones, so each row is one independent window. Times are "HH:MM" wall clock in BUSINESS_TIMEZONE, the same frame
     as AvailabilityRule.
 
     A table rather than columns on `sessions`: create_all ships a new table on deploy, while a

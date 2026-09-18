@@ -144,7 +144,9 @@ class SessionUpdate(BaseModel):
     # Omitted = unchanged. null or [] = back to the admin's general availability.
     available_hours: Optional[List[SessionTimeWindowItem]] = None
 
-class SessionResponse(BaseModel):
+class PublicSessionResponse(BaseModel):
+    """A session as the public booking page sees it: no per-type time windows. Clients see
+    the slots those windows produce (GET /availability/slots), never the configuration."""
     id: str
     admin_id: str
     title: str
@@ -158,10 +160,12 @@ class SessionResponse(BaseModel):
     buffer_after_minutes: int
     min_advance_hours: int
     max_advance_days: int
-    available_hours: Optional[List[SessionTimeWindowItem]] = None
 
     class Config:
         from_attributes = True
+
+class SessionResponse(PublicSessionResponse):
+    available_hours: Optional[List[SessionTimeWindowItem]] = None
 
 # Availability schemas
 class AvailabilityRuleItem(BaseModel):
@@ -211,7 +215,7 @@ class PublicAdminProfile(BaseModel):
     welcome_message: Optional[str]
     theme_settings: Optional[Dict[str, Any]]
     status: str
-    sessions: List[SessionResponse]
+    sessions: List[PublicSessionResponse]
     razorpay_configured: Optional[bool] = False
     razorpay_key_id: Optional[str] = None
 

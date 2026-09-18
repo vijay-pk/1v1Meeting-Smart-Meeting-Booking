@@ -350,6 +350,8 @@ async def get_available_slots(
     # 4b. This session's own hours, if it has any. Slots come from the intersection with the
     #     working hours, so a session window narrows the day but never opens time the admin
     #     does not work. A session with windows is not offered on a weekday without one.
+    #     A day may have several session windows; each is intersected on its own and a slot
+    #     must fit inside one of them, so nothing is offered in the gap between two windows.
     if session_obj.time_windows:
         session_windows = []
         for w in session_obj.time_windows:

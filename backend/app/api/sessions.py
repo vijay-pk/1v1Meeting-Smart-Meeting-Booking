@@ -17,21 +17,27 @@ def _clean_time(value: str) -> str:
         raise HTTPException(status_code=400, detail=f"Invalid time '{value}'. Use HH:MM.")
 
 
+# Mirrored in frontend/src/components/admin/SessionHoursField.tsx.
+MAX_WINDOWS_PER_DAY = 10
+
+DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+
 def _validated_windows(items: Optional[List[SessionTimeWindowItem]]) -> List[tuple]:
     """
-    Checks a session's own hours before anything is written. One window per weekday, end after
-    start. An empty list means "use my general availability".
+    Checks a session's own hours before anything is written. A weekday may have several
+    windows (10:00-12:00 and 16:00-17:00); each must end after it starts, and windows on the
+    same day may touch but never repeat or overlap. They are kept as separate rows, never
+    merged. An empty list means "use my general availability".
+
+    Returned sorted by (day, start), which is the order they are stored and shown in.
     """
     if not items:
         return []
-    seen = set()
     windows = []
     for item in items:
         if not 0 <= item.day_of_week <= 6:
             raise HTTPException(status_code=400, detail="day_of_week must be 0 (Sunday) to 6.")
-        if item.day_of_week in seen:
-            raise HTTPException(status_code=400, detail="Set at most one time range per day.")
-        seen.add(item.day_of_week)
         start, end = _clean_time(item.start_time), _clean_time(item.end_time)
         if start >= end:
             raise HTTPException(
@@ -39,6 +45,31 @@ def _validated_windows(items: Optional[List[SessionTimeWindowItem]]) -> List[tup
                 detail=f"End time must be after start time ({start}-{end}).",
             )
         windows.append((item.day_of_week, start, end))
+
+    windows.sort()
+    per_day: dict = {}
+    for day, start, end in windows:
+        per_day.setdefault(day, []).append((start, end))
+    for day, ranges in per_day.items():
+        if len(ranges) > MAX_WINDOWS_PER_DAY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{DAY_NAMES[day]}: at most {MAX_WINDOWS_PER_DAY} time windows per day.",
+            )
+        for (prev_start, prev_end), (start, end) in zip(ranges, ranges[1:]):
+            if (prev_start, prev_end) == (start, end):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{DAY_NAMES[day]}: the time window {start}-{end} is listed twice.",
+                )
+            if start < prev_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{DAY_NAMES[day]}: time windows cannot overlap "
+                        f"({prev_start}-{prev_end} and {start}-{end})."
+                    ),
+                )
     return windows
 
 

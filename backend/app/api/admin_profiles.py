@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.models.models import (
     User, AdminProfile, Session as SessionModel, RazorpayConnection, GoogleConnection
 )
-from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, SessionResponse
+from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, PublicSessionResponse
 from app.api.deps import get_current_admin
 from app.services.onboarding import get_onboarding_status
 
@@ -71,7 +71,7 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
             .order_by(SessionModel.sort_order.asc(), SessionModel.price.asc())
             .all()
         )
-        sessions_list = [SessionResponse.model_validate(s) for s in active_sessions]
+        sessions_list = [PublicSessionResponse.model_validate(s) for s in active_sessions]
 
     # Query this admin's own Razorpay connection
     rp_conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == user.id).first()

@@ -22,6 +22,7 @@ from app.models.models import (
     AvailabilityRule,
     Booking,
     GoogleConnection,
+    SlotLock,
 )
 from app.api import availability as availability_api
 
@@ -40,7 +41,7 @@ def tracked():
     session = SessionLocal()
     try:
         for user_id in ids:
-            for model in (Booking, GoogleConnection, AvailabilityRule, SessionTimeWindow, SessionModel):
+            for model in (SlotLock, Booking, GoogleConnection, AvailabilityRule, SessionTimeWindow, SessionModel):
                 session.query(model).filter(model.admin_id == user_id).delete(synchronize_session=False)
             session.query(AdminProfile).filter(AdminProfile.user_id == user_id).delete(synchronize_session=False)
             session.query(User).filter(User.id == user_id).delete(synchronize_session=False)
@@ -230,8 +231,195 @@ def test_malformed_time_is_rejected(admin):
     _session(admin, _window("25:99", "10:00"), expect=400)
 
 
-def test_duplicate_day_is_rejected(admin):
-    _session(admin, _window("10:00", "12:00") + _window("13:00", "14:00"), expect=400)
+def test_start_equal_to_end_is_rejected(admin):
+    res = _session(admin, _window("10:00", "10:00"), expect=400)
+    assert "after start" in res["detail"]
+
+
+def test_overlapping_windows_on_one_day_are_rejected(admin):
+    res = _session(admin, _window("10:00", "12:00") + _window("11:00", "13:00"), expect=400)
+    assert "cannot overlap" in res["detail"]
+
+
+def test_identical_windows_on_one_day_are_rejected(admin):
+    res = _session(admin, _window("10:00", "12:00") + _window("10:00", "12:00"), expect=400)
+    assert "listed twice" in res["detail"]
+
+
+def test_windows_may_touch_and_are_not_merged(admin):
+    s = _session(admin, _window("10:00", "12:00") + _window("12:00", "13:00"))
+    assert s["available_hours"] == _window("10:00", "12:00") + _window("12:00", "13:00")
+
+
+def test_too_many_windows_on_one_day_are_rejected(admin):
+    many = [w for h in range(8, 19) for w in _window(f"{h:02d}:00", f"{h:02d}:30")]  # 11 windows
+    res = _session(admin, many, expect=400)
+    assert "at most" in res["detail"]
+
+
+def test_a_rejected_window_list_writes_nothing(admin):
+    s = _session(admin, _window("10:00", "12:00"))
+    res = client.put(f"/api/sessions/{s['id']}", headers=admin["headers"],
+                     json={"available_hours": _window("10:00", "12:00") + _window("11:00", "13:00")})
+    assert res.status_code == 400
+    assert client.get("/api/sessions/", headers=admin["headers"]).json()[0]["available_hours"] == _window("10:00", "12:00")
+
+
+# ---------------------------------------------------------------------------------------
+# Several windows on one day
+# ---------------------------------------------------------------------------------------
+
+def test_two_windows_offer_nothing_in_the_gap(admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"), duration=30)
+    assert _slots(admin, s["id"]) == [
+        ("10:00", "10:30"), ("10:30", "11:00"), ("11:00", "11:30"), ("11:30", "12:00"),
+        ("16:00", "16:30"), ("16:30", "17:00"),
+    ]
+
+
+def test_three_windows(admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "11:00") + _window("14:00", "15:00") + _window("16:00", "17:00"))
+    assert _slots(admin, s["id"]) == [("10:00", "11:00"), ("14:00", "15:00"), ("16:00", "17:00")]
+
+
+def test_windows_are_stored_and_returned_in_order(admin):
+    s = _session(admin, _window("16:00", "17:00", days=(2,)) + _window("16:00", "17:00") + _window("10:00", "12:00"))
+    assert s["available_hours"] == (
+        _window("10:00", "12:00") + _window("16:00", "17:00") + _window("16:00", "17:00", days=(2,))
+    )
+
+
+def test_meeting_may_not_run_past_a_window_end(admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"), duration=45)
+    slots = _slots(admin, s["id"])
+    assert all(end <= "12:00" or start >= "16:00" for start, end in slots)
+    assert all(end <= "17:00" for _, end in slots)
+    assert ("11:00", "11:45") in slots and ("11:30", "12:15") not in slots
+    assert ("16:00", "16:45") in slots and ("16:30", "17:15") not in slots
+
+
+def test_duration_longer_than_a_window_skips_that_window(admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"), duration=90)
+    assert _slots(admin, s["id"]) == [("10:00", "11:30"), ("10:30", "12:00")]
+
+
+def test_window_wholly_outside_working_hours_offers_nothing(admin):
+    _hours(admin, [(1, "09:00", "13:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"))
+    assert _slots(admin, s["id"]) == [("10:00", "11:00"), ("10:30", "11:30"), ("11:00", "12:00")]
+
+
+def test_google_busy_and_bookings_block_inside_several_windows(monkeypatch, admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"), duration=30)
+    db = SessionLocal()
+    try:
+        db.add(GoogleConnection(admin_id=admin["id"], google_email=admin["email"],
+                                encrypted_refresh_token="ciphertext", connection_status="connected"))
+        db.add(Booking(
+            public_id=f"BK-MW-{uuid.uuid4().hex[:6].upper()}", admin_id=admin["id"],
+            meeting_type_id=s["id"], client_name="C", client_email="c@example.com",
+            start_time=f"{MONDAY}T16:00:00Z", end_time=f"{MONDAY}T16:30:00Z",
+            status="confirmed", payment_status="completed", cancellation_token=uuid.uuid4().hex,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    async def fake_busy(*args, **kwargs):
+        # 10:30-11:00 IST as real UTC.
+        return [{"start": f"{MONDAY}T05:00:00Z", "end": f"{MONDAY}T05:30:00Z"}]
+
+    monkeypatch.setattr(availability_api, "get_google_busy_intervals", fake_busy)
+    assert _slots(admin, s["id"]) == [("10:00", "10:30"), ("11:00", "11:30"), ("11:30", "12:00"), ("16:30", "17:00")]
+
+
+def test_calendar_outage_still_fails_closed_with_windows(monkeypatch, admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"))
+    db = SessionLocal()
+    try:
+        db.add(GoogleConnection(admin_id=admin["id"], google_email=admin["email"],
+                                encrypted_refresh_token="ciphertext", connection_status="connected"))
+        db.commit()
+    finally:
+        db.close()
+
+    async def down(*args, **kwargs):
+        raise availability_api.GoogleCalendarUnavailable("down")
+
+    monkeypatch.setattr(availability_api, "get_google_busy_intervals", down)
+    assert _slots(admin, s["id"]) == []
+
+
+def test_per_day_multiple_windows(admin):
+    _hours(admin, [(1, "09:00", "18:00"), (2, "09:00", "18:00"), (3, "09:00", "18:00")])
+    s = _session(admin, [
+        {"day_of_week": 1, "start_time": "10:00", "end_time": "11:00"},
+        {"day_of_week": 1, "start_time": "16:00", "end_time": "17:00"},
+        {"day_of_week": 2, "start_time": "09:00", "end_time": "10:00"},
+        {"day_of_week": 2, "start_time": "14:00", "end_time": "15:00"},
+    ])
+    assert _slots(admin, s["id"], MONDAY) == [("10:00", "11:00"), ("16:00", "17:00")]
+    assert _slots(admin, s["id"], TUESDAY) == [("09:00", "10:00"), ("14:00", "15:00")]
+    assert _slots(admin, s["id"], "2030-06-12") == []
+
+
+def test_single_window_row_written_before_this_change_still_works(admin):
+    """Existing sessions have exactly one row per weekday; that is one window, unchanged."""
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin)
+    db = SessionLocal()
+    try:
+        db.add(SessionTimeWindow(session_id=s["id"], admin_id=admin["id"], day_of_week=1,
+                                 start_time="10:00", end_time="14:00"))
+        db.commit()
+    finally:
+        db.close()
+    listed = client.get("/api/sessions/", headers=admin["headers"]).json()[0]
+    assert listed["available_hours"] == _window("10:00", "14:00")
+    assert _slots(admin, s["id"])[0] == ("10:00", "11:00") and _slots(admin, s["id"])[-1] == ("13:00", "14:00")
+    # Saving an unrelated field keeps it exactly as it was.
+    client.put(f"/api/sessions/{s['id']}", headers=admin["headers"], json={"title": "Renamed"})
+    assert client.get("/api/sessions/", headers=admin["headers"]).json()[0]["available_hours"] == _window("10:00", "14:00")
+
+
+def test_multiple_windows_survive_a_new_login(admin):
+    hours = _window("10:00", "12:00", days=(1, 2)) + _window("16:00", "17:00", days=(1, 2))
+    s = _session(admin, hours)
+    login = client.post("/api/auth/login", json={"username_or_email": admin["email"], "password": PASSWORD})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    listed = client.get("/api/sessions/", headers=headers).json()
+    expected = sorted(hours, key=lambda w: (w["day_of_week"], w["start_time"]))
+    assert [x for x in listed if x["id"] == s["id"]][0]["available_hours"] == expected
+
+
+def test_public_page_shows_slots_not_windows_and_a_slot_can_be_held(admin):
+    _hours(admin, [(1, "09:00", "18:00")])
+    s = _session(admin, _window("10:00", "12:00") + _window("16:00", "17:00"), duration=30)
+    db = SessionLocal()
+    try:
+        username = db.query(AdminProfile).filter(AdminProfile.user_id == admin["id"]).first().username
+    finally:
+        db.close()
+    public = client.get(f"/api/profiles/public/{username}").json()
+    session = [x for x in public["sessions"] if x["id"] == s["id"]][0]
+    assert "available_hours" not in session
+
+    res = client.get(f"/api/availability/slots?admin_id={admin['id']}&session_id={s['id']}&date_str={MONDAY}")
+    slot = [x for x in res.json()["available_slots"] if x["start"] == "16:00"][0]
+    hold = client.post("/api/bookings/hold-slot", json={
+        "admin_id": admin["id"], "session_id": s["id"], "start_time": slot["start_time_iso"],
+        "end_time": slot["end_time_iso"], "session_fingerprint": "fp-windows",
+    })
+    assert hold.status_code == 200, hold.text
+    # The held slot leaves the list; the rest of both windows is still offered.
+    starts = [start for start, _ in _slots(admin, s["id"])]
+    assert "16:00" not in starts and "10:00" in starts and "16:30" in starts
 
 
 def test_hours_round_trip_and_survive_a_new_login(admin):

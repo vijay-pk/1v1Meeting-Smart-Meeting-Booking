@@ -139,10 +139,13 @@ availability almost always live there. `max_advance_days` and past dates are enf
 the column existed from the first schema and was read by nothing, so any future date was
 bookable.
 
-**Per-meeting-type hours** (`session_time_windows`, one row per weekday, exposed as
-`available_hours` on sessions): a session with rows is only bookable inside them *and* the
-admin's working hours; a weekday without a row offers nothing for that session; no rows =
-general availability. A table, not columns, so create_all ships it. `PUT /sessions/{id}`
+**Per-meeting-type hours** (`session_time_windows`, one row per window, several allowed per
+weekday, exposed as `available_hours` on sessions): a session with rows is only bookable
+inside them *and* the admin's working hours; a slot must fit inside a single window, so the
+gap between 10-12 and 16-17 offers nothing; a weekday without a row offers nothing for that
+session; no rows = general availability. Windows on one day may touch but never overlap or
+repeat (400), are never merged, max 10 per day (mirrored in `SessionHoursField.tsx`). The
+public profile uses `PublicSessionResponse`, which omits `available_hours`. A table, not columns, so create_all ships it. `PUT /sessions/{id}`
 touches it only when `available_hours` is sent (`null` clears). The meeting-type form no
 longer shows buffers, advance notice, horizon, cancellation window, max/day or colour; the
 stored buffer/notice/horizon columns and their defaults still drive the engine. The
