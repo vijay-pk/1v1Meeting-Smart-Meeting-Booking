@@ -1,0 +1,713 @@
+{
+  "project": {
+    "name": "BookMyMeet Brag Video",
+    "version": "1.0",
+    "format": "landscape",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 18,
+    "colorspace": "srgb"
+  },
+  "audio": {
+    "music": {
+      "track": "assets/music/indie-uplifting-110bpm.mp3",
+      "volume": 0.8,
+      "fadeIn": 2000,
+      "fadeOut": 1000,
+      "cues": [
+        {
+          "time": 5000,
+          "marker": "main_theme_peak"
+        },
+        {
+          "time": 11000,
+          "marker": "revenue_moment"
+        }
+      ]
+    },
+    "sfx": {
+      "layer": "assets/audio/sfx-layer.mp3",
+      "volume": 0.4,
+      "fadeIn": 0,
+      "fadeOut": 1000
+    }
+  },
+  "scenes": [
+    {
+      "id": "scene_1_problem",
+      "name": "The Problem",
+      "startTime": 0,
+      "duration": 2000,
+      "background": {
+        "type": "color",
+        "color": "#333333"
+      },
+      "layers": [
+        {
+          "type": "text",
+          "id": "problem_title",
+          "content": "Your booking page journey, usually:",
+          "x": 960,
+          "y": 540,
+          "fontSize": 48,
+          "fontFamily": "sans-serif",
+          "color": "#FFFFFF",
+          "alignment": "center",
+          "animation": {
+            "type": "fade",
+            "duration": 400,
+            "delay": 200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "icon",
+          "id": "email_icon",
+          "icon": "mail",
+          "x": 400,
+          "y": 400,
+          "size": 80,
+          "color": "#FFFFFF",
+          "opacity": 0.6,
+          "animation": {
+            "type": "bounce_fade",
+            "duration": 500,
+            "delay": 300,
+            "easing": "easeOut",
+            "rotation": 15
+          }
+        },
+        {
+          "type": "icon",
+          "id": "calendly_icon",
+          "icon": "calendar",
+          "x": 960,
+          "y": 350,
+          "size": 80,
+          "color": "#FFFFFF",
+          "opacity": 0.5,
+          "animation": {
+            "type": "bounce_fade",
+            "duration": 500,
+            "delay": 500,
+            "easing": "easeOut",
+            "rotation": -12
+          }
+        },
+        {
+          "type": "icon",
+          "id": "confused_emoji",
+          "emoji": "😕",
+          "x": 1500,
+          "y": 400,
+          "size": 100,
+          "animation": {
+            "type": "bounce_fade",
+            "duration": 500,
+            "delay": 700,
+            "easing": "easeOut",
+            "rotation": 20
+          }
+        }
+      ],
+      "transition": {
+        "type": "zoom_out",
+        "duration": 300,
+        "easing": "easeIn"
+      }
+    },
+    {
+      "id": "scene_2_hook",
+      "name": "The Hook",
+      "startTime": 2000,
+      "duration": 3000,
+      "background": {
+        "type": "gradient",
+        "colorStart": "#0066FF",
+        "colorEnd": "#FFFFFF",
+        "direction": "to top"
+      },
+      "layers": [
+        {
+          "type": "text",
+          "id": "hook_title",
+          "content": "Meet BookMyMeet.",
+          "x": 960,
+          "y": 150,
+          "fontSize": 64,
+          "fontFamily": "sans-serif",
+          "fontWeight": "bold",
+          "color": "#FFFFFF",
+          "alignment": "center",
+          "animation": {
+            "type": "fade_scale",
+            "duration": 600,
+            "delay": 200,
+            "easing": "easeOut",
+            "scaleFrom": 0.9,
+            "scaleTo": 1.0
+          }
+        },
+        {
+          "type": "image",
+          "id": "profile_screenshot",
+          "source": "assets/screenshots/superprofile-homepage.png",
+          "x": 960,
+          "y": 540,
+          "width": 800,
+          "height": 600,
+          "animation": {
+            "type": "slide_fade",
+            "duration": 800,
+            "delay": 400,
+            "direction": "from-left",
+            "easing": "easeOut"
+          },
+          "shadow": {
+            "blur": 20,
+            "offset": "0 10",
+            "color": "#00000040"
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 300
+      }
+    },
+    {
+      "id": "scene_3a_session_select",
+      "name": "Pick a Session",
+      "startTime": 5000,
+      "duration": 1000,
+      "background": {
+        "type": "color",
+        "color": "#F5F5F5"
+      },
+      "layers": [
+        {
+          "type": "image",
+          "id": "sessions_screenshot",
+          "source": "assets/screenshots/time-availability-sessions.png",
+          "x": 960,
+          "y": 540,
+          "width": 1000,
+          "height": 700,
+          "animation": {
+            "type": "fade",
+            "duration": 400,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "overlay",
+          "id": "session_glow",
+          "x": 400,
+          "y": 400,
+          "width": 300,
+          "height": 150,
+          "borderRadius": 12,
+          "borderColor": "#0066FF",
+          "borderWidth": 3,
+          "animation": {
+            "type": "glow_pulse",
+            "duration": 1000,
+            "intensity": 0.8
+          }
+        },
+        {
+          "type": "text",
+          "id": "session_label",
+          "content": "Pick a session",
+          "x": 1700,
+          "y": 900,
+          "fontSize": 40,
+          "color": "#FFFFFF",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0.5,
+          "padding": 16,
+          "borderRadius": 8,
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "delay": 200
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 150
+      }
+    },
+    {
+      "id": "scene_3b_calendar",
+      "name": "Pick a Time",
+      "startTime": 6000,
+      "duration": 1500,
+      "background": {
+        "type": "color",
+        "color": "#F5F5F5"
+      },
+      "layers": [
+        {
+          "type": "image",
+          "id": "calendar_screenshot",
+          "source": "assets/screenshots/time-availability-calendar.png",
+          "x": 960,
+          "y": 540,
+          "width": 1000,
+          "height": 700,
+          "animation": {
+            "type": "slide_fade",
+            "duration": 400,
+            "direction": "from-right",
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "overlay",
+          "id": "slot_highlight",
+          "x": 500,
+          "y": 300,
+          "width": 120,
+          "height": 120,
+          "backgroundColor": "#0066FF",
+          "opacity": 0.7,
+          "borderRadius": 8,
+          "animation": {
+            "type": "scale_glow",
+            "duration": 500,
+            "delay": 500,
+            "scaleFrom": 0.9,
+            "scaleTo": 1.2
+          }
+        },
+        {
+          "type": "badge",
+          "id": "date_badge",
+          "content": "Sept 21 at 2:30 PM",
+          "x": 1650,
+          "y": 100,
+          "fontSize": 32,
+          "backgroundColor": "#0066FF",
+          "color": "#FFFFFF",
+          "padding": 16,
+          "borderRadius": 8,
+          "animation": {
+            "type": "scale_fade",
+            "duration": 400,
+            "delay": 800,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "text",
+          "id": "time_label",
+          "content": "Pick a time",
+          "x": 1700,
+          "y": 900,
+          "fontSize": 40,
+          "color": "#FFFFFF",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0.5,
+          "padding": 16,
+          "borderRadius": 8,
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "delay": 300
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 150
+      }
+    },
+    {
+      "id": "scene_3c_payment",
+      "name": "Payment Checkout",
+      "startTime": 7500,
+      "duration": 1500,
+      "background": {
+        "type": "color",
+        "color": "#F5F5F5"
+      },
+      "layers": [
+        {
+          "type": "image",
+          "id": "checkout_screenshot",
+          "source": "assets/screenshots/payment-checkout.png",
+          "x": 960,
+          "y": 540,
+          "width": 800,
+          "height": 600,
+          "animation": {
+            "type": "slide_fade",
+            "duration": 300,
+            "direction": "from-bottom",
+            "easing": "easeOut"
+          },
+          "shadow": {
+            "blur": 20,
+            "offset": "0 10",
+            "color": "#00000040"
+          }
+        },
+        {
+          "type": "image",
+          "id": "razorpay_modal",
+          "source": "assets/screenshots/razorpay-modal.png",
+          "x": 960,
+          "y": 540,
+          "width": 600,
+          "height": 500,
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "delay": 200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "text",
+          "id": "payment_label",
+          "content": "Pay directly to the creator",
+          "x": 200,
+          "y": 900,
+          "fontSize": 40,
+          "color": "#FFFFFF",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0.5,
+          "padding": 16,
+          "borderRadius": 8,
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "delay": 400
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 150
+      }
+    },
+    {
+      "id": "scene_3d_dashboard",
+      "name": "Admin Dashboard",
+      "startTime": 9000,
+      "duration": 1000,
+      "background": {
+        "type": "color",
+        "color": "#F5F5F5"
+      },
+      "layers": [
+        {
+          "type": "image",
+          "id": "dashboard_screenshot",
+          "source": "assets/screenshots/admin-dashboard-booking.png",
+          "x": 960,
+          "y": 540,
+          "width": 1000,
+          "height": 700,
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "overlay",
+          "id": "booking_card_new",
+          "x": 960,
+          "y": 400,
+          "width": 500,
+          "height": 150,
+          "backgroundColor": "#E8F5E9",
+          "borderLeft": "4px solid #4CAF50",
+          "borderRadius": 8,
+          "animation": {
+            "type": "slide_fade",
+            "duration": 400,
+            "delay": 300,
+            "direction": "from-right",
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "icon",
+          "id": "checkmark",
+          "icon": "check-circle",
+          "x": 1300,
+          "y": 400,
+          "size": 60,
+          "color": "#4CAF50",
+          "animation": {
+            "type": "scale_pulse",
+            "duration": 400,
+            "delay": 600,
+            "scaleFrom": 0.5,
+            "scaleTo": 1.0
+          }
+        },
+        {
+          "type": "text",
+          "id": "dashboard_label",
+          "content": "Live in their dashboard",
+          "x": 960,
+          "y": 950,
+          "fontSize": 40,
+          "color": "#FFFFFF",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0.5,
+          "padding": 16,
+          "borderRadius": 8,
+          "alignment": "center",
+          "animation": {
+            "type": "fade",
+            "duration": 300,
+            "delay": 200
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 300
+      }
+    },
+    {
+      "id": "scene_4_money",
+      "name": "The Money Moment",
+      "startTime": 11000,
+      "duration": 3000,
+      "background": {
+        "type": "gradient",
+        "colorStart": "#1A472A",
+        "colorEnd": "#2E7D32",
+        "direction": "to bottom"
+      },
+      "layers": [
+        {
+          "type": "text",
+          "id": "revenue_title",
+          "content": "100% of revenue.",
+          "x": 960,
+          "y": 400,
+          "fontSize": 48,
+          "fontWeight": "bold",
+          "color": "#FFFFFF",
+          "alignment": "center",
+          "animation": {
+            "type": "scale_fade",
+            "duration": 400,
+            "delay": 200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "text",
+          "id": "zero_cut_title",
+          "content": "Zero platform cut.",
+          "x": 960,
+          "y": 500,
+          "fontSize": 48,
+          "fontWeight": "bold",
+          "color": "#FFD700",
+          "alignment": "center",
+          "animation": {
+            "type": "scale_fade",
+            "duration": 400,
+            "delay": 1200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "icon",
+          "id": "money_icon_1",
+          "icon": "dollar",
+          "x": 400,
+          "y": 600,
+          "size": 80,
+          "color": "#FFD700",
+          "animation": {
+            "type": "cascade_in",
+            "duration": 400,
+            "delay": 1500,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "icon",
+          "id": "money_icon_2",
+          "icon": "dollar",
+          "x": 700,
+          "y": 650,
+          "size": 80,
+          "color": "#FFD700",
+          "animation": {
+            "type": "cascade_in",
+            "duration": 400,
+            "delay": 1700,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "icon",
+          "id": "money_icon_3",
+          "icon": "dollar",
+          "x": 1000,
+          "y": 600,
+          "size": 80,
+          "color": "#FFD700",
+          "animation": {
+            "type": "cascade_in",
+            "duration": 400,
+            "delay": 1900,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "arrow",
+          "id": "flow_arrow",
+          "startX": 600,
+          "startY": 700,
+          "endX": 1300,
+          "endY": 700,
+          "color": "#FFFFFF",
+          "width": 3,
+          "animation": {
+            "type": "draw",
+            "duration": 600,
+            "delay": 2200,
+            "easing": "easeInOut"
+          }
+        },
+        {
+          "type": "badge",
+          "id": "razorpay_account",
+          "content": "Razorpay Account",
+          "x": 1400,
+          "y": 680,
+          "fontSize": 28,
+          "backgroundColor": "#1F4788",
+          "color": "#FFFFFF",
+          "padding": 12,
+          "borderRadius": 6,
+          "animation": {
+            "type": "fade_scale",
+            "duration": 400,
+            "delay": 2700,
+            "easing": "easeOut"
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 300
+      }
+    },
+    {
+      "id": "scene_5_closer",
+      "name": "The Closer",
+      "startTime": 14000,
+      "duration": 4000,
+      "background": {
+        "type": "color",
+        "color": "#FFFFFF"
+      },
+      "layers": [
+        {
+          "type": "text",
+          "id": "closer_line_1",
+          "content": "Your vanity page.",
+          "x": 960,
+          "y": 300,
+          "fontSize": 56,
+          "fontWeight": "bold",
+          "color": "#1A1A1A",
+          "alignment": "center",
+          "animation": {
+            "type": "fade_scale",
+            "duration": 400,
+            "delay": 200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "text",
+          "id": "closer_line_2",
+          "content": "Your Razorpay account.",
+          "x": 960,
+          "y": 450,
+          "fontSize": 56,
+          "fontWeight": "bold",
+          "color": "#1A1A1A",
+          "alignment": "center",
+          "animation": {
+            "type": "fade_scale",
+            "duration": 400,
+            "delay": 1200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "text",
+          "id": "closer_line_3",
+          "content": "Your rules.",
+          "x": 960,
+          "y": 600,
+          "fontSize": 56,
+          "fontWeight": "bold",
+          "color": "#0066FF",
+          "alignment": "center",
+          "animation": {
+            "type": "fade_scale",
+            "duration": 400,
+            "delay": 2200,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "type": "button",
+          "id": "cta_button",
+          "label": "Start Free",
+          "x": 960,
+          "y": 800,
+          "width": 200,
+          "height": 60,
+          "fontSize": 24,
+          "fontWeight": "bold",
+          "backgroundColor": "#0066FF",
+          "color": "#FFFFFF",
+          "borderRadius": 8,
+          "alignment": "center",
+          "animation": {
+            "type": "scale_glow",
+            "duration": 400,
+            "delay": 3000,
+            "easing": "easeOut",
+            "scaleFrom": 0.8,
+            "scaleTo": 1.0
+          },
+          "shadow": {
+            "blur": 15,
+            "offset": "0 5",
+            "color": "#0066FF60"
+          }
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "duration": 300
+      }
+    }
+  ],
+  "validation": {
+    "checkTextReadability": true,
+    "checkColorContrast": true,
+    "checkAnimationTiming": true,
+    "checkMusicSync": true
+  }
+}
