@@ -460,152 +460,153 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
       
       {/* Super Admin Top Command Bar */}
       <header className="bg-[#0B1E3B] text-white sticky top-0 z-30 shadow-md">
-        <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="BookMyMeet Logo"
-              className="w-10 h-10 object-contain rounded-xl shadow-md"
-            />
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-white">
-                  Super Admin Master Console
-                </span>
-                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
-                  {currentSuperAdmin.full_name} (CEO)
-                </span>
+        <div className="mx-auto max-w-7xl px-3 py-2 sm:px-6 sm:py-2.5">
+          {/* Identity and controls share a row from `sm` up; below that the controls wrap
+              onto their own line rather than squeezing the name. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <img
+                src="/logo.png"
+                alt=""
+                className="h-8 w-8 shrink-0 rounded-lg object-contain sm:h-9 sm:w-9"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-bold leading-tight tracking-tight text-white sm:text-base">
+                  Super Admin
+                </p>
+                <p className="truncate text-xs leading-tight text-slate-300">
+                  {currentSuperAdmin.full_name}
+                  {currentSuperAdmin.title ? ` · ${currentSuperAdmin.title}` : ''}
+                </p>
               </div>
-              <p className="text-xs text-text-tertiary">
-                Manage Staff Admins, Send Gmail Credentials & Set Custom Pricing per Consultant
-              </p>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <ThemeToggle
-              value={themePreference}
-              onChange={setThemePreference}
-              className="bg-white/10"
-            />
+            <div className="flex shrink-0 items-center gap-1.5">
+              <ThemeToggle
+                value={themePreference}
+                onChange={setThemePreference}
+                className="bg-white/10"
+              />
 
-            {/* Master Credentials Settings Button */}
-            {/* Account details and platform settings, saved on the server. This used to open a
-                dialog that only wrote to this browser's local store and changed no real login. */}
-            <Link
-              to="/super-admin/settings"
-              className="text-xs font-semibold px-3 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5"
-            >
-              <Key className="w-3.5 h-3.5" />
-              <span>Account & Settings</span>
-            </Link>
+              {/* Account details and platform settings, saved on the server. This used to open
+                  a dialog that only wrote to this browser's local store and changed no real
+                  login. Icon-only on phones; the label appears from `md` up. */}
+              <Link
+                to="/super-admin/settings"
+                aria-label="Account and settings"
+                title="Account & settings"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-slate-800 px-2.5 text-xs font-semibold text-indigo-300 hover:bg-slate-700"
+              >
+                <Key className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="hidden md:inline">Account</span>
+              </Link>
 
-            {/* My Portal Settings (Requirement 7: Master Admin is like other admins) */}
-            <Link
-              to="/admin/settings"
-              onClick={() => {
-                localStorage.setItem('bmm_current_user_role', 'super_admin');
-                localStorage.setItem('bmm_logged_role', 'super_admin');
-                localStorage.setItem('bmm_logged_admin_id', currentSuperAdmin.id);
-                localStorage.setItem('bmm_logged_username', currentSuperAdmin.username);
-                localStorage.setItem('bmm_logged_admin_name', currentSuperAdmin.full_name);
-              }}
-              className="text-xs font-bold px-3 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-sm transition-all"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>My Portal Settings</span>
-            </Link>
+              {/* Portal settings (the Master Admin is a consultant like any other) */}
+              <Link
+                to="/admin/settings"
+                aria-label="Portal settings"
+                title="Portal settings"
+                onClick={() => {
+                  localStorage.setItem('bmm_current_user_role', 'super_admin');
+                  localStorage.setItem('bmm_logged_role', 'super_admin');
+                  localStorage.setItem('bmm_logged_admin_id', currentSuperAdmin.id);
+                  localStorage.setItem('bmm_logged_username', currentSuperAdmin.username);
+                  localStorage.setItem('bmm_logged_admin_name', currentSuperAdmin.full_name);
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-xs font-semibold text-white hover:bg-indigo-500"
+              >
+                <Settings className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="hidden md:inline">Portal settings</span>
+              </Link>
 
-            <Link
-              to={`/${currentSuperAdmin.username}`}
-              target="_blank"
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
-            >
-              <span>My Booking Link (/{currentSuperAdmin.username})</span>
-              <ExternalLink className="w-3.5 h-3.5 text-text-tertiary" />
-            </Link>
+              {/* The slug stays reachable through the label and the link itself, but it no
+                  longer sets the width of the header on a phone. */}
+              <Link
+                to={`/${currentSuperAdmin.username}`}
+                target="_blank"
+                aria-label={`Booking link, /${currentSuperAdmin.username}`}
+                title={`/${currentSuperAdmin.username}`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-700"
+              >
+                <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="hidden md:inline">Booking link</span>
+              </Link>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                await signOut();
-              }}
-              className="text-xs text-text-tertiary hover:text-red-400 hover:bg-slate-800 gap-1.5 cursor-pointer transition-colors"
-              title="Sign out & go to Sign Up"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Sign Out
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await signOut();
+                }}
+                aria-label="Sign out"
+                className="h-9 gap-1.5 px-2.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-red-400 cursor-pointer"
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="hidden md:inline">Sign out</span>
+              </Button>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 space-y-8">
-        
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-6">
+
         {/* PLATFORM ANALYTICS BANNER */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
-          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
-            <p className="text-[11px] font-bold text-text-tertiary uppercase tracking-wider">Total Admins</p>
-            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-text-primary mt-1">{admins.length}</p>
-            <p className="text-[10px] text-text-tertiary mt-0.5">Platform Staff</p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 sm:gap-3">
+          <div className="bg-surface p-3 rounded-xl border border-border">
+            <p className="text-xs font-medium text-text-tertiary">Admins</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">{admins.length}</p>
           </div>
-          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
-            <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Active Admins</p>
-            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-emerald-700 mt-1">
+          <div className="bg-surface p-3 rounded-xl border border-border">
+            <p className="text-xs font-medium text-emerald-600">Active</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">
               {admins.filter(a => (a.status || 'ACTIVE') === 'ACTIVE').length}
             </p>
-            <p className="text-[10px] text-emerald-600/80 mt-0.5">Accepting Bookings</p>
           </div>
-          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
-            <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Disabled Admins</p>
-            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-amber-700 mt-1">
+          <div className="bg-surface p-3 rounded-xl border border-border">
+            <p className="text-xs font-medium text-amber-600">Paused</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">
               {admins.filter(a => a.status === 'TEMPORARILY_DISABLED').length}
             </p>
-            <p className="text-[10px] text-amber-600/80 mt-0.5">Portals Paused</p>
           </div>
-          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs">
-            <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">Total Bookings</p>
-            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-blue-900 mt-1">{bookings.length}</p>
-            <p className="text-[10px] text-blue-600/80 mt-0.5">Platform Wide</p>
+          <div className="bg-surface p-3 rounded-xl border border-border">
+            <p className="text-xs font-medium text-blue-600">Bookings</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">{bookings.length}</p>
           </div>
-          <div className="bg-surface p-4 rounded-2xl border border-border shadow-xs col-span-2 sm:col-span-1">
-            <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Confirmed Revenue</p>
-            <p className="truncate text-xl font-black tabular-nums sm:text-2xl text-indigo-900 mt-1">
+          <div className="bg-surface p-3 rounded-xl border border-border col-span-2 sm:col-span-1">
+            <p className="text-xs font-medium text-indigo-600">Revenue</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">
               ₹{(bookings.filter(b => b.payment_status === 'completed').length * 1497).toLocaleString()}
             </p>
-            <p className="text-[10px] text-indigo-600/80 mt-0.5">Via Razorpay</p>
           </div>
         </div>
 
         {/* =========================================================================
             SECTION 1: ADMINS & CONSULTANTS MANAGEMENT
            ========================================================================= */}
-        <div className="bg-surface rounded-2xl border border-border shadow-sm p-6 sm:p-8 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-            <div>
-              <h2 className="font-bold text-text-primary text-lg tracking-tight flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-600" />
-                <span>Admins & Consultants ({admins.length})</span>
-              </h2>
-              <p className="text-xs text-text-tertiary mt-0.5">
-                View consultants, monitor active status, and manage platform staff accounts.
-              </p>
-            </div>
+        <div className="bg-surface rounded-xl border border-border p-4 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+            <h2 className="font-semibold text-text-primary text-lg tracking-tight flex items-center gap-2 min-w-0">
+              <Users className="w-5 h-5 text-indigo-600 shrink-0" />
+              <span className="truncate">Admins ({admins.length})</span>
+            </h2>
 
             <Button
               size="sm"
               onClick={() => setIsAddAdminOpen(true)}
-              className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs h-9 px-4 rounded-lg flex items-center gap-1.5 cursor-pointer font-semibold shadow-xs"
+              aria-label="Add consultant"
+              className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs h-9 px-3 rounded-lg flex shrink-0 items-center gap-1.5 cursor-pointer font-semibold"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>+ Add Consultant</span>
+              <UserPlus className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">Add consultant</span>
+              <span className="sm:hidden">Add</span>
             </Button>
           </div>
 
           {notice && (
-            <div className="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">
+            <div className="px-3 py-2 rounded-lg border border-border bg-slate-900 text-white text-xs font-semibold">
               {notice}
             </div>
           )}
@@ -798,43 +799,144 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         {/* =========================================================================
             SECTION 2: SUPER ADMIN PERSONAL 1v1 SESSIONS & PRICING
            ========================================================================= */}
-        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-indigo-600" />
-                  <span>My 1v1 Sessions & Personal Pricing</span>
-                </h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                  {currentSuperAdmin.full_name || 'You'}
-                </span>
-              </div>
-              <p className="text-xs text-text-tertiary mt-0.5">
-                Set your personal 1v1 session rates, offer pricing, and durations. Staff admins customize their own session pricing and payment gateway independently in their portal settings.
-              </p>
-            </div>
+        <div className="bg-surface rounded-xl p-4 sm:p-6 border border-border space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2 min-w-0">
+              <Tag className="w-5 h-5 text-indigo-600 shrink-0" />
+              <span className="truncate">My sessions</span>
+            </h2>
 
             <Button
               type="button"
               onClick={() => handleOpenAddMeetingModal(currentSuperAdmin.id)}
-              className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs font-semibold px-4 h-9 rounded-xl gap-1.5 cursor-pointer shadow-xs"
+              aria-label="Add session"
+              className="bg-[#0B1E3B] hover:bg-slate-800 text-white text-xs font-semibold px-3 h-9 rounded-lg gap-1.5 shrink-0 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>+ Add My 1v1 Session</span>
+              <Plus className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">Add session</span>
+              <span className="sm:hidden">Add</span>
             </Button>
           </div>
 
-          {/* Meeting Types & Price Table */}
-          <div className="overflow-x-auto">
+          {/* Phone: one card per session, fields stacked and labelled. Five editable
+              columns cannot share 360px, and a horizontal scroller here still widened the
+              document itself. */}
+          <div className="space-y-2.5 md:hidden">
+            {displayedMeetingTypes.length === 0 ? (
+              <p className="py-6 text-center text-sm text-text-tertiary">
+                No sessions yet.{' '}
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddMeetingModal(currentSuperAdmin.id)}
+                  className="press inline-flex min-h-11 items-center rounded px-1 font-semibold text-blue-600 underline cursor-pointer"
+                >
+                  Add one
+                </button>
+              </p>
+            ) : (
+              displayedMeetingTypes.map((meeting) => {
+                const origPriceInRupees =
+                  meeting.original_price && meeting.original_price > 0
+                    ? String(Math.floor(meeting.original_price / 100))
+                    : '';
+                const offerPriceInRupees =
+                  meeting.price && meeting.price > 0
+                    ? String(Math.floor(meeting.price / 100))
+                    : '';
+
+                return (
+                  <div key={meeting.id} className="rounded-lg border border-border p-3 space-y-2.5">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <Label htmlFor={`m-name-${meeting.id}`} className="text-xs text-text-tertiary">
+                          Session
+                        </Label>
+                        <Input
+                          id={`m-name-${meeting.id}`}
+                          value={meeting.name}
+                          onChange={(e) => handlePriceUpdate(meeting.id, 'name', e.target.value)}
+                          className="h-10 text-sm rounded-lg font-medium bg-surface border-border"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeMeetingType(meeting.id)}
+                        aria-label={`Delete ${meeting.name}`}
+                        title="Delete session"
+                        className="mt-6 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-tertiary hover:text-red-500 hover:bg-red-50 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1 min-w-0">
+                        <Label className="text-xs text-text-tertiary">Duration</Label>
+                        <Select
+                          value={String(meeting.duration_minutes)}
+                          onValueChange={(val) => handlePriceUpdate(meeting.id, 'duration_minutes', Number(val))}
+                        >
+                          <SelectTrigger className="h-10 w-full text-sm rounded-lg bg-surface border-border">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="15" className="text-xs">15 min</SelectItem>
+                            <SelectItem value="30" className="text-xs">30 min</SelectItem>
+                            <SelectItem value="45" className="text-xs">45 min</SelectItem>
+                            <SelectItem value="60" className="text-xs">60 min</SelectItem>
+                            <SelectItem value="90" className="text-xs">90 min</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1 min-w-0">
+                        <Label htmlFor={`m-orig-${meeting.id}`} className="text-xs text-text-tertiary">
+                          Original ₹
+                        </Label>
+                        <Input
+                          id={`m-orig-${meeting.id}`}
+                          type="text"
+                          inputMode="numeric"
+                          value={origPriceInRupees}
+                          onChange={(e) => handlePriceUpdate(meeting.id, 'original_price', e.target.value)}
+                          placeholder="999"
+                          className="h-10 w-full text-sm rounded-lg bg-surface border-border line-through text-text-tertiary"
+                        />
+                      </div>
+
+                      <div className="space-y-1 min-w-0">
+                        <Label htmlFor={`m-offer-${meeting.id}`} className="text-xs text-text-tertiary">
+                          Offer ₹
+                        </Label>
+                        <Input
+                          id={`m-offer-${meeting.id}`}
+                          type="text"
+                          inputMode="numeric"
+                          value={offerPriceInRupees}
+                          onChange={(e) => handlePriceUpdate(meeting.id, 'price', e.target.value)}
+                          placeholder="499"
+                          className="h-10 w-full text-sm rounded-lg bg-surface border-border font-semibold text-emerald-700"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Tablet and up: the editable table. */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-border text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
-                  <th className="py-3 px-3">SESSION TITLE</th>
-                  <th className="py-3 px-3">DURATION</th>
-                  <th className="py-3 px-3">ORIGINAL PRICE (₹)</th>
-                  <th className="py-3 px-3">OFFER PRICE (₹)</th>
-                  <th className="py-3 px-3 text-right">ACTIONS</th>
+                <tr className="border-b border-border text-xs font-medium text-text-tertiary">
+                  <th className="py-2 px-3 font-medium">Session</th>
+                  <th className="py-2 px-3 font-medium">Duration</th>
+                  <th className="py-2 px-3 font-medium">Original ₹</th>
+                  <th className="py-2 px-3 font-medium">Offer ₹</th>
+                  <th className="py-2 px-3 text-right font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -945,27 +1047,16 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             SECTION 2B: SUPER ADMIN PROFILE & INTEGRATIONS
             (Requirement: Master Admin parity with regular consultants)
            ========================================================================= */}
-        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
-                  <span className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-black text-xs">
-                    2B
-                  </span>
-                  <span>My Profile & Personal Integrations</span>
-                </h2>
-                <Badge className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] font-bold">
-                  Master Consultant Parity
-                </Badge>
-              </div>
-              <p className="text-xs text-text-tertiary mt-1">
-                Configure your own Razorpay credentials and Google Calendar sync for <strong>{currentSuperAdmin.full_name || 'your account'}</strong>.
-              </p>
-            </div>
+        <div className="bg-surface rounded-xl p-4 sm:p-6 border border-border space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2 min-w-0">
+              <Settings className="w-5 h-5 text-orange-600 shrink-0" />
+              <span className="truncate">My integrations</span>
+            </h2>
 
             <Link
               to="/admin/settings"
+              aria-label="Open full profile customizer"
               onClick={() => {
                 localStorage.setItem('bmm_current_user_role', 'super_admin');
                 localStorage.setItem('bmm_logged_role', 'super_admin');
@@ -973,15 +1064,14 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 localStorage.setItem('bmm_logged_username', currentSuperAdmin.username);
                 localStorage.setItem('bmm_logged_admin_name', currentSuperAdmin.full_name);
               }}
-              className="text-xs font-bold px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer self-start sm:self-auto"
+              className="text-xs font-semibold px-3 h-9 rounded-lg border border-border bg-surface hover:bg-surface-secondary text-text-primary inline-flex shrink-0 items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Full Customizer & Sections →</span>
+              <span>Customizer</span>
             </Link>
           </div>
 
           {masterIntegrationsNotice && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center justify-between animate-fade-in">
+            <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between animate-fade-in">
               <span>{masterIntegrationsNotice}</span>
               <button
                 type="button"
@@ -995,10 +1085,10 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* Card 1: Google Calendar Integration */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/50 border border-blue-200/80 space-y-4 flex flex-col justify-between">
+            <div className="p-4 rounded-xl bg-surface-secondary border border-border space-y-3 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
+                  <div className="flex items-center gap-2 text-text-primary font-semibold text-sm">
                     <Calendar className="w-4 h-4 text-blue-600" />
                     <span>Google Calendar & Meet</span>
                   </div>
@@ -1021,25 +1111,14 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <div className="text-xs rounded-xl bg-surface border border-border h-9 px-3 flex items-center font-mono text-text-secondary truncate">
                     {masterGoogleEmail || 'Not connected'}
                   </div>
-                  <p className="text-[10px] text-text-tertiary">
-                    Creates calendar events & automated Google Meet video links for bookings.
-                    Stays connected until you disconnect it here.
+                  <p className="text-xs text-text-tertiary">
+                    Creates calendar events and Meet links for bookings.
                   </p>
                   {masterGoogleConnected && !masterGoogleHealthy && (
-                    <p className="text-[10px] text-amber-700 font-semibold">
+                    <p className="text-xs text-amber-700 dark:text-amber-400 font-semibold">
                       Calendar cannot be read — access was likely revoked at Google. Bookings are paused until you reconnect.
                     </p>
                   )}
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-surface/80 border border-blue-200/70 text-[11px] text-blue-900 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <Video className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Google Meet Auto-Generator</span>
-                  </div>
-                  <p className="text-[10px] text-blue-700">
-                    Each client receives a 1-click meeting link instantly upon confirmed payment.
-                  </p>
                 </div>
               </div>
 
@@ -1058,15 +1137,15 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
 
             {/* Card 3: Razorpay Payment Setup */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/50 border border-emerald-200/80 space-y-4 flex flex-col justify-between">
+            <div className="p-4 rounded-xl bg-surface-secondary border border-border space-y-3 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                  <div className="flex items-center gap-2 text-text-primary font-semibold text-sm">
                     <CreditCard className="w-4 h-4 text-emerald-600" />
                     <span>Personal Razorpay Gateway</span>
                   </div>
-                  <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-                    100% Payout
+                  <Badge variant="outline" className="border-border text-text-tertiary text-xs font-medium">
+                    100% payout
                   </Badge>
                 </div>
 
@@ -1077,7 +1156,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                       href="https://easy.razorpay.com/onboarding?recommended_product=payment_gateway"
                       target="_blank"
                       rel="noreferrer"
-                      className="press -my-1 inline-flex min-h-11 items-center gap-0.5 rounded px-1 text-[10px] font-bold text-emerald-700 hover:underline sm:min-h-6"
+                      className="press -my-1 inline-flex min-h-11 items-center gap-0.5 rounded px-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline sm:min-h-6"
                     >
                       <span>Open Razorpay</span>
                       <ExternalLink className="w-2.5 h-2.5" />
@@ -1090,10 +1169,10 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     className="text-xs rounded-xl bg-surface h-9 font-mono"
                   />
                   {masterRzpKey.startsWith('rzp_live_') && (
-                    <p className="text-[10px] text-emerald-700 font-bold">● Live Mode (Real payments active)</p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold">Live mode</p>
                   )}
                   {masterRzpKey.startsWith('rzp_test_') && (
-                    <p className="text-[10px] text-amber-700 font-medium">⚠️ Test Mode key. Use rzp_live_ for real money.</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">Test mode key. Use rzp_live_ for real payments.</p>
                   )}
                 </div>
 
@@ -1106,8 +1185,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     placeholder="Enter Secret"
                     className="text-xs rounded-xl bg-surface h-9 font-mono"
                   />
-                  <p className="text-[10px] text-text-tertiary">
-                    Encrypted with AES-256 before storage. Payments settle directly into your own account.
+                  <p className="text-xs text-text-tertiary">
+                    Encrypted before storage. Payments settle into your own account.
                   </p>
                 </div>
               </div>
@@ -1126,80 +1205,134 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         {/* =========================================================================
             SECTION 3: MASTER BOOKINGS OVERVIEW
            ========================================================================= */}
-        <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-border shadow-sm space-y-6">
+        <div className="bg-surface rounded-xl p-4 sm:p-6 border border-border space-y-4">
           <div className="border-b border-border pb-3">
-            <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-blue-600" />
-              <span>Bookings Overview (Master List)</span>
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-blue-600 shrink-0" />
+              <span>Bookings</span>
             </h2>
-            <p className="text-xs text-text-tertiary">
-              Live records of all appointments across all platform consultants.
-            </p>
+            <p className="text-xs text-text-tertiary mt-0.5">All consultant bookings</p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-border text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
-                  <th className="py-3 px-3">WHEN</th>
-                  <th className="py-3 px-3">TYPE</th>
-                  <th className="py-3 px-3">ASSIGNED TO</th>
-                  <th className="py-3 px-3">CUSTOMER</th>
-                  <th className="py-3 px-3">MEET CODE / LINK</th>
-                  <th className="py-3 px-3 text-right">STATUS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {bookings.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-text-tertiary italic">
-                      No bookings yet — confirm one from the Book tab.
-                    </td>
-                  </tr>
-                ) : (
-                  bookings.map((b) => (
-                    <tr key={b.id} className="hover:bg-surface-secondary/60 transition-colors">
-                      <td className="py-3.5 px-3 font-semibold text-slate-800">
-                        {formatBookingDate(b.start_time, 'MMM d')} • {formatBookingTime(b.start_time)}
-                      </td>
-                      <td className="py-3.5 px-3 font-medium text-text-secondary">
-                        {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
-                      </td>
-                      <td className="py-3.5 px-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px]">
-                          {b.assigned_admin_name || 'Admin'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-3">
-                        <p className="font-semibold text-text-primary">{b.customer_name || (b as any).customer?.name}</p>
-                        <p className="text-[11px] text-text-tertiary">{b.customer_email || (b as any).customer?.email}</p>
-                      </td>
-                      <td className="py-3.5 px-3">
-                        {b.google_meet_url ? (
-                          <a
-                            href={b.google_meet_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 hover:underline flex items-center gap-1 font-mono text-[11px]"
-                          >
-                            <Video className="w-3.5 h-3.5" />
-                            {b.google_meet_url.replace('https://', '')}
-                          </a>
-                        ) : (
-                          <span className="text-text-tertiary">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right">
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[11px]">
-                          {b.status.toUpperCase()}
-                        </Badge>
-                      </td>
+          {bookings.length === 0 ? (
+            <p className="py-8 text-center text-sm text-text-tertiary">No bookings yet.</p>
+          ) : (
+            <>
+              {/* Phone: one card per booking. A six-column table cannot be squeezed into
+                  360px without clipping a column, and clipping the Meet link or the
+                  customer's address is the same as losing it. */}
+              <ul className="space-y-2.5 lg:hidden">
+                {bookings.map((b) => (
+                  <li
+                    key={b.id}
+                    className="rounded-lg border border-border p-3 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-text-primary">
+                          {formatBookingDate(b.start_time, 'MMM d')} · {formatBookingTime(b.start_time)}
+                        </p>
+                        <p className="text-xs text-text-tertiary truncate">
+                          {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-medium"
+                      >
+                        {b.status}
+                      </Badge>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-sm text-text-primary break-words">
+                        {b.customer_name || (b as any).customer?.name}
+                      </p>
+                      {/* Long addresses wrap rather than overflow the card. */}
+                      <p className="text-xs text-text-tertiary break-all">
+                        {b.customer_email || (b as any).customer?.email}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      <span className="text-text-tertiary">Admin</span>
+                      <span className="font-medium text-text-secondary">
+                        {b.assigned_admin_name || 'Admin'}
+                      </span>
+                    </div>
+
+                    {b.google_meet_url && (
+                      <a
+                        href={b.google_meet_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-h-11 items-center gap-1.5 break-all font-mono text-xs text-blue-600 hover:underline"
+                      >
+                        <Video className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span>{b.google_meet_url.replace('https://', '')}</span>
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+
+              {/* Desktop: the table, which has the room it needs. Below 1024px the Meet
+                  URL column is too narrow and the address breaks mid-word. */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-xs font-medium text-text-tertiary">
+                      <th className="py-2 px-3 font-medium">When</th>
+                      <th className="py-2 px-3 font-medium">Type</th>
+                      <th className="py-2 px-3 font-medium">Admin</th>
+                      <th className="py-2 px-3 font-medium">Customer</th>
+                      <th className="py-2 px-3 font-medium">Meet</th>
+                      <th className="py-2 px-3 text-right font-medium">Status</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {bookings.map((b) => (
+                      <tr key={b.id} className="hover:bg-surface-secondary/60 transition-colors">
+                        <td className="py-2.5 px-3 font-medium text-text-primary whitespace-nowrap">
+                          {formatBookingDate(b.start_time, 'MMM d')} · {formatBookingTime(b.start_time)}
+                        </td>
+                        <td className="py-2.5 px-3 text-text-secondary">
+                          {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
+                        </td>
+                        <td className="py-2.5 px-3 text-text-secondary">
+                          {b.assigned_admin_name || 'Admin'}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <p className="font-medium text-text-primary">{b.customer_name || (b as any).customer?.name}</p>
+                          <p className="text-xs text-text-tertiary break-all">{b.customer_email || (b as any).customer?.email}</p>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {b.google_meet_url ? (
+                            <a
+                              href={b.google_meet_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline flex items-center gap-1 font-mono text-xs break-words"
+                            >
+                              <Video className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span>{b.google_meet_url.replace('https://', '')}</span>
+                            </a>
+                          ) : (
+                            <span className="text-text-tertiary">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-medium">
+                            {b.status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
 
       </main>
