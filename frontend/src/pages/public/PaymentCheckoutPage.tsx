@@ -574,8 +574,10 @@ export const PaymentCheckoutPage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                {/* Start plus duration, not start–end: the backend's end label is 24-hour
+                    ("09:30") while the start is 12-hour, and the pair read as a typo. */}
                 <span>
-                  {slot.display_start} – {slot.display_end} · {selectedMeeting.duration_minutes} min
+                  {slot.display_start} · {selectedMeeting.duration_minutes} min
                 </span>
               </div>
             </div>

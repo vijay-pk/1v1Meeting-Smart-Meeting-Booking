@@ -572,12 +572,16 @@ export const TimeAvailabilityPage: React.FC = () => {
          ========================================================================= */}
       {selectedMeeting && selectedSlot && (
         <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 z-40">
-          <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2 sm:gap-3">
             <div className="min-w-0">
-              <p className="text-[13px] font-semibold text-slate-900 truncate">
-                {format(selectedDate, 'EEE, MMM d')} · {selectedSlot.display_start}
+              {/* Date and time each get their own line at phone width, so neither is the
+                  one that gets truncated away. */}
+              <p className="text-[13px] font-semibold text-slate-900 leading-tight">
+                {format(selectedDate, 'EEE, MMM d')}
+                <span className="hidden min-[360px]:inline"> · {selectedSlot.display_start}</span>
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 leading-tight">
+                <span className="min-[360px]:hidden">{selectedSlot.display_start} · </span>
                 {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
               </p>
             </div>
@@ -585,7 +589,7 @@ export const TimeAvailabilityPage: React.FC = () => {
             <Button
               onClick={handleProceedToPayment}
               style={{ backgroundColor: buttonColor }}
-              className="shrink-0 text-white px-6 min-h-[44px] rounded-full font-semibold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-98 hover:opacity-95"
+              className="shrink-0 text-white px-4 sm:px-6 min-h-[44px] rounded-full font-semibold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-98 hover:opacity-95"
             >
               <span>Continue</span>
               <ArrowRight className="w-4 h-4" />

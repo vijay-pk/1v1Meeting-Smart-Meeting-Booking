@@ -409,10 +409,10 @@ export const SuperProfileHomePage: React.FC = () => {
             Provider-neutral by design: no YouTube/Vimeo logo, icon, badge or name is added
             by this card. */}
         {activeAdmin.intro_video && (
-          <section className="bg-white rounded-2xl p-4 border border-white/20 shadow-sm">
+          <section className="bg-white rounded-2xl p-3 border border-white/20 shadow-sm max-w-md mx-auto w-full">
             <IntroVideoPlayer
               url={activeAdmin.intro_video}
-              className="rounded-xl border border-slate-200 max-w-md mx-auto"
+              className="rounded-xl border border-slate-200"
             />
           </section>
         )}
