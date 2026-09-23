@@ -3,8 +3,6 @@ import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
-import { INTRO_VIDEO_LABEL } from '@/lib/video';
-import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import { api } from '@/lib/api';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
@@ -15,18 +13,8 @@ import {
 } from 'date-fns';
 import {
   Clock,
-  Video,
-  Calendar,
-  Sparkles,
-  ShieldCheck,
-  ChevronRight,
   ArrowRight,
   ArrowLeft,
-  Star,
-  CheckCircle,
-  Play,
-  Award,
-  CreditCard,
   AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -396,372 +384,211 @@ export const TimeAvailabilityPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-32">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-28">
       {/* =========================================================================
-          TOP NAVBAR & BREADCRUMB
+          COMPACT CONTEXT HEADER — one back action, no repeated profile block
          ========================================================================= */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 shadow-2xs">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              to={profileLink}
-              className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer"
-              title={`Back to ${selectedAdminUser.full_name}'s Profile`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
+      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+          <Link
+            to={profileLink}
+            aria-label={`Back to ${selectedAdminUser.full_name}'s profile`}
+            className="w-10 h-10 -ml-2 rounded-xl hover:bg-slate-100 text-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
 
-            <img
-              src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
-              alt={selectedAdminUser.full_name}
-              className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
-            />
+          <img
+            src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
+            alt=""
+            className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
+          />
 
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-slate-900 text-sm sm:text-base tracking-tight">
-                  {selectedAdminUser.full_name}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-900 truncate">
+              {selectedAdminUser.full_name}
+              {selectedMeeting && (
+                <span className="font-normal text-slate-500">
+                  {' · '}{selectedMeeting.name}
                 </span>
-                <ShieldCheck className="w-4 h-4 text-blue-600 fill-blue-50" />
-              </div>
-              <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-                Step 2: Choose Your Date & Time Slot
-              </p>
-            </div>
+              )}
+            </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Only offered when there is actually another session to switch to. */}
+          {adminMeetingTypes.length > 1 && (
             <Link
               to={profileLink}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition flex items-center gap-1"
+              className="shrink-0 text-xs font-semibold px-3 min-h-[36px] inline-flex items-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
             >
-              <span>Change Session</span>
+              Change
             </Link>
-          </div>
+          )}
         </div>
       </header>
 
-      {/* =========================================================================
-          HERO SECTION DYNAMICALLY FOR SELECTED ADMIN
-         ========================================================================= */}
-      <section className="bg-gradient-to-b from-slate-900 via-[#0B1E3B] to-slate-900 text-white pt-8 pb-14 px-4 sm:px-6 relative overflow-hidden">
-        {/* Subtle background glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-gradient-to-r from-orange-500/20 via-indigo-500/20 to-purple-500/20 blur-3xl pointer-events-none rounded-full" />
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 space-y-4">
 
-        <div className="max-w-6xl mx-auto relative z-10">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-
-            {/* Left: Video or Profile Portrait */}
-            <div className="md:col-span-5 flex flex-col items-center md:items-start">
-              {selectedAdminUser.intro_video ? (
-                <div className="relative group w-full max-w-md">
-                  <div className="absolute -inset-1 bg-gradient-to-tr from-orange-500 to-indigo-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500" />
-                  {/* Click-to-load, so the provider's logo, channel name and title bar are
-                      never what a visitor lands on. See components/ui/IntroVideoPlayer. */}
-                  <IntroVideoPlayer
-                    url={selectedAdminUser.intro_video}
-                    className="relative rounded-2xl border-2 border-white/20 shadow-2xl"
-                  />
-
-                  {/* Video Info Badge */}
-                  <div className="mt-3 flex items-center justify-between text-xs text-slate-300 px-1">
-                    <div className="flex items-center gap-1.5">
-                      <Play className="w-3.5 h-3.5 text-orange-400 fill-orange-400" aria-hidden="true" />
-                      <span className="font-semibold text-white">{INTRO_VIDEO_LABEL} &mdash; {selectedAdminUser.full_name}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="relative group flex items-center justify-center">
-                  <div className="absolute -inset-2 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-3xl blur-md opacity-50 group-hover:opacity-75 transition duration-500" />
-                  <div className="relative w-40 h-40 sm:w-48 sm:h-48 rounded-3xl overflow-hidden bg-slate-800 border-2 border-white/20 shadow-2xl flex items-center justify-center">
-                    <img
-                      src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
-                      alt={selectedAdminUser.full_name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right: Mentor Authority, Bio & Stats */}
-            <div className="md:col-span-7 space-y-4 text-center md:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/20 border border-orange-400/40 text-orange-300 text-xs font-bold tracking-wide">
-                <Sparkles className="w-3.5 h-3.5 text-orange-400" />
-                <span>1-on-1 Personalized Mentorship • Direct Video Call</span>
-              </div>
-
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center justify-center md:justify-start gap-2 flex-wrap">
-                  <span>{selectedAdminUser.full_name}</span>
-                  {selectedAdminUser.title && (
-                    <span className="text-slate-400 font-normal text-base sm:text-xl">• {selectedAdminUser.title}</span>
-                  )}
-                  <ShieldCheck className="w-5 h-5 text-blue-400 fill-blue-500/20" />
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-300 mt-2 font-medium max-w-xl leading-relaxed">
-                  {selectedAdminUser.bio || (selectedAdminUser as any).description || selectedAdminUser.about_me_text ||
-                   `Schedule a private 1-on-1 advisory session with ${selectedAdminUser.full_name}. Real-time calendar sync and direct Google Meet link included.`}
-                </p>
-              </div>
-
-              {/* Trust Badge Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 p-2.5 rounded-xl text-center md:text-left">
-                  <div className="text-base sm:text-lg font-extrabold text-orange-400">1-on-1</div>
-                  <div className="text-[10px] text-slate-400 font-medium">Private Video Call</div>
-                </div>
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 p-2.5 rounded-xl text-center md:text-left">
-                  <div className="text-base sm:text-lg font-extrabold text-amber-400">Instant</div>
-                  <div className="text-[10px] text-slate-400 font-medium">Google Meet Invite</div>
-                </div>
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 p-2.5 rounded-xl text-center md:text-left">
-                  <div className="text-base sm:text-lg font-extrabold text-blue-400">Direct</div>
-                  <div className="text-[10px] text-slate-400 font-medium">Razorpay Gateway</div>
-                </div>
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 p-2.5 rounded-xl text-center md:text-left">
-                  <div className="text-base sm:text-lg font-extrabold text-emerald-400">Zero</div>
-                  <div className="text-[10px] text-slate-400 font-medium">Double-Booking</div>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* =========================================================================
-          STEP 2: TIME AVAILABILITY MAIN SECTION
-         ========================================================================= */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 -mt-6 relative z-20">
-
-        {/* Selected Package Banner */}
+        {/* Session context: title, duration · price */}
         {selectedMeeting && (
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-md mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-lg">
-                🎯
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-orange-600">Selected Session</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                    {selectedMeeting.duration_minutes} mins
-                  </span>
-                  <span className="text-xs text-slate-400 font-medium">
-                    Host: {selectedAdminUser.full_name}
-                  </span>
-                </div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
-                  {selectedMeeting.name}
-                </h2>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-              <div className="text-right">
-                {selectedMeeting.original_price && selectedMeeting.original_price > selectedMeeting.price && (
-                  <span className="text-xs text-slate-400 line-through block">
-                    {formatPrice(selectedMeeting.original_price, selectedMeeting.currency)}
-                  </span>
-                )}
-                <span className="text-lg sm:text-xl font-black text-slate-900">
-                  {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
-                </span>
-              </div>
-              <Link
-                to={profileLink}
-                className="press -my-2 inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-bold text-orange-600 underline hover:bg-orange-50 hover:text-orange-700 sm:min-h-9"
-              >
-                Change
-              </Link>
-            </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight leading-tight">
+              {selectedMeeting.name}
+            </h1>
+            <p className="text-sm text-slate-600 whitespace-nowrap">
+              {selectedMeeting.duration_minutes} min
+              <span className="text-slate-300"> · </span>
+              <span className="font-semibold text-slate-900">
+                {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
+              </span>
+            </p>
           </div>
         )}
 
-        <div className="max-w-4xl mx-auto space-y-6">
-          <div className="bg-white rounded-2xl p-5 sm:p-8 border border-slate-200/80 shadow-md space-y-8">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-5">
 
-            {/* 1. Pick a Day */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-orange-600" />
-                  <span>Pick a Day</span>
-                </h3>
-                <span className="text-xs font-semibold text-slate-500">
-                  {format(selectedDate, 'MMMM yyyy')}
-                </span>
-              </div>
-
-              {/* Horizontal Date Carousel */}
-              <div className="flex items-center gap-2.5 overflow-x-auto pb-2 scrollbar-none">
-                {daysList.map((day) => {
-                  const isSelected = isSameDay(day, selectedDate);
-                  const key = format(day, 'yyyy-MM-dd');
-                  // undefined = counts unavailable, so every day stays open and the slot
-                  // grid gives the real answer.
-                  const count = dayCounts ? dayCounts[key] ?? 0 : undefined;
-                  const isEmpty = count === 0;
-                  return (
-                    <button
-                      key={day.toISOString()}
-                      type="button"
-                      onClick={() => !isEmpty && setSelectedDate(day)}
-                      disabled={isEmpty}
-                      aria-label={
-                        `${format(day, 'EEEE d MMMM')}` +
-                        (count === undefined ? '' : `, ${count} ${count === 1 ? 'slot' : 'slots'}`)
-                      }
-                      aria-pressed={isSelected}
-                      className={`flex-shrink-0 w-16 min-h-[76px] py-3 rounded-2xl flex flex-col items-center justify-center transition-all duration-200 ${
-                        isEmpty
-                          ? 'bg-slate-50/60 text-slate-300 border border-slate-100 cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-[#0B1E3B] text-white shadow-md shadow-slate-900/20 scale-102 font-bold cursor-pointer'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 cursor-pointer'
-                      }`}
-                    >
-                      <span className={`text-xs font-medium ${isSelected ? 'text-slate-300' : isEmpty ? 'text-slate-300' : 'text-slate-400'}`}>
-                        {format(day, 'EEE')}
-                      </span>
-                      <span className={`text-lg font-extrabold mt-0.5 ${isSelected ? 'text-white' : isEmpty ? 'text-slate-300' : 'text-slate-800'}`}>
-                        {format(day, 'd')}
-                      </span>
-                      <span className={`text-[10px] mt-0.5 leading-none ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
-                        {count === undefined ? ' ' : isEmpty ? 'Full' : `${count} slot${count === 1 ? '' : 's'}`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+          {/* 1. Choose date */}
+          <div>
+            <div className="flex items-baseline justify-between mb-2.5">
+              <h2 className="text-[15px] font-semibold text-slate-900">Choose date</h2>
+              <span className="text-xs text-slate-500">{format(selectedDate, 'MMMM yyyy')}</span>
             </div>
 
-            {/* 2. Pick a Time */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-orange-600" />
-                  <span>Pick a Time</span>
-                </h3>
-                <span className="text-xs text-slate-500 font-medium">
-                  {slotsLoading
-                    ? 'Checking availability…'
-                    : `${availableSlots.length} slot${availableSlots.length === 1 ? '' : 's'} available`}
-                  {slotTimezone ? ` • times in ${slotTimezone}` : ''}
-                </span>
-              </div>
-
-              {slotsLoading ? (
-                <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2 animate-pulse" />
-                  <p className="text-sm font-semibold text-slate-700">Checking the host's calendar…</p>
-                </div>
-              ) : slotsError ? (
-                <div className="p-8 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300">
-                  <Clock className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
-                  <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
-                  {/* This screen previously had no way out: a transient failure left the
-                      visitor on a dead end with no action but to leave. */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {daysList.map((day) => {
+                const isSelected = isSameDay(day, selectedDate);
+                const key = format(day, 'yyyy-MM-dd');
+                // undefined = counts unavailable, so every day stays open and the slot
+                // grid gives the real answer.
+                const count = dayCounts ? dayCounts[key] ?? 0 : undefined;
+                const isEmpty = count === 0;
+                return (
                   <button
+                    key={day.toISOString()}
                     type="button"
-                    onClick={() => setSlotsRetryKey((k) => k + 1)}
-                    className="mt-4 min-h-[44px] px-5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold transition cursor-pointer"
+                    onClick={() => !isEmpty && setSelectedDate(day)}
+                    disabled={isEmpty}
+                    aria-label={
+                      `${format(day, 'EEEE d MMMM')}` +
+                      (count === undefined ? '' : `, ${count} ${count === 1 ? 'slot' : 'slots'}`)
+                    }
+                    aria-pressed={isSelected}
+                    className={`flex-shrink-0 w-14 min-h-[60px] py-2 rounded-xl flex flex-col items-center justify-center transition ${
+                      isEmpty
+                        ? 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed'
+                        : isSelected
+                        ? 'bg-[#0B1E3B] text-white font-semibold cursor-pointer'
+                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 cursor-pointer'
+                    }`}
                   >
-                    Try again
+                    <span className={`text-[11px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                      {format(day, 'EEE')}
+                    </span>
+                    <span className={`text-base font-semibold ${isSelected ? 'text-white' : isEmpty ? 'text-slate-300' : 'text-slate-800'}`}>
+                      {format(day, 'd')}
+                    </span>
                   </button>
-                </div>
-              ) : availableSlots.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-slate-700">No slots available on this day</p>
-                  <p className="text-xs text-slate-400 mt-1">Please select another date on the calendar strip above.</p>
-                </div>
-              ) : (
-                <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
-                  {groupByPartOfDay(availableSlots).map((group) => (
-                    <div key={group.label}>
-                      <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
-                        {group.label}
-                      </h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5">
-                        {group.slots.map((slot) => {
-                          const isSelected = selectedSlot?.start === slot.start;
-                          return (
-                            <button
-                              key={slot.start}
-                              type="button"
-                              onClick={() => setSelectedSlot(slot)}
-                              aria-pressed={isSelected}
-                              className={`min-h-[44px] py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 text-center border cursor-pointer ${
-                                isSelected
-                                  ? 'border-[#FF5722] bg-[#FFF8F6] text-[#FF5722] ring-2 ring-[#FF5722]/20 font-bold shadow-xs'
-                                  : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                              }`}
-                            >
-                              {slot.display_start}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Choose time */}
+          <div>
+            <div className="flex items-baseline justify-between mb-2.5 gap-3">
+              <h2 className="text-[15px] font-semibold text-slate-900">Choose time</h2>
+              {/* The zone the backend computed in -- never the browser's. */}
+              {slotTimezone && (
+                <span className="text-xs text-slate-500 truncate">{slotTimezone}</span>
               )}
             </div>
 
-            {/* What to Expect Trust Banner */}
-            <div className="pt-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-slate-600">
-              <div className="flex items-start gap-2.5">
-                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span>Direct Google Meet video call link delivered immediately to your email</span>
+            {slotsLoading ? (
+              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                <Clock className="w-6 h-6 text-slate-300 mx-auto mb-2 animate-pulse" />
+                <p className="text-sm text-slate-600">Checking availability…</p>
               </div>
-              <div className="flex items-start gap-2.5">
-                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span>1-click calendar sync with Google Calendar & Apple Calendar</span>
+            ) : slotsError ? (
+              <div className="p-6 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300">
+                <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
+                <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
+                {/* This screen previously had no way out: a transient failure left the
+                    visitor on a dead end with no action but to leave. */}
+                <button
+                  type="button"
+                  onClick={() => setSlotsRetryKey((k) => k + 1)}
+                  className="mt-3 min-h-[44px] px-5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition cursor-pointer"
+                >
+                  Try again
+                </button>
               </div>
-              <div className="flex items-start gap-2.5">
-                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span>Free reschedule up to 24 hours prior to session</span>
+            ) : availableSlots.length === 0 ? (
+              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                <p className="text-sm text-slate-700">No times available on this day</p>
+                <p className="text-xs text-slate-400 mt-1">Pick another date above.</p>
               </div>
-            </div>
-
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {groupByPartOfDay(availableSlots).map((group) => (
+                  <div key={group.label}>
+                    <h3 className="text-xs font-semibold text-slate-400 mb-1.5">
+                      {group.label}
+                    </h3>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                      {group.slots.map((slot) => {
+                        const isSelected = selectedSlot?.start === slot.start;
+                        return (
+                          <button
+                            key={slot.start}
+                            type="button"
+                            onClick={() => setSelectedSlot(slot)}
+                            aria-pressed={isSelected}
+                            className={`min-h-[44px] px-2 rounded-xl text-xs sm:text-sm font-medium transition text-center border cursor-pointer ${
+                              isSelected
+                                ? 'border-[#FF5722] bg-[#FFF8F6] text-[#FF5722] font-semibold'
+                                : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                            }`}
+                          >
+                            {slot.display_start}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* What the booking actually includes, as one line. */}
+        <p className="text-xs text-slate-500 text-center px-2">
+          Google Meet · Calendar invite
+        </p>
       </main>
 
       {/* =========================================================================
-          BOTTOM STICKY ACTION BAR (Proceed to Payment)
+          STICKY CTA — selected date · time, price, one primary action
          ========================================================================= */}
       {selectedMeeting && selectedSlot && (
-        <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 z-40 shadow-xl">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="space-y-0.5 text-center sm:text-left">
-              <div className="flex items-center gap-2 justify-center sm:justify-start">
-                <span className="font-bold text-slate-900 text-sm">
-                  {selectedMeeting.name}
-                </span>
-                <span className="text-xs text-slate-500 font-medium">
-                  ({selectedMeeting.duration_minutes} min)
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 font-medium">
-                📅 {format(selectedDate, 'EEEE, MMMM d')} at ⏰ {selectedSlot.display_start} with <span className="font-bold text-slate-800">{selectedAdminUser.full_name}</span>
+        <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 z-40">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-slate-900 truncate">
+                {format(selectedDate, 'EEE, MMM d')} · {selectedSlot.display_start}
+              </p>
+              <p className="text-xs text-slate-500">
+                {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
               </p>
             </div>
 
             <Button
               onClick={handleProceedToPayment}
               style={{ backgroundColor: buttonColor }}
-              className="w-full sm:w-auto text-white px-8 py-5 rounded-full font-bold text-sm shadow-lg shadow-black/10 flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-98 hover:opacity-95"
+              className="shrink-0 text-white px-6 min-h-[44px] rounded-full font-semibold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-98 hover:opacity-95"
             >
-              <span>Proceed to Payment</span>
-              <span className="font-extrabold ml-1">({formatPrice(selectedMeeting.price, selectedMeeting.currency)})</span>
-              <ArrowRight className="w-4 h-4 ml-1" />
+              <span>Continue</span>
+              <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
         </div>

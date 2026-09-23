@@ -8,21 +8,11 @@ import { loadRazorpayCheckout } from '@/lib/razorpay';
 import { format, parseISO } from 'date-fns';
 import type { AdminUser } from '@/types';
 import {
-  ShieldCheck,
   Lock,
   ArrowLeft,
   Clock,
-  Video,
   Calendar,
-  User,
-  Mail,
-  Phone,
-  MessageSquare,
-  Sparkles,
-  CheckCircle2,
   AlertCircle,
-  CreditCard,
-  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -436,289 +426,187 @@ export const PaymentCheckoutPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-24">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-10">
       {/* =========================================================================
-          TOP NAVBAR
+          COMPACT CONTEXT HEADER — one back action
          ========================================================================= */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 shadow-2xs">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              to={backUrl}
-              className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer"
-              title="Back to Time Availability"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
+      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+          <Link
+            to={backUrl}
+            aria-label="Back to time selection"
+            className="w-10 h-10 -ml-2 rounded-xl hover:bg-slate-100 text-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
 
-            <img
-              src={selectedAdmin?.photo_url || DEFAULT_AVATAR}
-              alt={selectedAdmin?.full_name || 'Host'}
-              className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs"
-            />
+          <img
+            src={selectedAdmin?.photo_url || DEFAULT_AVATAR}
+            alt=""
+            className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
+          />
 
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-slate-900 text-base tracking-tight">
-                  {selectedAdmin?.full_name || '1:1 Session'}
-                </span>
-                <ShieldCheck className="w-4 h-4 text-blue-600 fill-blue-50" />
-              </div>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Step 3: Attendee Details & Secure Payment
-              </p>
-            </div>
-          </div>
+          <p className="text-sm font-semibold text-slate-900 truncate min-w-0 flex-1">
+            {selectedAdmin?.full_name || '1:1 session'}
+            <span className="font-normal text-slate-500">{' · '}{selectedMeeting.name}</span>
+          </p>
 
-          <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
-            <Lock className="w-3.5 h-3.5" />
-            <span>256-Bit SSL Encrypted</span>
-          </div>
+          {/* The hold is real: create-order consumes a 10-minute SlotLock. */}
+          <span className="shrink-0 text-xs text-slate-500 flex items-center gap-1">
+            <Clock className="w-3 h-3" aria-hidden="true" />
+            <span className="font-mono tabular-nums">{formatTimer(secondsRemaining)}</span>
+            <span className="sr-only">remaining on your slot hold</span>
+          </span>
         </div>
       </header>
 
-      {/* =========================================================================
-          10-MINUTE SLOT HOLD BANNER
-         ========================================================================= */}
-      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white py-2.5 px-4 text-center text-xs sm:text-sm font-semibold shadow-xs flex items-center justify-center gap-2">
-        <Clock className="w-4 h-4 animate-spin text-white" />
-        <span>Your time slot is reserved for</span>
-        <span className="bg-black/25 px-2 py-0.5 rounded-md font-mono font-extrabold text-white text-sm">
-          {formatTimer(secondsRemaining)}
-        </span>
-        <span className="hidden sm:inline">• Please complete checkout before the timer expires</span>
-      </div>
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
-      {/* =========================================================================
-          CHECKOUT MAIN CONTAINER
-         ========================================================================= */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
-          {/* Left Column: Attendee Information Form */}
-          <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-md space-y-6">
+          {/* Left: attendee details + payment */}
+          <div className="lg:col-span-7 bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 space-y-4">
             <div>
-              <div className="flex items-center gap-2 text-orange-600 text-xs font-bold uppercase tracking-wider mb-1">
-                <Sparkles className="w-4 h-4" />
-                <span>Instant Confirmation • Direct with {selectedAdmin?.full_name || 'Mentor'}</span>
-              </div>
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-                Enter Your Details
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Your direct Google Meet video invitation and calendar invite will be sent to this email address.
+              <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight">
+                Your details
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Your Google Meet link and calendar invite are sent to this email.
               </p>
             </div>
 
-            {/* Individual Razorpay Indicator */}
-            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-blue-900 font-medium">
-                <CreditCard className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>
-                  Direct Payment to <strong>{selectedAdmin?.full_name}</strong> via Razorpay
-                </span>
-              </div>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white border border-blue-200 text-blue-800 font-semibold">
-                {isCustomAdminKey && adminRazorpayKey?.startsWith('rzp_live_')
-                  ? '● Live Secure Payment'
-                  : isCustomAdminKey
-                  ? `${adminRazorpayKey?.slice(0, 14)}...`
-                  : 'Direct Payment'}
-              </span>
-            </div>
-
             {errorMessage && (
-              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2 font-medium">
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2 font-medium">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
-            <form onSubmit={handlePayment} className="space-y-4">
+            <form onSubmit={handlePayment} className="space-y-3.5">
               <div className="space-y-1.5">
-                <Label htmlFor="cust-name" className="text-xs font-bold text-slate-700">
-                  Full Name <span className="text-red-500">*</span>
+                <Label htmlFor="cust-name" className="text-xs font-semibold text-slate-700">
+                  Full name <span className="text-red-500">*</span>
                 </Label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                  <Input
-                    id="cust-name"
-                    required
-                    placeholder="Enter your full name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="pl-10 h-11 rounded-xl text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="cust-email" className="text-xs font-bold text-slate-700">
-                  Email Address <span className="text-red-500">*</span>
-                </Label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                  <Input
-                    id="cust-email"
-                    type="email"
-                    required
-                    placeholder="rahul@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10 h-11 rounded-xl text-sm"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Google Meet link and session recording link are sent here.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="cust-phone" className="text-xs font-bold text-slate-700">
-                  Phone / WhatsApp Number <span className="text-slate-400 font-normal">(Optional)</span>
-                </Label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                  <Input
-                    id="cust-phone"
-                    placeholder="e.g. +91 9876543210"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="pl-10 h-11 rounded-xl text-sm"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Used for SMS/WhatsApp reminder 1 hour before the session.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="cust-notes" className="text-xs font-bold text-slate-700">
-                  What would you like to discuss? <span className="text-slate-400 font-normal">(Optional)</span>
-                </Label>
-                <Textarea
-                  id="cust-notes"
-                  placeholder="Share details or questions you would like to cover during this 1:1 call..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="rounded-xl text-sm"
+                <Input
+                  id="cust-name"
+                  required
+                  placeholder="Your full name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="h-11 rounded-xl text-sm"
                 />
               </div>
 
-              <div className="pt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-email" className="text-xs font-semibold text-slate-700">
+                  Email <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="cust-email"
+                  type="email"
+                  required
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 rounded-xl text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-phone" className="text-xs font-semibold text-slate-700">
+                  Phone <span className="text-slate-400 font-normal">(optional)</span>
+                </Label>
+                <Input
+                  id="cust-phone"
+                  placeholder="+91 9876543210"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="h-11 rounded-xl text-sm"
+                />
+              </div>
+
+              {/* Optional note, visually minimized behind a disclosure. */}
+              <details className="group">
+                <summary className="text-xs font-semibold text-slate-600 cursor-pointer min-h-[36px] flex items-center hover:text-slate-900">
+                  Add a note (optional)
+                </summary>
+                <Textarea
+                  id="cust-notes"
+                  aria-label="What would you like to discuss?"
+                  placeholder="Anything you would like to cover"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="rounded-xl text-sm mt-2"
+                />
+              </details>
+
+              <div className="pt-1">
                 <Button
                   type="submit"
                   disabled={isProcessing}
                   style={{ backgroundColor: buttonColor }}
-                  className="w-full text-white font-extrabold text-base h-13 rounded-2xl shadow-lg shadow-black/10 transition-all cursor-pointer flex items-center justify-center gap-2 hover:opacity-95"
+                  className="w-full text-white font-semibold text-base min-h-[48px] rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 hover:opacity-95"
                 >
-                  <Lock className="w-4 h-4" />
                   <span>
                     {isProcessing
-                      ? 'Processing Secure Checkout...'
-                      : `Pay ${formatPrice(selectedMeeting.price, selectedMeeting.currency)} & Confirm`}
+                      ? 'Processing…'
+                      : `Pay ${formatPrice(selectedMeeting.price, selectedMeeting.currency)}`}
                   </span>
                 </Button>
-              </div>
-
-              {/* Payment Trust Badges */}
-              <div className="pt-3 flex items-center justify-center gap-4 text-[11px] text-slate-500 font-medium">
-                <span className="flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>100% Satisfaction Guarantee</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <CreditCard className="w-3.5 h-3.5 text-blue-600" />
-                  <span>UPI / Cards / NetBanking</span>
-                </span>
+                <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+                  <Lock className="w-3 h-3" />
+                  <span>Secure payment via Razorpay</span>
+                </p>
               </div>
             </form>
           </div>
 
-          {/* Right Column: Order Summary Card */}
-          <div className="lg:col-span-5 space-y-5">
-            <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-md space-y-5">
-              <h3 className="text-base font-bold text-slate-900 border-b pb-3">
-                Order Summary
-              </h3>
+          {/* Right: what is being booked */}
+          <div className="lg:col-span-5 bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
+            <h2 className="text-[15px] font-semibold text-slate-900">
+              {selectedMeeting.name}
+            </h2>
 
-              {/* Session Details */}
-              <div className="space-y-2.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-sm sm:text-base leading-snug">
-                      {selectedMeeting.name}
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Host: <strong className="text-slate-700">{selectedAdmin?.full_name || 'Verified Consultant'}</strong>
-                      {selectedAdmin?.title && <span> • {selectedAdmin.title}</span>}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
-                  <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <Calendar className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-                    <span>
-                      {slot ? `${format(parseISO(slot.start), 'EEEE, MMMM d, yyyy')}` : dateStr}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <Clock className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-                    <span>
-                      {slot.display_start} – {slot.display_end} ({selectedMeeting.duration_minutes} mins)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-emerald-700 font-semibold">
-                    <Video className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Google Meet video invite included</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-blue-700 font-semibold">
-                    <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>Auto-synced to Google Calendar for Client & Host</span>
-                  </div>
-                </div>
+            <div className="space-y-1.5 text-sm text-slate-700">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>{slot ? format(parseISO(slot.start), 'EEE, d MMM yyyy') : dateStr}</span>
               </div>
-
-              {/* Price Breakdown */}
-              <div className="space-y-2.5 pt-2 border-t border-slate-100 text-xs sm:text-sm">
-                {selectedMeeting.original_price && selectedMeeting.original_price > selectedMeeting.price && (
-                  <>
-                    <div className="flex justify-between text-slate-500">
-                      <span>Standard Rate</span>
-                      <span className="line-through">
-                        {formatPrice(selectedMeeting.original_price, selectedMeeting.currency)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-emerald-600 font-medium">
-                      <span>Special Discount Applied</span>
-                      <span>
-                        - {formatPrice(discountAmount, selectedMeeting.currency)}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                <div className="flex justify-between items-baseline pt-2 border-t border-slate-100">
-                  <span className="font-extrabold text-slate-900 text-base">Total Payable</span>
-                  <span
-                    style={{ color: buttonColor }}
-                    className="font-black text-xl sm:text-2xl"
-                  >
-                    {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Policy Notes */}
-              <div className="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80 text-[11px] text-amber-800 space-y-1">
-                <p className="font-bold">Cancellation & Reschedule Policy:</p>
-                <p>
-                  Free rescheduling up to 24 hours prior to session. Links to manage your booking are provided on the confirmation page and via email.
-                </p>
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>
+                  {slot.display_start} – {slot.display_end} · {selectedMeeting.duration_minutes} min
+                </span>
               </div>
             </div>
+
+            <div className="pt-3 border-t border-slate-100 space-y-1.5 text-sm">
+              {selectedMeeting.original_price && selectedMeeting.original_price > selectedMeeting.price && (
+                <div className="flex justify-between text-slate-500 text-xs">
+                  <span>Standard rate</span>
+                  <span className="line-through">
+                    {formatPrice(selectedMeeting.original_price, selectedMeeting.currency)}
+                  </span>
+                </div>
+              )}
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-emerald-600 text-xs">
+                  <span>Discount</span>
+                  <span>- {formatPrice(discountAmount, selectedMeeting.currency)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-baseline">
+                <span className="font-semibold text-slate-900">Total</span>
+                <span style={{ color: buttonColor }} className="font-bold text-lg">
+                  {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
+                </span>
+              </div>
+            </div>
+
+            <p className="pt-2 border-t border-slate-100 text-xs text-slate-500">
+              Google Meet · Calendar invite. Links to manage your booking are on the
+              confirmation page and in your email.
+            </p>
           </div>
 
         </div>
