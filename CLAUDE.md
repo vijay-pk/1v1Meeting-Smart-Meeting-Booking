@@ -56,6 +56,8 @@ suite is order-independent and leaves nothing behind in the development database
   current password for username/email/password, uniqueness, old sessions revoked.
 - `test_image_upload.py` — 15 tests on photo optimization: resize without upscale, WebP,
   EXIF/GPS stripped, orientation, alpha, bombs and broken files refused, per-admin paths.
+- `test_platform_overview.py` — 10 tests on the Super Admin overview: revenue per admin,
+  captured-only, breakdown sums to the total, 403 for a normal admin.
 - `test_onboarding.py` — 20 tests on first-time setup status: each step derived from
   persisted rows, completion recorded once, per-admin isolation, signup seeds no sessions.
 

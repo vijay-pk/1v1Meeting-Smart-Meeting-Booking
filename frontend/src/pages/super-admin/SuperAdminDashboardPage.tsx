@@ -63,6 +63,44 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+/** One consultant's own bookings and own captured revenue, from `/super-admin/analytics`. */
+interface AdminRevenueItem {
+  admin_id: string | null;
+  admin_name: string;
+  /** 'super_admin' marks the owner's own sessions -- the one row that is theirs. */
+  role: string | null;
+  bookings: number;
+  revenue: number;
+}
+
+interface PlatformAnalytics {
+  total_admins: number;
+  active_admins: number;
+  disabled_admins: number;
+  total_bookings: number;
+  confirmed_bookings: number;
+  /** Captured payments across every consultant, in paise. Never the Super Admin's own. */
+  total_revenue: number;
+  by_admin: AdminRevenueItem[];
+}
+
+/** A booking belonging to some consultant, from `/super-admin/bookings`. */
+interface PlatformBooking {
+  id: string;
+  admin_id: string | null;
+  admin_name: string;
+  client_name: string;
+  client_email: string;
+  session_title: string;
+  start_time: string;
+  status: string;
+  payment_status: string;
+  /** Present only when the payment was really captured; null otherwise. */
+  amount: number | null;
+  currency: string;
+  google_meet_link: string | null;
+}
+
 const DAYS_OF_WEEK = [
   { index: 1, name: 'Mon', fullName: 'Monday' },
   { index: 2, name: 'Tue', fullName: 'Tuesday' },
@@ -87,7 +125,6 @@ export const SuperAdminDashboardPage: React.FC = () => {
     admins,
     meetingTypes,
     scheduleBlocks,
-    bookings,
     currentSuperAdmin,
     updateSuperAdminCredentials,
     addAdmin,
@@ -173,6 +210,46 @@ export const SuperAdminDashboardPage: React.FC = () => {
   useEffect(() => {
     loadAdmins();
   }, [loadAdmins]);
+
+  /**
+   * Platform figures and the booking list come from the server, for every consultant.
+   *
+   * Both were previously read out of the local zustand store, which this page never
+   * fills: the booking table was therefore always empty, and the revenue tile multiplied
+   * the booking count by a hardcoded 1497 paise-per-booking figure. Neither number
+   * described anything real, and the money shown is not the Super Admin's -- each
+   * payment settles into the consultant's own Razorpay account. These endpoints
+   * (`/super-admin/analytics`, `/super-admin/bookings`) already existed and aggregate
+   * over `bookings.admin_id` / `payments.admin_id`.
+   */
+  const [analytics, setAnalytics] = useState<PlatformAnalytics | null>(null);
+  const [platformBookings, setPlatformBookings] = useState<PlatformBooking[] | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState('');
+
+  useEffect(() => {
+    let ignore = false;
+    setOverviewLoading(true);
+    setOverviewError('');
+    Promise.all([api.superAdminGetAnalytics(), api.superAdminGetBookings()])
+      .then(([stats, rows]: any[]) => {
+        if (ignore) return;
+        setAnalytics(stats);
+        setPlatformBookings(rows || []);
+      })
+      .catch((e: any) => {
+        // A failed request is not "no bookings" and not "zero revenue". Say so rather
+        // than rendering zeros the owner might act on.
+        if (ignore) return;
+        setAnalytics(null);
+        setPlatformBookings(null);
+        setOverviewError(e?.message || 'Could not load platform figures from the server.');
+      })
+      .finally(() => {
+        if (!ignore) setOverviewLoading(false);
+      });
+    return () => { ignore = true; };
+  }, []);
 
   // Selected Admin tab in Section 1 (Weekly Hours)
   const [selectedAdminId, setSelectedAdminId] = useState<string>(admins[1]?.id || admins[0]?.id);
@@ -553,10 +630,12 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-6">
 
-        {/* PLATFORM ANALYTICS BANNER */}
+        {/* PLATFORM OVERVIEW — every figure here belongs to the consultants, not to the
+            Super Admin. Values come from /super-admin/analytics; "—" means the request
+            failed or has not answered, never zero. */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 sm:gap-3">
           <div className="bg-surface p-3 rounded-xl border border-border">
-            <p className="text-xs font-medium text-text-tertiary">Admins</p>
+            <p className="text-xs font-medium text-text-tertiary">Consultants</p>
             <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">{admins.length}</p>
           </div>
           <div className="bg-surface p-3 rounded-xl border border-border">
@@ -572,16 +651,25 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </p>
           </div>
           <div className="bg-surface p-3 rounded-xl border border-border">
-            <p className="text-xs font-medium text-blue-600">Bookings</p>
-            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">{bookings.length}</p>
-          </div>
-          <div className="bg-surface p-3 rounded-xl border border-border col-span-2 sm:col-span-1">
-            <p className="text-xs font-medium text-indigo-600">Revenue</p>
+            <p className="text-xs font-medium text-blue-600">Platform bookings</p>
             <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">
-              ₹{(bookings.filter(b => b.payment_status === 'completed').length * 1497).toLocaleString()}
+              {analytics ? analytics.total_bookings : '—'}
             </p>
           </div>
+          <div className="bg-surface p-3 rounded-xl border border-border col-span-2 sm:col-span-1">
+            <p className="text-xs font-medium text-indigo-600">Consultant revenue</p>
+            <p className="truncate text-xl font-bold tabular-nums text-text-primary mt-0.5">
+              {analytics ? formatPrice(analytics.total_revenue, 'INR') : '—'}
+            </p>
+            <p className="text-xs text-text-tertiary mt-0.5">Across all admins</p>
+          </div>
         </div>
+
+        {overviewError && (
+          <div className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+            {overviewError}
+          </div>
+        )}
 
         {/* =========================================================================
             SECTION 1: ADMINS & CONSULTANTS MANAGEMENT
@@ -1203,18 +1291,105 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         </div>
 
         {/* =========================================================================
-            SECTION 3: MASTER BOOKINGS OVERVIEW
+            SECTION 3: REVENUE BY CONSULTANT + ALL PLATFORM BOOKINGS
+            Everything below describes the consultants' business. Each payment settled
+            into that consultant's own Razorpay account; this console only reports it.
            ========================================================================= */}
         <div className="bg-surface rounded-xl p-4 sm:p-6 border border-border space-y-4">
           <div className="border-b border-border pb-3">
             <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-blue-600 shrink-0" />
-              <span>Bookings</span>
+              <DollarSign className="w-5 h-5 text-indigo-600 shrink-0" />
+              <span>Revenue by consultant</span>
             </h2>
-            <p className="text-xs text-text-tertiary mt-0.5">All consultant bookings</p>
+            <p className="text-xs text-text-tertiary mt-0.5">
+              Bookings and captured payments per consultant, settled in their own account
+            </p>
           </div>
 
-          {bookings.length === 0 ? (
+          {overviewLoading ? (
+            <p className="py-6 text-center text-sm text-text-tertiary">Loading…</p>
+          ) : !analytics ? (
+            <p className="py-6 text-center text-sm text-text-tertiary">
+              Figures unavailable right now.
+            </p>
+          ) : analytics.by_admin.length === 0 ? (
+            <p className="py-6 text-center text-sm text-text-tertiary">
+              No consultant has taken a booking yet.
+            </p>
+          ) : (
+            <>
+              {/* Phone: a row per consultant, no horizontal scroll. */}
+              <ul className="space-y-2 md:hidden">
+                {analytics.by_admin.map((row) => (
+                  <li
+                    key={row.admin_id || 'unattributed'}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">
+                        {row.admin_name}
+                        {row.role === 'super_admin' && (
+                          <span className="ml-1.5 text-xs font-normal text-text-tertiary">(your own sessions)</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-text-tertiary">
+                        {row.bookings} booking{row.bookings === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-text-primary">
+                      {formatPrice(row.revenue, 'INR')}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden md:block">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs font-medium text-text-tertiary">
+                      <th className="py-2 px-3 font-medium">Consultant</th>
+                      <th className="py-2 px-3 font-medium text-right">Bookings</th>
+                      <th className="py-2 px-3 font-medium text-right">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {analytics.by_admin.map((row) => (
+                      <tr key={row.admin_id || 'unattributed'}>
+                        <td className="py-2.5 px-3 text-text-primary">
+                          {row.admin_name}
+                          {row.role === 'super_admin' && (
+                            <span className="ml-1.5 text-xs text-text-tertiary">(your own sessions)</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">{row.bookings}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-medium text-text-primary">
+                          {formatPrice(row.revenue, 'INR')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="bg-surface rounded-xl p-4 sm:p-6 border border-border space-y-4">
+          <div className="border-b border-border pb-3">
+            <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-blue-600 shrink-0" />
+              <span>All bookings</span>
+            </h2>
+            <p className="text-xs text-text-tertiary mt-0.5">Bookings across all consultants</p>
+          </div>
+
+          {overviewLoading ? (
+            <p className="py-8 text-center text-sm text-text-tertiary">Loading bookings…</p>
+          ) : !platformBookings ? (
+            <p className="py-8 text-center text-sm text-text-tertiary">
+              Bookings unavailable right now.
+            </p>
+          ) : platformBookings.length === 0 ? (
             <p className="py-8 text-center text-sm text-text-tertiary">No bookings yet.</p>
           ) : (
             <>
@@ -1222,7 +1397,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   360px without clipping a column, and clipping the Meet link or the
                   customer's address is the same as losing it. */}
               <ul className="space-y-2.5 lg:hidden">
-                {bookings.map((b) => (
+                {platformBookings.map((b) => (
                   <li
                     key={b.id}
                     className="rounded-lg border border-border p-3 space-y-2"
@@ -1232,9 +1407,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                         <p className="text-sm font-semibold text-text-primary">
                           {formatBookingDate(b.start_time, 'MMM d')} · {formatBookingTime(b.start_time)}
                         </p>
-                        <p className="text-xs text-text-tertiary truncate">
-                          {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
-                        </p>
+                        <p className="text-xs text-text-tertiary truncate">{b.session_title}</p>
                       </div>
                       <Badge
                         variant="outline"
@@ -1245,31 +1418,34 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     </div>
 
                     <div className="min-w-0">
-                      <p className="text-sm text-text-primary break-words">
-                        {b.customer_name || (b as any).customer?.name}
-                      </p>
+                      <p className="text-sm text-text-primary break-words">{b.client_name}</p>
                       {/* Long addresses wrap rather than overflow the card. */}
-                      <p className="text-xs text-text-tertiary break-all">
-                        {b.customer_email || (b as any).customer?.email}
-                      </p>
+                      <p className="text-xs text-text-tertiary break-all">{b.client_email}</p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      <span className="text-text-tertiary">Admin</span>
-                      <span className="font-medium text-text-secondary">
-                        {b.assigned_admin_name || 'Admin'}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <span>
+                        <span className="text-text-tertiary">Consultant </span>
+                        <span className="font-medium text-text-secondary">{b.admin_name}</span>
                       </span>
+                      {/* Only a captured payment shows an amount, and it is that
+                          consultant's money, not the platform's. */}
+                      {b.amount !== null && b.amount !== undefined && (
+                        <span className="font-medium text-text-secondary tabular-nums">
+                          {formatPrice(b.amount, (b.currency as any) || 'INR')}
+                        </span>
+                      )}
                     </div>
 
-                    {b.google_meet_url && (
+                    {b.google_meet_link && (
                       <a
-                        href={b.google_meet_url}
+                        href={b.google_meet_link}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex min-h-11 items-center gap-1.5 break-all font-mono text-xs text-blue-600 hover:underline"
                       >
                         <Video className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                        <span>{b.google_meet_url.replace('https://', '')}</span>
+                        <span>{b.google_meet_link.replace('https://', '')}</span>
                       </a>
                     )}
                   </li>
@@ -1283,39 +1459,41 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                   <thead>
                     <tr className="border-b border-border text-xs font-medium text-text-tertiary">
                       <th className="py-2 px-3 font-medium">When</th>
-                      <th className="py-2 px-3 font-medium">Type</th>
-                      <th className="py-2 px-3 font-medium">Admin</th>
+                      <th className="py-2 px-3 font-medium">Session</th>
+                      <th className="py-2 px-3 font-medium">Consultant</th>
                       <th className="py-2 px-3 font-medium">Customer</th>
+                      <th className="py-2 px-3 font-medium text-right">Amount</th>
                       <th className="py-2 px-3 font-medium">Meet</th>
                       <th className="py-2 px-3 text-right font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {bookings.map((b) => (
+                    {platformBookings.map((b) => (
                       <tr key={b.id} className="hover:bg-surface-secondary/60 transition-colors">
                         <td className="py-2.5 px-3 font-medium text-text-primary whitespace-nowrap">
                           {formatBookingDate(b.start_time, 'MMM d')} · {formatBookingTime(b.start_time)}
                         </td>
-                        <td className="py-2.5 px-3 text-text-secondary">
-                          {b.meeting_type_name || (b as any).meeting_type?.name || 'Session'}
+                        <td className="py-2.5 px-3 text-text-secondary">{b.session_title}</td>
+                        <td className="py-2.5 px-3 text-text-secondary">{b.admin_name}</td>
+                        <td className="py-2.5 px-3">
+                          <p className="font-medium text-text-primary">{b.client_name}</p>
+                          <p className="text-xs text-text-tertiary break-all">{b.client_email}</p>
                         </td>
-                        <td className="py-2.5 px-3 text-text-secondary">
-                          {b.assigned_admin_name || 'Admin'}
+                        <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary whitespace-nowrap">
+                          {b.amount !== null && b.amount !== undefined
+                            ? formatPrice(b.amount, (b.currency as any) || 'INR')
+                            : '—'}
                         </td>
                         <td className="py-2.5 px-3">
-                          <p className="font-medium text-text-primary">{b.customer_name || (b as any).customer?.name}</p>
-                          <p className="text-xs text-text-tertiary break-all">{b.customer_email || (b as any).customer?.email}</p>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          {b.google_meet_url ? (
+                          {b.google_meet_link ? (
                             <a
-                              href={b.google_meet_url}
+                              href={b.google_meet_link}
                               target="_blank"
                               rel="noreferrer"
                               className="text-blue-600 hover:underline flex items-center gap-1 font-mono text-xs break-words"
                             >
                               <Video className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                              <span>{b.google_meet_url.replace('https://', '')}</span>
+                              <span>{b.google_meet_link.replace('https://', '')}</span>
                             </a>
                           ) : (
                             <span className="text-text-tertiary">—</span>

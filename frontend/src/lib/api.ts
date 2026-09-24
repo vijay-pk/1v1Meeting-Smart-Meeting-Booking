@@ -794,13 +794,15 @@ export const api = {
 
   superAdminGetAnalytics: async () => {
     const res = await request(`/super-admin/analytics`, { headers: getAuthHeaders() });
-    if (!res.ok) return null;
+    // Throw rather than return null: an unanswered request is not zero revenue.
+    if (!res.ok) throw await failure(res, 'Could not load platform figures.');
     return res.json();
   },
 
   superAdminGetBookings: async () => {
     const res = await request(`/super-admin/bookings`, { headers: getAuthHeaders() });
-    if (!res.ok) return [];
+    // Throw rather than return []: an unanswered request is not "no bookings".
+    if (!res.ok) throw await failure(res, 'Could not load platform bookings.');
     return res.json();
   },
 

@@ -301,6 +301,20 @@ class SuperAdminAdminItem(BaseModel):
     total_revenue: int
     created_at: Any
 
+class AdminRevenueItem(BaseModel):
+    """One consultant's own bookings and own captured revenue.
+
+    Revenue here is money that settled into *that admin's* Razorpay account. The Super
+    Admin sees it to manage the platform; it is never the Super Admin's own income, and
+    nothing about this aggregate changes where a payment goes.
+    """
+    admin_id: Optional[str] = None
+    admin_name: str
+    role: Optional[str] = None
+    bookings: int
+    revenue: int
+
+
 class PlatformAnalytics(BaseModel):
     total_admins: int
     active_admins: int
@@ -308,3 +322,4 @@ class PlatformAnalytics(BaseModel):
     total_bookings: int
     confirmed_bookings: int
     total_revenue: int
+    by_admin: List[AdminRevenueItem] = []

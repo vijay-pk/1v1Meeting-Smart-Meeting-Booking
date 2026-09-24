@@ -184,11 +184,19 @@ def get_all_platform_bookings(
     results = []
     for b in bookings:
         admin = b.admin
+        payment = b.payment
         results.append({
             "id": b.id,
             "public_id": b.public_id,
-            "admin_name": admin.name if admin else "Unknown",
-            "admin_email": admin.email if admin else "Unknown",
+            "admin_id": b.admin_id,
+            # admin_id is NULL only after a permanent deletion (see admin_deletion.py).
+            "admin_name": admin.name if admin else "Removed admin",
+            "admin_email": admin.email if admin else None,
+            # What this booking actually took, and into whose account. Reported only when
+            # the payment was really captured: a simulated or pending row has no money
+            # behind it and must not be shown as revenue.
+            "amount": payment.amount if payment and payment.status == "captured" else None,
+            "currency": payment.currency if payment else "INR",
             "client_name": b.client_name,
             "client_email": b.client_email,
             "session_title": b.meeting_type.title if b.meeting_type else "Session",
@@ -212,11 +220,60 @@ def get_platform_analytics(
 
     total_bookings = db.query(Booking).count()
     confirmed_bookings = db.query(Booking).filter(Booking.status == "confirmed").count()
+    # Only "captured" counts. A simulated payment is stored as status "simulated"
+    # precisely so it can never be added to real money.
     total_revenue = (
         db.query(func.sum(Payment.amount))
         .filter(Payment.status == "captured")
         .scalar() or 0
     )
+
+    # Per-consultant breakdown, so the console shows whose bookings and whose revenue
+    # these are. Read-only aggregation over the existing ownership columns
+    # (bookings.admin_id, payments.admin_id) -- it creates no records and moves no money.
+    booking_counts = dict(
+        db.query(Booking.admin_id, func.count(Booking.id))
+        .group_by(Booking.admin_id)
+        .all()
+    )
+    revenue_by_admin = dict(
+        db.query(Payment.admin_id, func.sum(Payment.amount))
+        .filter(Payment.status == "captured")
+        .group_by(Payment.admin_id)
+        .all()
+    )
+
+    by_admin = []
+    for admin in db.query(User).filter(User.role.in_(["admin", "super_admin"])).all():
+        bookings_for_admin = int(booking_counts.get(admin.id) or 0)
+        revenue_for_admin = int(revenue_by_admin.get(admin.id) or 0)
+        if bookings_for_admin == 0 and revenue_for_admin == 0:
+            continue
+        by_admin.append({
+            "admin_id": admin.id,
+            "admin_name": admin.name,
+            # The Super Admin may also sell sessions from their own page; that row is
+            # genuinely theirs, and the console labels it so rather than as a consultant.
+            "role": admin.role,
+            "bookings": bookings_for_admin,
+            "revenue": revenue_for_admin,
+        })
+
+    # Rows whose admin was permanently deleted keep their money but lose their owner
+    # (admin_id is set NULL). Reporting them as an unattributed line keeps the
+    # breakdown adding up to the platform total instead of silently losing it.
+    orphan_bookings = int(booking_counts.get(None) or 0)
+    orphan_revenue = int(revenue_by_admin.get(None) or 0)
+    if orphan_bookings or orphan_revenue:
+        by_admin.append({
+            "admin_id": None,
+            "admin_name": "Removed admins",
+            "role": None,
+            "bookings": orphan_bookings,
+            "revenue": orphan_revenue,
+        })
+
+    by_admin.sort(key=lambda row: row["revenue"], reverse=True)
 
     return {
         "total_admins": total_admins,
@@ -224,5 +281,6 @@ def get_platform_analytics(
         "disabled_admins": disabled_admins,
         "total_bookings": total_bookings,
         "confirmed_bookings": confirmed_bookings,
-        "total_revenue": total_revenue
+        "total_revenue": total_revenue,
+        "by_admin": by_admin
     }
