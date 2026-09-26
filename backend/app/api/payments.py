@@ -113,18 +113,33 @@ def setup_admin_razorpay(
     db: Session = Depends(get_db)
 ):
     """
-    Securely configures Razorpay credentials for the logged-in admin.
-    The secret key is encrypted at rest using AES-256 and never returned to frontend.
+    Securely configures Razorpay credentials for the logged-in admin (this admin only:
+    the row is keyed on current_admin.id, so one admin can never write another's credentials).
+    The secret is encrypted at rest and is never returned to the frontend.
+
+    An empty secret is not a disconnect and never clears a stored one. When the admin is
+    already connected they may save a Key ID or business-tag change with the secret field left
+    blank; the stored secret is preserved. A first-time connection still requires a secret.
     """
     clean_key_id = req.key_id.strip()
-    clean_key_secret = req.key_secret.strip()
+    clean_key_secret = (req.key_secret or "").strip()
 
-    if not clean_key_id or not clean_key_secret:
-        raise HTTPException(status_code=400, detail="Key ID and Key Secret are required")
-
-    encrypted_secret = encrypt_secret(clean_key_secret)
+    if not clean_key_id:
+        raise HTTPException(status_code=400, detail="Razorpay Key ID is required")
 
     conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == current_admin.id).first()
+
+    if clean_key_secret:
+        # A real new secret was entered: encrypt it and replace the stored one.
+        encrypted_secret = encrypt_secret(clean_key_secret)
+    elif conn and conn.encrypted_key_secret:
+        # No secret entered but one is already stored -> keep it. An empty password-style
+        # field must never overwrite or delete the credential behind it.
+        encrypted_secret = conn.encrypted_key_secret
+    else:
+        # Nothing to connect with: no secret entered and none on file.
+        raise HTTPException(status_code=400, detail="Razorpay Key Secret is required")
+
     if not conn:
         conn = RazorpayConnection(
             admin_id=current_admin.id,

@@ -698,11 +698,19 @@ export const api = {
     return res.json();
   },
 
-  setupRazorpay: async (key_id: string, key_secret: string, account_reference?: string) => {
+  // key_secret is optional. When omitted/blank and the admin is already connected, the
+  // backend keeps the stored secret -- an empty field never overwrites or deletes it. The
+  // secret is never persisted in the browser and never read back from the server.
+  setupRazorpay: async (key_id: string, key_secret?: string, account_reference?: string) => {
+    const clean_secret = (key_secret || '').trim();
     const res = await request(`/payments/admin/setup`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ key_id, key_secret, account_reference })
+      body: JSON.stringify({
+        key_id,
+        ...(clean_secret ? { key_secret: clean_secret } : {}),
+        account_reference,
+      })
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

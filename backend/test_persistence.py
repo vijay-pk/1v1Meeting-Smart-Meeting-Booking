@@ -435,6 +435,47 @@ def test_reconnecting_razorpay_after_a_disconnect_works(admin, db):
     assert (row.connection_status, row.key_id) == ("connected", "rzp_live_second")
 
 
+def test_connecting_without_a_secret_is_rejected_for_a_new_admin(admin, db):
+    """A first-time connection has no stored secret to fall back on, so one is required."""
+    res = client.post("/api/payments/admin/setup", headers=admin["headers"], json={
+        "key_id": "rzp_live_new123", "account_reference": admin["username"],
+    })
+    assert res.status_code == 400, res.text
+    assert "secret" in res.json()["detail"].lower()
+    assert db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin["id"]).first() is None
+
+
+def test_saving_with_a_blank_secret_keeps_the_stored_one(admin, db):
+    """An empty secret field on save is 'keep what is stored', never a delete."""
+    _connect_razorpay(admin, key_id="rzp_live_keep")
+    stored = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin["id"]).one()
+    original_secret = stored.encrypted_key_secret
+
+    # Save a new Key ID with the secret field left empty.
+    res = client.post("/api/payments/admin/setup", headers=admin["headers"], json={
+        "key_id": "rzp_live_changed", "key_secret": "", "account_reference": "new-tag",
+    })
+    assert res.status_code == 200, res.text
+
+    db.expire_all()
+    row = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin["id"]).one()
+    assert row.key_id == "rzp_live_changed"          # the id did change
+    assert row.encrypted_key_secret == original_secret  # the secret did not
+    assert row.connection_status == "connected"
+
+
+def test_entering_a_new_secret_replaces_the_stored_one(admin, db):
+    _connect_razorpay(admin)
+    first = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin["id"]).one().encrypted_key_secret
+
+    _connect_razorpay(admin, secret="brandnewsecret9876")
+
+    db.expire_all()
+    row = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == admin["id"]).one()
+    assert row.encrypted_key_secret != first
+    assert "brandnewsecret9876" not in row.encrypted_key_secret  # replaced and still encrypted
+
+
 # =======================================================================================
 # Google Calendar
 # =======================================================================================

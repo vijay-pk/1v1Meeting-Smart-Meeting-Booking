@@ -235,7 +235,11 @@ class SlotLockResponse(BaseModel):
 # Razorpay & Payment schemas
 class RazorpaySetupRequest(BaseModel):
     key_id: str
-    key_secret: str
+    # Optional on purpose: an admin who is already connected can save a Key ID / business-tag
+    # change without re-typing the secret. An omitted or empty secret means "keep the stored
+    # one", never "delete it". A brand-new connection still requires a secret (enforced in the
+    # endpoint, which is the only place that knows whether a secret is already stored).
+    key_secret: Optional[str] = None
     account_reference: Optional[str] = None
 
 class CreateOrderRequest(BaseModel):
