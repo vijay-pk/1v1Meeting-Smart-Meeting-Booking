@@ -1825,10 +1825,16 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
 // 5. EMAIL NOTIFICATIONS TAB
 // =========================================================================
 function EmailSettings({ admin }: { admin: AdminUser }) {
+  // The Google Calendar Reminders info block is shown only to the Super Admin. Regular admins
+  // no longer see it here -- the reminder functionality itself is unchanged (backend jobs,
+  // notifications, emails and the meeting-reminder setting all keep working).
+  const isSuperAdmin = admin?.role === 'super_admin';
   return (
     <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-5 shadow-xs">
       <div className="border-b border-border pb-4">
-        <h2 className="text-lg font-black text-text-primary">Email & Google Calendar Reminders</h2>
+        <h2 className="text-lg font-black text-text-primary">
+          {isSuperAdmin ? 'Email & Google Calendar Reminders' : 'Email & Notifications'}
+        </h2>
         <p className="text-xs text-text-tertiary mt-0.5">
           Confirmation emails and reminders for clients and admins.
         </p>
@@ -1845,16 +1851,18 @@ function EmailSettings({ admin }: { admin: AdminUser }) {
           </p>
         </div>
 
-        <div className="p-4 rounded-xl bg-surface-secondary border border-border text-xs space-y-2">
-          <p className="font-bold text-slate-800 flex items-center gap-1.5">
-            <CalendarIcon className="w-4 h-4 text-blue-600" />
-            <span>Google Calendar Reminders</span>
-          </p>
-          <ul className="text-text-secondary space-y-1 list-disc pl-4">
-            <li><strong>1 hour before:</strong> notification and email to client and admin.</li>
-            <li><strong>5 minutes before:</strong> alert with a Join Google Meet button.</li>
-          </ul>
-        </div>
+        {isSuperAdmin && (
+          <div className="p-4 rounded-xl bg-surface-secondary border border-border text-xs space-y-2">
+            <p className="font-bold text-slate-800 flex items-center gap-1.5">
+              <CalendarIcon className="w-4 h-4 text-blue-600" />
+              <span>Google Calendar Reminders</span>
+            </p>
+            <ul className="text-text-secondary space-y-1 list-disc pl-4">
+              <li><strong>1 hour before:</strong> notification and email to client and admin.</li>
+              <li><strong>5 minutes before:</strong> alert with a Join Google Meet button.</li>
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );

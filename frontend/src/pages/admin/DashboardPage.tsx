@@ -146,7 +146,11 @@ export function DashboardPage() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Dashboard"
-        description={`Welcome back, ${profile?.full_name?.split(' ')[0] || 'Admin'}`}
+        description={
+          profile?.full_name?.trim()
+            ? `Welcome back, ${profile.full_name.trim()}`
+            : 'Welcome back'
+        }
         actions={
           <Link to="/admin/bookings">
             <Button variant="outline" size="touch">
