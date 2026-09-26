@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Profile, UserRole } from '@/types';
 import { supabase } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
+import { authGet, authClearSession } from '@/lib/authStorage';
 
 interface AuthState {
   user: User | null;
@@ -28,12 +29,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: async () => {
     // 1. Instant sync from active local admin session
     try {
-      const loggedId = localStorage.getItem('bmm_logged_admin_id');
-      const loggedUsername = localStorage.getItem('bmm_logged_username');
-      const role = (localStorage.getItem('bmm_current_user_role') as UserRole) || 'admin';
+      const loggedId = authGet('bmm_logged_admin_id');
+      const loggedUsername = authGet('bmm_logged_username');
+      const role = (authGet('bmm_current_user_role') as UserRole) || 'admin';
 
       if (loggedId || loggedUsername) {
-        const loggedName = localStorage.getItem('bmm_logged_admin_name');
+        const loggedName = authGet('bmm_logged_admin_name');
         let name = loggedName || 'Admin';
         let username = loggedUsername || loggedId || 'admin';
         let photo_url: string | null = null;
@@ -212,15 +213,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await supabase.auth.signOut();
     } catch (e) {}
-    localStorage.removeItem('bmm_current_user_role');
-    localStorage.removeItem('bmm_logged_role');
-    localStorage.removeItem('bmm_logged_admin_id');
-    localStorage.removeItem('bmm_logged_username');
-    localStorage.removeItem('bmm_logged_admin_name');
+    // Clear this tab's per-tab session (sessionStorage) and the shared default (localStorage).
+    authClearSession();
     localStorage.removeItem('token');
     localStorage.removeItem('access_token');
-    localStorage.removeItem('bmm_auth_token');
-    localStorage.removeItem('bmm_auth_user');
     sessionStorage.clear();
     set({ user: null, session: null, profile: null });
     window.location.href = '/signup';

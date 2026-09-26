@@ -40,6 +40,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { authGet, authSet, authRemove, SESSION_KEYS } from '@/lib/authStorage';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Card, CardContent } from '@/components/ui/card';
@@ -142,8 +143,8 @@ export const SuperAdminDashboardPage: React.FC = () => {
   } = useBookingStore();
 
   // Auth guard: redirect to login if not authenticated as super_admin
-  const loggedRole = localStorage.getItem('bmm_current_user_role');
-  const authToken = localStorage.getItem('bmm_auth_token');
+  const loggedRole = authGet('bmm_current_user_role');
+  const authToken = authGet('bmm_auth_token');
   useEffect(() => {
     if (!authToken || loggedRole !== 'super_admin') {
       navigate('/admin/login', { replace: true });
@@ -492,11 +493,11 @@ export const SuperAdminDashboardPage: React.FC = () => {
       return;
     }
 
-    // api.signup writes the new account's token into localStorage. Keep the super admin's
-    // own session and put it back afterwards, or creating an admin would sign the super
-    // admin out of their own dashboard.
-    const ownToken = localStorage.getItem('bmm_auth_token');
-    const ownRole = localStorage.getItem('bmm_current_user_role');
+    // api.signup calls persistSession, which writes the NEW account's whole identity (token,
+    // role, id, username, name) into this tab. Snapshot the super admin's own session first
+    // and restore it in full afterwards, or creating an admin would sign the super admin out
+    // of their own dashboard / leave their tab holding the new admin's identity.
+    const ownSession = SESSION_KEYS.map((k) => [k, authGet(k)] as const);
 
     try {
       // A real account through the real endpoint. Creating one only in this browser's
@@ -513,8 +514,10 @@ export const SuperAdminDashboardPage: React.FC = () => {
       setNotice(err?.message || 'Could not create the admin account.');
       return;
     } finally {
-      if (ownToken) localStorage.setItem('bmm_auth_token', ownToken);
-      if (ownRole) localStorage.setItem('bmm_current_user_role', ownRole);
+      for (const [k, v] of ownSession) {
+        if (v !== null) authSet(k, v);
+        else authRemove(k);
+      }
     }
 
     await loadAdmins();
@@ -615,11 +618,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                 aria-label="Portal settings"
                 title="Portal settings"
                 onClick={() => {
-                  localStorage.setItem('bmm_current_user_role', 'super_admin');
-                  localStorage.setItem('bmm_logged_role', 'super_admin');
-                  localStorage.setItem('bmm_logged_admin_id', currentSuperAdmin.id);
-                  localStorage.setItem('bmm_logged_username', currentSuperAdmin.username);
-                  localStorage.setItem('bmm_logged_admin_name', currentSuperAdmin.full_name);
+                  authSet('bmm_current_user_role', 'super_admin');
+                  authSet('bmm_logged_role', 'super_admin');
+                  authSet('bmm_logged_admin_id', currentSuperAdmin.id);
+                  authSet('bmm_logged_username', currentSuperAdmin.username);
+                  authSet('bmm_logged_admin_name', currentSuperAdmin.full_name);
                 }}
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-xs font-semibold text-white hover:bg-indigo-500"
               >

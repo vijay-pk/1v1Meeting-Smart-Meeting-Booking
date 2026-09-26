@@ -10,6 +10,7 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { Spinner } from '@/components/common/Skeleton';
 import { useBookingStore } from '@/stores/bookingStore';
+import { authGet, authSet } from '@/lib/authStorage';
 
 type Phase = 'verifying' | 'choose-username' | 'creating' | 'error';
 
@@ -114,9 +115,9 @@ export function GoogleCallbackPage() {
     try {
       const bp = await api.getMyProfile();
       if (bp) {
-        localStorage.setItem('bmm_logged_username', bp.username);
-        localStorage.setItem('bmm_logged_admin_id', bp.user_id);
-        localStorage.setItem('bmm_logged_admin_name', bp.name);
+        authSet('bmm_logged_username', bp.username);
+        authSet('bmm_logged_admin_id', bp.user_id);
+        authSet('bmm_logged_admin_name', bp.name);
 
         const synced = {
           id: bp.user_id,
@@ -139,10 +140,10 @@ export function GoogleCallbackPage() {
         };
 
         if (bp.profile_photo) {
-          localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+          authSet('bmm_logged_admin_photo', bp.profile_photo);
         }
         if (bp.intro_video) {
-          localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+          authSet('bmm_logged_admin_video', bp.intro_video);
         }
 
         // Merge onto the existing record instead of replacing it: this payload carries no
@@ -168,7 +169,7 @@ export function GoogleCallbackPage() {
       // Profile hydration is best-effort; the token is already stored.
     }
 
-    const effectiveRole = role || localStorage.getItem('bmm_current_user_role');
+    const effectiveRole = role || authGet('bmm_current_user_role');
     // A just-created account goes to first-time setup; the dashboard sends anyone else who
     // has not finished setup there too, from the server's record rather than this flag.
     const adminHome = isNewAccount ? '/admin/setup' : '/admin';

@@ -10,6 +10,7 @@ import { ErrorNote } from '@/components/common/ErrorNote';
 import { Skeleton, Spinner } from '@/components/common/Skeleton';
 import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { api, type ReminderSettings, type SuperAdminAccount } from '@/lib/api';
+import { authGet } from '@/lib/authStorage';
 import { USERNAME_PATTERN, USERNAME_RULE_TEXT } from '@/lib/username';
 
 const LEAD_LABELS: Record<number, string> = {
@@ -46,7 +47,7 @@ export function SuperAdminSettingsPage() {
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    if (!localStorage.getItem('bmm_auth_token')) {
+    if (!authGet('bmm_auth_token')) {
       navigate('/admin/login', { replace: true });
       return;
     }

@@ -8,6 +8,7 @@ import { ErrorNote } from '@/components/common/ErrorNote';
 import { Spinner } from '@/components/common/Skeleton';
 import { api } from '@/lib/api';
 import { useBookingStore } from '@/stores/bookingStore';
+import { authSet, authRemove } from '@/lib/authStorage';
 
 export const SuperAdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,17 +38,17 @@ export const SuperAdminLoginPage: React.FC = () => {
       if (data.role !== 'super_admin') {
         // api.login has already stored a token; drop it rather than leaving a
         // half-authenticated session behind on the super-admin route.
-        localStorage.removeItem('bmm_auth_token');
-        localStorage.removeItem('bmm_current_user_role');
+        authRemove('bmm_auth_token');
+        authRemove('bmm_current_user_role');
         setError('This account is not a Super Admin.');
         setLoading(false);
         return;
       }
 
-      localStorage.setItem('bmm_logged_admin_id', data.user_id);
-      localStorage.setItem('bmm_logged_username', data.username || '');
-      localStorage.setItem('bmm_logged_admin_name', data.name || '');
-      localStorage.setItem('bmm_logged_role', 'super_admin');
+      authSet('bmm_logged_admin_id', data.user_id);
+      authSet('bmm_logged_username', data.username || '');
+      authSet('bmm_logged_admin_name', data.name || '');
+      authSet('bmm_logged_role', 'super_admin');
 
       useBookingStore.setState((state) => ({
         currentSuperAdmin: {

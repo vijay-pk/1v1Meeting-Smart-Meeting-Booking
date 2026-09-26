@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
+import { authGet } from '@/lib/authStorage';
 import { TIMEZONES } from '@/lib/constants';
 import type { AvailabilityException } from '@/types';
 import { Clock, Trash2, Save, Calendar, Check, Sparkles, Copy, AlertCircle } from 'lucide-react';
@@ -36,7 +37,7 @@ interface DayBlock {
 export function AvailabilityPage() {
   const { profile, updateProfile } = useAuthStore();
 
-  const adminName = profile?.full_name || localStorage.getItem('bmm_logged_admin_name') || 'Your';
+  const adminName = profile?.full_name || authGet('bmm_logged_admin_name') || 'Your';
 
   // Working hours live here, loaded from and saved to the backend. They used to live in the
   // persisted zustand store keyed by a client-derived admin id: when that id changed between

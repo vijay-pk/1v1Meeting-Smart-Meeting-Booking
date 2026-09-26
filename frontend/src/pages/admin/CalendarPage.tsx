@@ -14,6 +14,7 @@ import {
 } from 'date-fns';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
+import { authGet } from '@/lib/authStorage';
 import { parseBookingWallClock } from '@/lib/format';
 import { ErrorNote } from '@/components/common/ErrorNote';
 import { useAuthStore } from '@/stores/authStore';
@@ -47,7 +48,7 @@ export function CalendarPage() {
 
   // Identify logged in admin
   const loggedAdminId =
-    localStorage.getItem('bmm_logged_admin_id') ||
+    authGet('bmm_logged_admin_id') ||
     profile?.id ||
     '';
 

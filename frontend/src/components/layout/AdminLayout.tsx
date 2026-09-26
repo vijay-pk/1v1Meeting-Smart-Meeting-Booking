@@ -9,6 +9,7 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Skeleton } from '@/components/common/Skeleton';
 import { api } from '@/lib/api';
+import { authGet } from '@/lib/authStorage';
 
 export function AdminLayout() {
   const { user, loading, initialized, profile } = useAuthStore();
@@ -19,9 +20,9 @@ export function AdminLayout() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const loggedToken = localStorage.getItem('bmm_auth_token');
-  const loggedAdminId = localStorage.getItem('bmm_logged_admin_id');
-  const loggedRole = localStorage.getItem('bmm_current_user_role');
+  const loggedToken = authGet('bmm_auth_token');
+  const loggedAdminId = authGet('bmm_logged_admin_id');
+  const loggedRole = authGet('bmm_current_user_role');
 
   const isAuthenticated = !!loggedToken && (!!user || !!loggedAdminId || !!loggedRole);
 
@@ -42,7 +43,7 @@ export function AdminLayout() {
 
   const isSuperAdmin =
     profile?.role === 'super_admin' ||
-    localStorage.getItem('bmm_logged_role') === 'super_admin' ||
+    authGet('bmm_logged_role') === 'super_admin' ||
     admins.find((a) => a.id === loggedAdminId)?.role === 'super_admin';
 
   // Only block with a loading state if there are NO local auth credentials AND auth is pending

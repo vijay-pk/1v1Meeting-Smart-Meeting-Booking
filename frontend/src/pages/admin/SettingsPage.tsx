@@ -7,6 +7,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
 import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
 import { ReminderCard } from '@/pages/super-admin/SuperAdminSettingsPage';
+import { authGet, authSet, authRemove } from '@/lib/authStorage';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings } from '@/types';
 import {
@@ -119,9 +120,9 @@ export function SettingsPage() {
   const { admins, updateAdminProfile, currentSuperAdmin } = useBookingStore();
   const { profile } = useAuthStore();
 
-  const storedUsername = localStorage.getItem('bmm_logged_username') || profile?.username;
-  const storedAdminId = localStorage.getItem('bmm_logged_admin_id');
-  const storedAdminName = localStorage.getItem('bmm_logged_admin_name');
+  const storedUsername = authGet('bmm_logged_username') || profile?.username;
+  const storedAdminId = authGet('bmm_logged_admin_id');
+  const storedAdminName = authGet('bmm_logged_admin_name');
 
   const [liveAdmin, setLiveAdmin] = useState<AdminUser | null>(null);
 
@@ -132,8 +133,8 @@ export function SettingsPage() {
   // name, slug and settings. localStorage is now only a pre-load hint; the moment /me answers,
   // liveAdmin.role is authoritative.
   const bootstrapRole =
-    localStorage.getItem('bmm_current_user_role') ||
-    localStorage.getItem('bmm_logged_role') ||
+    authGet('bmm_current_user_role') ||
+    authGet('bmm_logged_role') ||
     profile?.role;
   const isSuperAdmin = liveAdmin
     ? liveAdmin.role === 'super_admin'
@@ -155,20 +156,20 @@ export function SettingsPage() {
           // dropped a staff admin's own profile whenever a stale "super_admin" flag was in
           // localStorage, which is exactly what left the super admin's identity on screen.
           // Keep localStorage in sync with the real signed-in user.
-          localStorage.setItem('bmm_current_user_role', bp.role || 'admin');
-          localStorage.setItem('bmm_logged_role', bp.role || 'admin');
-          localStorage.setItem('bmm_logged_username', bp.username);
-          localStorage.setItem('bmm_logged_admin_id', bp.user_id);
-          localStorage.setItem('bmm_logged_admin_name', bp.name);
+          authSet('bmm_current_user_role', bp.role || 'admin');
+          authSet('bmm_logged_role', bp.role || 'admin');
+          authSet('bmm_logged_username', bp.username);
+          authSet('bmm_logged_admin_id', bp.user_id);
+          authSet('bmm_logged_admin_name', bp.name);
           if (bp.profile_photo) {
-            localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+            authSet('bmm_logged_admin_photo', bp.profile_photo);
           } else {
-            localStorage.removeItem('bmm_logged_admin_photo');
+            authRemove('bmm_logged_admin_photo');
           }
           if (bp.intro_video) {
-            localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+            authSet('bmm_logged_admin_video', bp.intro_video);
           } else {
-            localStorage.removeItem('bmm_logged_admin_video');
+            authRemove('bmm_logged_admin_video');
           }
 
           const synced: AdminUser = {
@@ -240,8 +241,8 @@ export function SettingsPage() {
 
   // Strict resolution of currently logged-in admin — never leak or show other admins
   const currentAdmin: AdminUser = useMemo(() => {
-    const storedPhoto = localStorage.getItem('bmm_logged_admin_photo') || '';
-    const storedVideo = localStorage.getItem('bmm_logged_admin_video') || '';
+    const storedPhoto = authGet('bmm_logged_admin_photo') || '';
+    const storedVideo = authGet('bmm_logged_admin_video') || '';
 
     // 1. The authenticated backend profile is the source of truth for whoever is signed in,
     //    super admin or staff. Everything below is a pre-load placeholder only.
@@ -670,17 +671,17 @@ function ProfileCustomizer({
     }
 
     updateAdminProfile(admin.id, updates);
-    localStorage.setItem('bmm_logged_username', cleanUsername);
-    localStorage.setItem('bmm_logged_admin_name', name);
+    authSet('bmm_logged_username', cleanUsername);
+    authSet('bmm_logged_admin_name', name);
     if (photoUrl) {
-      localStorage.setItem('bmm_logged_admin_photo', photoUrl);
+      authSet('bmm_logged_admin_photo', photoUrl);
     } else {
-      localStorage.removeItem('bmm_logged_admin_photo');
+      authRemove('bmm_logged_admin_photo');
     }
     if (introVideo) {
-      localStorage.setItem('bmm_logged_admin_video', introVideo);
+      authSet('bmm_logged_admin_video', introVideo);
     } else {
-      localStorage.removeItem('bmm_logged_admin_video');
+      authRemove('bmm_logged_admin_video');
     }
 
     const updatedAdmin = { ...admin, ...updates } as AdminUser;
@@ -1432,8 +1433,8 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
             <Button
               size="sm"
               onClick={() => {
-                localStorage.removeItem('bmm_auth_token');
-                localStorage.removeItem('bmm_logged_admin_id');
+                authRemove('bmm_auth_token');
+                authRemove('bmm_logged_admin_id');
                 window.location.href = '/admin/login';
               }}
               className="bg-red-600 hover:bg-red-700 text-white text-xs h-8 px-3 rounded-lg cursor-pointer"

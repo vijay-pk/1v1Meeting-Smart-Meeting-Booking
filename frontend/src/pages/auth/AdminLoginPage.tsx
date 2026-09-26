@@ -8,6 +8,7 @@ import { ErrorNote } from '@/components/common/ErrorNote';
 import { Spinner } from '@/components/common/Skeleton';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api, warmUpBackend } from '@/lib/api';
+import { authSet } from '@/lib/authStorage';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
 
 export const AdminLoginPage: React.FC = () => {
@@ -54,9 +55,9 @@ export const AdminLoginPage: React.FC = () => {
       try {
         const bp = await api.getMyProfile();
         if (bp) {
-          localStorage.setItem('bmm_logged_username', bp.username);
-          localStorage.setItem('bmm_logged_admin_id', bp.user_id);
-          localStorage.setItem('bmm_logged_admin_name', bp.name);
+          authSet('bmm_logged_username', bp.username);
+          authSet('bmm_logged_admin_id', bp.user_id);
+          authSet('bmm_logged_admin_name', bp.name);
 
           const synced = {
             id: bp.user_id,
@@ -83,10 +84,10 @@ export const AdminLoginPage: React.FC = () => {
           };
 
           if (bp.profile_photo) {
-            localStorage.setItem('bmm_logged_admin_photo', bp.profile_photo);
+            authSet('bmm_logged_admin_photo', bp.profile_photo);
           }
           if (bp.intro_video) {
-            localStorage.setItem('bmm_logged_admin_video', bp.intro_video);
+            authSet('bmm_logged_admin_video', bp.intro_video);
           }
 
           // Merge onto the existing record instead of replacing it: this payload carries no

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { api, warmUpBackend, SLOW_REQUEST_MS } from '@/lib/api';
+import { authSet } from '@/lib/authStorage';
 import { sanitizeUsername, validateUsername } from '@/lib/username';
 import { useUsernameAvailability } from '@/hooks/useUsernameAvailability';
 import { GoogleAuthButton, AuthDivider } from '@/components/auth/GoogleAuthButton';
@@ -101,9 +102,9 @@ export function SignupPage() {
         username,
       });
 
-      localStorage.setItem('bmm_logged_admin_id', data.user_id);
-      localStorage.setItem('bmm_logged_username', data.username || username);
-      localStorage.setItem('bmm_logged_admin_name', data.name || fullName);
+      authSet('bmm_logged_admin_id', data.user_id);
+      authSet('bmm_logged_username', data.username || username);
+      authSet('bmm_logged_admin_name', data.name || fullName);
 
       // A brand-new account goes through first-time setup before the dashboard.
       navigate('/admin/setup');

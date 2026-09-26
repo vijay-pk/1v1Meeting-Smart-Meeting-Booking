@@ -1,3 +1,5 @@
+import { authGet, authSet, authClearSession } from './authStorage';
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 /**
@@ -166,7 +168,9 @@ async function failure(res: Response, fallback: string): Promise<Error> {
 }
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('bmm_auth_token');
+  // Per-tab token (sessionStorage-first). Reading localStorage directly is what let a second
+  // tab's login overwrite this tab's credential and send someone else's token.
+  const token = authGet('bmm_auth_token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -210,7 +214,8 @@ function handleRevokedSession(): void {
   if (revocationHandled) return;
   revocationHandled = true;
   try {
-    for (const key of SESSION_KEYS) localStorage.removeItem(key);
+    // Clear this tab's per-tab session (sessionStorage) and the shared default (localStorage).
+    authClearSession();
     sessionStorage.clear();
   } catch {
     // Private mode or blocked storage: the redirect below still matters more than the cleanup.
@@ -222,11 +227,14 @@ function handleRevokedSession(): void {
 
 function persistSession(data: any) {
   if (!data || !data.access_token) return;
-  localStorage.setItem('bmm_auth_token', data.access_token);
-  localStorage.setItem('bmm_current_user_role', data.role);
-  localStorage.setItem('bmm_logged_admin_id', data.user_id);
-  if (data.username) localStorage.setItem('bmm_logged_username', data.username);
-  if (data.name) localStorage.setItem('bmm_logged_admin_name', data.name);
+  // authSet writes this tab's sessionStorage (the identity that renders here) and localStorage
+  // (the default a future new tab inherits). Signing in here never changes another open tab.
+  authSet('bmm_auth_token', data.access_token);
+  authSet('bmm_current_user_role', data.role);
+  authSet('bmm_logged_role', data.role);
+  authSet('bmm_logged_admin_id', data.user_id);
+  if (data.username) authSet('bmm_logged_username', data.username);
+  if (data.name) authSet('bmm_logged_admin_name', data.name);
 }
 
 export const api = {
@@ -358,8 +366,8 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not save your account.');
     const data = await res.json();
     // Keep the shell's cached identity in step with the server.
-    if (data.username) localStorage.setItem('bmm_logged_username', data.username);
-    if (data.name) localStorage.setItem('bmm_logged_admin_name', data.name);
+    if (data.username) authSet('bmm_logged_username', data.username);
+    if (data.name) authSet('bmm_logged_admin_name', data.name);
     return data;
   },
 
@@ -375,8 +383,8 @@ export const api = {
     });
     if (!res.ok) throw await failure(res, 'Could not change your password.');
     const data = await res.json();
-    // Every older session was just revoked server-side; this browser gets the fresh token.
-    if (data.access_token) localStorage.setItem('bmm_auth_token', data.access_token);
+    // Every older session was just revoked server-side; this tab gets the fresh token.
+    if (data.access_token) authSet('bmm_auth_token', data.access_token);
     return { message: data.message };
   },
 
@@ -830,7 +838,7 @@ export const api = {
     formData.append('file', file);
     formData.append('file_type', fileType);
 
-    const token = localStorage.getItem('bmm_auth_token');
+    const token = authGet('bmm_auth_token');
     const headers: Record<string, string> = {};
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;

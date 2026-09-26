@@ -31,6 +31,7 @@ export const SETTINGS_ITEMS = [
 ];
 
 import { useBookingStore } from '@/stores/bookingStore';
+import { authGet, authSet } from '@/lib/authStorage';
 
 export function Sidebar() {
   const { profile, signOut } = useAuthStore();
@@ -38,8 +39,8 @@ export function Sidebar() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
-  const loggedAdminId = localStorage.getItem('bmm_logged_admin_id');
-  const loggedUsername = localStorage.getItem('bmm_logged_username');
+  const loggedAdminId = authGet('bmm_logged_admin_id');
+  const loggedUsername = authGet('bmm_logged_username');
   const matchedAdmin = admins.find(
     (a) =>
       (loggedAdminId && a.id === loggedAdminId) ||
@@ -49,7 +50,7 @@ export function Sidebar() {
 
   const isSuperAdmin =
     profile?.role === 'super_admin' ||
-    localStorage.getItem('bmm_logged_role') === 'super_admin' ||
+    authGet('bmm_logged_role') === 'super_admin' ||
     matchedAdmin?.role === 'super_admin';
 
   const navItems = isSuperAdmin
@@ -147,8 +148,8 @@ export function Sidebar() {
               to={item.to}
               onClick={() => {
                 if (isSuperAdmin) {
-                  localStorage.setItem('bmm_current_user_role', 'super_admin');
-                  localStorage.setItem('bmm_logged_role', 'super_admin');
+                  authSet('bmm_current_user_role', 'super_admin');
+                  authSet('bmm_logged_role', 'super_admin');
                   // Identity comes from the signed-in account, never from a literal
                   // written here: this used to overwrite whoever was logged in.
                 }

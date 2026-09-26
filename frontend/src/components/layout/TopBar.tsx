@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useState, useEffect } from 'react';
 import type { Notification } from '@/types';
 import { api } from '@/lib/api';
+import { authGet } from '@/lib/authStorage';
 import { formatRelativeTime } from '@/lib/format';
 
 export function TopBar({
@@ -21,8 +22,8 @@ export function TopBar({
 }) {
   const { profile } = useAuthStore();
   const { admins } = useBookingStore();
-  const loggedAdminId = localStorage.getItem('bmm_logged_admin_id');
-  const loggedUsername = localStorage.getItem('bmm_logged_username');
+  const loggedAdminId = authGet('bmm_logged_admin_id');
+  const loggedUsername = authGet('bmm_logged_username');
   const matchedAdmin = admins.find(
     (a) =>
       (loggedAdminId && a.id === loggedAdminId) ||
@@ -41,7 +42,7 @@ export function TopBar({
   // Polled rather than pushed: the backend has no socket, and a minute is fine for a reminder
   // that is scheduled minutes ahead.
   useEffect(() => {
-    if (!localStorage.getItem('bmm_auth_token')) return;
+    if (!authGet('bmm_auth_token')) return;
     let cancelled = false;
     const load = () =>
       api
