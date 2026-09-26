@@ -85,7 +85,6 @@ export function SuperAdminSettingsPage() {
           <>
             <AccountCard account={account} onSaved={setAccount} />
             <PasswordCard />
-            <ReminderCard />
           </>
         ) : null}
       </main>
@@ -264,7 +263,10 @@ function PasswordCard() {
   );
 }
 
-function ReminderCard() {
+// Exported so the Super Admin's Email & Notifications tab (in the shared SettingsPage) can
+// render the same control. It stays here with its helpers; Account & Settings no longer
+// renders it, so there is exactly one copy.
+export function ReminderCard() {
   const [settings, setSettings] = useState<ReminderSettings | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [lead, setLead] = useState(5);

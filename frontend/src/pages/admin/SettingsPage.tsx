@@ -6,6 +6,7 @@ import { buildPublicProfileUrl } from '@/lib/publicUrl';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
 import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
+import { ReminderCard } from '@/pages/super-admin/SuperAdminSettingsPage';
 import { TIMEZONES } from '@/lib/constants';
 import type { AdminUser, AdminThemeSettings } from '@/types';
 import {
@@ -118,20 +119,25 @@ export function SettingsPage() {
   const { admins, updateAdminProfile, currentSuperAdmin } = useBookingStore();
   const { profile } = useAuthStore();
 
-  const storedRole =
-    localStorage.getItem('bmm_current_user_role') ||
-    localStorage.getItem('bmm_logged_role') ||
-    profile?.role;
   const storedUsername = localStorage.getItem('bmm_logged_username') || profile?.username;
   const storedAdminId = localStorage.getItem('bmm_logged_admin_id');
   const storedAdminName = localStorage.getItem('bmm_logged_admin_name');
 
-  // Super-admin mode is a role, not a list of usernames. This used to also match the
-  // literal names "ameen" / "mahir" / "mahir6787" and ids like "admin-mahir", which meant
-  // anyone who registered one of those usernames was treated as the platform owner.
-  const isSuperAdmin = storedRole === 'super_admin' || profile?.role === 'super_admin';
-
   const [liveAdmin, setLiveAdmin] = useState<AdminUser | null>(null);
+
+  // Role is decided by the authenticated backend profile (/me), never by localStorage.
+  // The old code trusted bmm_current_user_role / bmm_logged_role, which survive logout: after
+  // a super-admin session those keys stayed "super_admin", so the next regular admin to sign
+  // in on the same browser was treated as the platform owner and shown the super admin's
+  // name, slug and settings. localStorage is now only a pre-load hint; the moment /me answers,
+  // liveAdmin.role is authoritative.
+  const bootstrapRole =
+    localStorage.getItem('bmm_current_user_role') ||
+    localStorage.getItem('bmm_logged_role') ||
+    profile?.role;
+  const isSuperAdmin = liveAdmin
+    ? liveAdmin.role === 'super_admin'
+    : bootstrapRole === 'super_admin';
   // Whether the database has answered yet. Until it has, this page must not save: the
   // fallback identity below is a placeholder for rendering, and writing it back would
   // overwrite the admin's real name, bio, photo and slug with empty strings.
@@ -145,12 +151,12 @@ export function SettingsPage() {
       try {
         const bp = await api.getMyProfile();
         if (bp && isMounted) {
-          // If in Super Admin mode, do NOT allow a staff admin profile from an old token to hijack
-          if (isSuperAdmin && bp.role !== 'super_admin') {
-            console.warn('Ignoring staff admin backend profile while in Super Admin mode');
-            return;
-          }
-
+          // /me is the authenticated user, so its role is the truth. The previous guard here
+          // dropped a staff admin's own profile whenever a stale "super_admin" flag was in
+          // localStorage, which is exactly what left the super admin's identity on screen.
+          // Keep localStorage in sync with the real signed-in user.
+          localStorage.setItem('bmm_current_user_role', bp.role || 'admin');
+          localStorage.setItem('bmm_logged_role', bp.role || 'admin');
           localStorage.setItem('bmm_logged_username', bp.username);
           localStorage.setItem('bmm_logged_admin_id', bp.user_id);
           localStorage.setItem('bmm_logged_admin_name', bp.name);
@@ -178,7 +184,7 @@ export function SettingsPage() {
             intro_video: bp.intro_video || '',
             email: bp.email,
             phone: bp.phone,
-            role: bp.role || (isSuperAdmin ? 'super_admin' : 'admin'),
+            role: bp.role || 'admin',
             status: bp.status || 'ACTIVE',
             avatar_color: 'bg-indigo-600',
             avatar_letter: bp.name ? bp.name.charAt(0).toUpperCase() : 'A',
@@ -227,18 +233,24 @@ export function SettingsPage() {
     };
     syncBackend();
     return () => { isMounted = false; };
-  }, [isSuperAdmin]);
+    // Runs once per mount. Role comes from the response, so this must not depend on the
+    // pre-load role hint (which would also re-fire and re-fetch on every hint change).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Strict resolution of currently logged-in admin — never leak or show other admins
   const currentAdmin: AdminUser = useMemo(() => {
     const storedPhoto = localStorage.getItem('bmm_logged_admin_photo') || '';
     const storedVideo = localStorage.getItem('bmm_logged_admin_video') || '';
 
-    // 1. In Super Admin mode, always resolve to the signed-in super admin
+    // 1. The authenticated backend profile is the source of truth for whoever is signed in,
+    //    super admin or staff. Everything below is a pre-load placeholder only.
+    if (liveAdmin) {
+      return liveAdmin;
+    }
+
+    // 2. Before /me answers, in super-admin mode fall back to the signed-in super admin.
     if (isSuperAdmin) {
-      if (liveAdmin && liveAdmin.role === 'super_admin') {
-        return liveAdmin;
-      }
       const superAdminInStore =
         admins.find((a) => a.role === 'super_admin') ||
         currentSuperAdmin;
@@ -249,11 +261,6 @@ export function SettingsPage() {
           intro_video: superAdminInStore.intro_video || storedVideo || '',
         };
       }
-    }
-
-    // 2. Staff admin with live backend profile matching their non-super identity
-    if (liveAdmin && liveAdmin.role !== 'super_admin') {
-      return liveAdmin;
     }
 
     // 3. Match loggedAdminId or loggedUsername for staff admin
@@ -1863,6 +1870,11 @@ function EmailSettings({ admin }: { admin: AdminUser }) {
             </ul>
           </div>
         )}
+
+        {/* Meeting reminder control lives here for the Super Admin only (moved out of
+            Account & Settings). Uses the super-admin-only reminder API; regular admins never
+            render it. */}
+        {isSuperAdmin && <ReminderCard />}
       </div>
     </div>
   );
