@@ -389,7 +389,7 @@ export const PaymentCheckoutPage: React.FC = () => {
             to={selectedAdmin ? `/${selectedAdmin.username}` : '/'}
             className="text-xs text-orange-600 font-bold underline"
           >
-            Return to Session Selection
+            Back to sessions
           </Link>
         </div>
       </div>
@@ -606,8 +606,7 @@ export const PaymentCheckoutPage: React.FC = () => {
             </div>
 
             <p className="pt-2 border-t border-slate-100 text-xs text-slate-500">
-              Google Meet · Calendar invite. Links to manage your booking are on the
-              confirmation page and in your email.
+              Google Meet · calendar invite. Manage-booking links are on the confirmation page and in your email.
             </p>
           </div>
 

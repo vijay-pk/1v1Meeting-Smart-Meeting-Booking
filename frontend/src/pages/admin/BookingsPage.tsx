@@ -89,7 +89,7 @@ export function BookingsPage() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <PageHeader title="Bookings" description="Manage all your bookings" />
+      <PageHeader title="Bookings" description="All your bookings" />
 
       {/* Status filters. The strip scrolls horizontally on a phone rather than wrapping into
           three rows, with momentum scrolling and no visible scrollbar. */}
@@ -123,7 +123,7 @@ export function BookingsPage() {
             <EmptyState
               icon={CalendarDays}
               title="No bookings yet"
-              description="Bookings will appear here when customers book meetings on your page."
+              description="Bookings appear here after clients book."
             />
           }
           columns={[

@@ -96,7 +96,7 @@ export function PaymentsPage() {
     <div className="animate-fade-in space-y-5">
       <PageHeader
         title="Payments"
-        description="Track all payment activity across your 1:1 sessions"
+        description="All payment activity"
         actions={
           <Link
             to="/admin/settings"
@@ -141,7 +141,7 @@ export function PaymentsPage() {
             <EmptyState
               icon={CreditCard}
               title="No payments yet"
-              description="Payments appear here once a client completes a booking through your Razorpay account."
+              description="Payments appear here after a booking."
             />
           }
           columns={[

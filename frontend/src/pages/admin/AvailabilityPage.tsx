@@ -284,7 +284,7 @@ export function AvailabilityPage() {
     <div className="space-y-6 animate-fade-in max-w-4xl">
       <PageHeader
         title={`${adminName} — Weekly Hours`}
-        description="Set daily availability time blocks for your personal booking portal."
+        description="Set your available hours."
         actions={
           <Button onClick={handleSave} disabled={saving} size="touch" className="w-full sm:w-auto bg-[#0B1E3B] hover:bg-slate-800 text-white font-semibold">
             {saving ? (

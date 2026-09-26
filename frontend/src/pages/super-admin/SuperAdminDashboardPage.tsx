@@ -289,23 +289,42 @@ export const SuperAdminDashboardPage: React.FC = () => {
   const [masterRzpKey, setMasterRzpKey] = useState(
     currentSuperAdmin.razorpay_key_id || ''
   );
-  const [masterRzpSecret, setMasterRzpSecret] = useState('••••••••••••••••');
+  // The secret input is always empty. The stored secret is encrypted server-side and is never
+  // sent to the browser. A blank field on save keeps the stored secret; it never deletes it.
+  const [masterRzpSecret, setMasterRzpSecret] = useState('');
+  // Connectedness comes from the backend row, not from a typed field or the store.
+  const [masterRzpConfigured, setMasterRzpConfigured] = useState(false);
   const [masterIntegrationsNotice, setMasterIntegrationsNotice] = useState('');
   const [masterIntegrationsSaved, setMasterIntegrationsSaved] = useState(false);
 
   const handleSaveMasterProfileSettings = async () => {
+    const cleanKey = masterRzpKey.trim();
+    const cleanSecret = masterRzpSecret.trim();
+
+    if (cleanKey) {
+      // A first-time connection needs a secret; once connected, a blank field keeps the
+      // stored one so the Key ID can be updated on its own.
+      if (!cleanSecret && !masterRzpConfigured) {
+        setMasterIntegrationsNotice('Razorpay Key Secret is required.');
+        return;
+      }
+      try {
+        await api.setupRazorpay(cleanKey, cleanSecret);
+      } catch (e: any) {
+        setMasterIntegrationsNotice(e?.message || 'Could not save Razorpay credentials.');
+        return;
+      }
+      setMasterRzpConfigured(true);
+      // Never keep the entered secret in memory once it has been sent.
+      setMasterRzpSecret('');
+    }
+
     updateAdminProfile(currentSuperAdmin.id, {
-      razorpay_key_id: masterRzpKey.trim(),
-      razorpay_configured: !!masterRzpKey.trim(),
+      razorpay_key_id: cleanKey,
+      razorpay_configured: !!cleanKey,
       google_email: masterGoogleEmail.trim(),
       google_connected: masterGoogleConnected,
     });
-
-    try {
-      if (masterRzpKey.trim() && !masterRzpSecret.includes('•')) {
-        await api.setupRazorpay(masterRzpKey.trim(), masterRzpSecret.trim());
-      }
-    } catch (e) {}
 
     setMasterIntegrationsSaved(true);
     setMasterIntegrationsNotice('✓ Master Admin profile & integrations updated successfully!');
@@ -333,6 +352,18 @@ export const SuperAdminDashboardPage: React.FC = () => {
       })
       .catch(() => {
         // A failed status call is not a disconnect; leave the last known state alone.
+      });
+
+    // Razorpay connectedness for the super admin's own account, from the backend row.
+    api
+      .getRazorpayStatus()
+      .then((status: any) => {
+        if (ignore) return;
+        setMasterRzpConfigured(!!status.configured);
+        if (status.key_id) setMasterRzpKey(status.key_id);
+      })
+      .catch(() => {
+        // A failed status call is not a disconnect; keep the last known state.
       });
     return () => { ignore = true; };
   }, [currentSuperAdmin.id]);
@@ -1220,7 +1251,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
                 }`}
               >
-                {masterGoogleConnected ? 'Disconnect Calendar' : 'Authorize & Connect Google Calendar'}
+                {masterGoogleConnected ? 'Disconnect Calendar' : 'Connect Google Calendar'}
               </Button>
             </div>
 
@@ -1270,11 +1301,13 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                     type="password"
                     value={masterRzpSecret}
                     onChange={(e) => setMasterRzpSecret(e.target.value)}
-                    placeholder="Enter Secret"
+                    placeholder={masterRzpConfigured ? 'Enter new secret to replace' : 'Enter your Razorpay Key Secret'}
+                    autoComplete="off"
                     className="text-xs rounded-xl bg-surface h-9 font-mono"
                   />
                   <p className="text-xs text-text-tertiary">
                     Encrypted before storage. Payments settle into your own account.
+                    {masterRzpConfigured && ' Leave blank to keep your saved secret.'}
                   </p>
                 </div>
               </div>
@@ -1624,7 +1657,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               Add Personal 1v1 Session
             </DialogTitle>
             <DialogDescription className="text-xs text-text-tertiary">
-              Create a new 1v1 session offering and configure your pricing.
+              Add a session and set its price.
             </DialogDescription>
           </DialogHeader>
 

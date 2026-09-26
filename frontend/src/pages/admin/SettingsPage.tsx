@@ -299,10 +299,10 @@ export function SettingsPage() {
   const [copied, setCopied] = useState(false);
 
   const tabs: { id: SettingsTab; label: string; description: string; icon: any }[] = [
-    { id: 'profile', label: 'Profile', description: 'Manage your public booking profile', icon: Palette },
-    { id: 'meeting-types', label: 'Meeting Types', description: 'Configure the sessions you offer', icon: Video },
-    { id: 'availability', label: 'Availability', description: 'Set when clients can book you', icon: Clock },
-    { id: 'payment', label: 'Payments', description: 'Manage your payment gateway', icon: CreditCard },
+    { id: 'profile', label: 'Profile', description: 'Your public booking page', icon: Palette },
+    { id: 'meeting-types', label: 'Meeting Types', description: 'Sessions you offer', icon: Video },
+    { id: 'availability', label: 'Availability', description: 'When clients can book', icon: Clock },
+    { id: 'payment', label: 'Payments', description: 'Payment gateway', icon: CreditCard },
     { id: 'calendar', label: 'Google Calendar', description: 'Calendar sync and Meet links', icon: CalendarIcon },
     { id: 'email', label: 'Email & Notifications', description: 'Booking emails and alerts', icon: Mail },
   ];
@@ -346,8 +346,8 @@ export function SettingsPage() {
           </div>
           <p className="text-xs text-text-tertiary mt-1">
             {isSuperAdmin
-              ? 'Customize your public booking page, 1v1 sessions, and direct integrations.'
-              : 'Customize what clients see on your personal SuperProfile booking page.'}
+              ? 'Your booking page, sessions, and integrations.'
+              : 'What clients see on your booking page.'}
           </p>
         </div>
 
@@ -697,9 +697,9 @@ function ProfileCustomizer({
     <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-6 shadow-xs">
       <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black text-text-primary">Customize Public Profile</h2>
+          <h2 className="text-lg font-black text-text-primary">Public Profile</h2>
           <p className="text-xs text-text-tertiary mt-0.5">
-            Everything configured here reflects on your personal booking page at{' '}
+            Shown on your booking page at{' '}
             <a
               href={currentPublicLink}
               target="_blank"
@@ -1414,7 +1414,7 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
           </span>
         </div>
         <p className="text-xs text-text-tertiary mt-1">
-          Connect your personal or work Google account. Each admin independently sets up their own Google Calendar. Meetings booked on your page will sync directly with your calendar and auto-generate unique Google Meet video links.
+          Sync your Google Calendar to block busy times and auto-create Meet links.
         </p>
       </div>
 
@@ -1464,12 +1464,12 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
           </div>
           {isHealthy ? (
             <p className="text-xs text-emerald-800 leading-relaxed">
-              Real-time busy slot detection is active. Clients will never be offered times when you have events or out-of-office blocks marked on this calendar.
+              Busy times on this calendar are blocked automatically.
             </p>
           ) : (
             <div className="space-y-1.5">
               <p className="text-xs text-amber-900 leading-relaxed">
-                Your calendar cannot be read right now. Bookings are paused for your page until you reconnect, so no one can book over an existing event.
+                Can't read your calendar. Bookings are paused until you reconnect.
               </p>
               {lastError && (
                 <div className="p-2 rounded-lg bg-amber-100/80 border border-amber-200 text-[11px] font-mono text-amber-950 break-all">
@@ -1496,25 +1496,23 @@ function GoogleCalendarSettings({ admin }: { admin: AdminUser }) {
               Disconnect Calendar
             </button>
             <span className="text-[11px] text-text-tertiary font-medium">
-              Stays connected until you disconnect it here
+              Stays connected until you disconnect.
             </span>
           </div>
         </div>
       ) : (
         <div className="space-y-4">
           <div className="p-4 bg-surface-secondary border border-border rounded-2xl space-y-2">
-            <p className="text-xs font-bold text-slate-800">Why connect your Google Calendar?</p>
+            <p className="text-xs font-bold text-slate-800">Why connect?</p>
             <ul className="text-xs text-text-secondary space-y-1 list-disc pl-4">
-              <li><strong>Zero Double Booking:</strong> Automatically blocks busy slots, appointments, and personal events.</li>
-              <li><strong>Instant Google Meet:</strong> Creates calendar event with client added as attendee.</li>
-              <li><strong>Automated Reminders:</strong> Google Calendar sends alerts 1 hour and 5 minutes prior.</li>
+              <li><strong>No double booking:</strong> busy times are blocked automatically.</li>
+              <li><strong>Google Meet:</strong> event created with the client as attendee.</li>
+              <li><strong>Reminders:</strong> alerts 1 hour and 5 minutes before.</li>
             </ul>
           </div>
 
           <p className="text-[11px] text-text-tertiary leading-relaxed">
-            You will be sent to Google's consent screen. The calendar that gets connected is
-            whichever Google account you sign in with there — it stays connected until you
-            disconnect it on this page.
+            You'll sign in on Google's consent screen. That account stays connected until you disconnect here.
           </p>
 
           <Button
@@ -1561,9 +1559,10 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
       if (status.key_id) setKeyId(status.key_id);
       if (status.account_reference) setAccountRef(status.account_reference);
       if (status.configured) {
-        // The secret lives encrypted on the server and is never sent to the browser. This
-        // is a placeholder so the field reads as "already set", not the value.
-        setKeySecret('••••••••••••••••');
+        // The secret lives encrypted on the server and is never sent to the browser, so the
+        // field stays empty. "Connected" comes from the row, not from anything in this input.
+        // A blank field on save means "keep the stored secret", never "delete it".
+        setKeySecret('');
         setupAdminRazorpay(admin.id, status.key_id || '');
       }
       setNeedsAttention(!!status.needs_attention);
@@ -1615,8 +1614,11 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
       setErrorMsg('Razorpay Key ID must start with "rzp_live_" (for real payments) or "rzp_test_".');
       return;
     }
-    if (!cleanSecret || cleanSecret === '••••••••••••••••') {
-      setErrorMsg('Please enter your Razorpay Key Secret from your Razorpay Dashboard.');
+    // A secret is required only when connecting for the first time. Once connected, an empty
+    // field means "keep the stored secret" -- the admin can change the Key ID or business tag
+    // without re-entering it. A new secret typed in still replaces the stored one.
+    if (!cleanSecret && !isConfigured) {
+      setErrorMsg('Razorpay Key Secret is required.');
       return;
     }
 
@@ -1657,7 +1659,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
     <div className="max-w-2xl bg-surface rounded-2xl border border-border p-4 sm:p-5 space-y-4 shadow-xs">
       <div>
         <h2 className="text-base font-bold text-text-primary">Razorpay</h2>
-        <p className="text-xs text-text-tertiary mt-0.5">Connect your Razorpay account to receive payments.</p>
+        <p className="text-xs text-text-tertiary mt-0.5">Connect Razorpay to receive payments.</p>
       </div>
 
       {/* Status comes from the razorpay_connections row (see refreshStatus), never the store. */}
@@ -1762,7 +1764,7 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
               type={showSecret ? 'text' : 'password'}
               value={keySecret}
               onChange={(e) => setKeySecret(e.target.value)}
-              placeholder="Paste your Key Secret"
+              placeholder={isConfigured ? 'Enter new secret to replace' : 'Enter your Razorpay Key Secret'}
               autoComplete="off"
               className="h-10 rounded-lg pr-10 text-xs font-mono"
             />
@@ -1777,7 +1779,10 @@ function RazorpaySettings({ admin }: { admin: AdminUser }) {
           </div>
           <p className="flex items-center gap-1 text-[11px] text-text-tertiary">
             <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-            <span>Encrypted and used server-side only.</span>
+            <span>
+              Encrypted and used server-side only.
+              {isConfigured && ' Leave blank to keep your saved secret.'}
+            </span>
           </p>
         </div>
 
@@ -1825,7 +1830,7 @@ function EmailSettings({ admin }: { admin: AdminUser }) {
       <div className="border-b border-border pb-4">
         <h2 className="text-lg font-black text-text-primary">Email & Google Calendar Reminders</h2>
         <p className="text-xs text-text-tertiary mt-0.5">
-          Automated confirmation emails and meeting reminders sent to clients and admins.
+          Confirmation emails and reminders for clients and admins.
         </p>
       </div>
 
@@ -1836,18 +1841,18 @@ function EmailSettings({ admin }: { admin: AdminUser }) {
             <span>Instant Confirmation Email</span>
           </p>
           <p className="text-text-secondary">
-            Dispatched to the client immediately upon payment with the confirmed Google Meet link and date/time in their local timezone.
+            Sent to the client on payment, with the Meet link and time in their timezone.
           </p>
         </div>
 
         <div className="p-4 rounded-xl bg-surface-secondary border border-border text-xs space-y-2">
           <p className="font-bold text-slate-800 flex items-center gap-1.5">
             <CalendarIcon className="w-4 h-4 text-blue-600" />
-            <span>Google Calendar Reminders (Configured per Spec)</span>
+            <span>Google Calendar Reminders</span>
           </p>
           <ul className="text-text-secondary space-y-1 list-disc pl-4">
-            <li><strong>1 Hour Before:</strong> Pop-up notification and reminder email to both Client and Admin.</li>
-            <li><strong>5 Minutes Before:</strong> Direct mobile & desktop alert with [Join Google Meet] button.</li>
+            <li><strong>1 hour before:</strong> notification and email to client and admin.</li>
+            <li><strong>5 minutes before:</strong> alert with a Join Google Meet button.</li>
           </ul>
         </div>
       </div>

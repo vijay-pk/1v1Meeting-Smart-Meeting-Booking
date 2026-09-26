@@ -358,7 +358,7 @@ export function DashboardPage() {
             <EmptyState
               icon={CalendarDays}
               title="No upcoming meetings"
-              description="Share your booking page to start receiving appointments."
+              description="Share your booking page to get bookings."
               action={
                 publicUrl ? (
                   <a href={publicUrl} target="_blank" rel="noopener noreferrer">

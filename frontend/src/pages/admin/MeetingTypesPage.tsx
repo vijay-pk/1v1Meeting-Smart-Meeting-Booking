@@ -218,7 +218,7 @@ export function MeetingTypesPage() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Meeting Types"
-        description="Configure the services you offer"
+        description="Sessions you offer"
         actions={
           <Button onClick={openCreate} size="touch" className="w-full sm:w-auto">
             <Plus className="w-4 h-4" />
@@ -244,11 +244,11 @@ export function MeetingTypesPage() {
               No meeting types yet
             </h3>
             <p className="text-text-secondary mb-6 max-w-md mx-auto">
-              Create your first meeting type to start accepting bookings on your public page.
+              Add a meeting type to start taking bookings.
             </p>
             <Button onClick={openCreate}>
               <Plus className="w-4 h-4" />
-              Create Meeting Type
+              Add Meeting
             </Button>
           </CardContent>
         </Card>
@@ -448,7 +448,7 @@ export function MeetingTypesPage() {
                 }}
               />
               <p className="text-xs text-text-tertiary">
-                Customer will pay{' '}
+                Customer pays{' '}
                 {editingMeeting?.price
                   ? formatPrice(
                       editingMeeting.price,
@@ -462,7 +462,7 @@ export function MeetingTypesPage() {
               <div>
                 <p className="text-sm font-medium">Allow rescheduling</p>
                 <p className="text-xs text-text-tertiary">
-                  Customers can reschedule their booking
+                  Customers can reschedule.
                 </p>
               </div>
               <Switch

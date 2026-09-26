@@ -34,7 +34,7 @@ export function SetupPage() {
     <div className="mx-auto max-w-3xl space-y-6 animate-fade-in">
       <PageHeader
         title="Set up your booking page"
-        description="Four steps and clients can book and pay you directly. Anything you've already saved is kept."
+        description="Four steps to start taking bookings. Saved work is kept."
       />
 
       {error && !status && <ErrorNote message={error} onRetry={() => void refresh()} />}
