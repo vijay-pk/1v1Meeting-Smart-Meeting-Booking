@@ -280,6 +280,11 @@ class BookingResponse(BaseModel):
     status: str
     payment_status: str
     google_meet_link: Optional[str]
+    google_meet_space_id: Optional[str] = None
+    termination_status: Optional[str] = None
+    termination_error: Optional[str] = None
+    terminated_at: Optional[Any] = None
+    grace_notified_at: Optional[Any] = None
     created_at: Any
 
     class Config:

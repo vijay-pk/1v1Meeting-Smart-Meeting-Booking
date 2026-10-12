@@ -1,3 +1,5 @@
+import re
+import uuid
 import os
 import json
 import logging
@@ -160,6 +162,51 @@ async def create_calendar_event_with_meet(
             # the whole of the missing-client-calendar bug.
             "?conferenceDataVersion=1&sendUpdates=all"
         )
+        space_name = None
+        space_uri = None
+        space_code = None
+
+        if access_token.startswith("simulated"):
+            sim_code = f"sim-{uuid.uuid4().hex[:3]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:3]}"
+            space_name = f"spaces/{sim_code}"
+            space_uri = f"https://meet.google.com/{sim_code}"
+            space_code = sim_code
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as meet_client:
+                    m_res = await meet_client.post(
+                        "https://meet.googleapis.com/v2/spaces",
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                        },
+                        json={},
+                    )
+                    if m_res.status_code in (200, 201):
+                        m_data = m_res.json()
+                        space_name = m_data.get("name")
+                        space_uri = m_data.get("meetingUri")
+                        space_code = m_data.get("meetingCode")
+            except Exception as m_exc:
+                logger.warning("Meet space pre-creation skipped or unavailable: %s", m_exc)
+
+        conf_spec = (
+            {
+                "conferenceId": space_code,
+                "conferenceSolution": {"key": {"type": "hangoutsMeet"}},
+                "entryPoints": [
+                    {"entryPointType": "video", "uri": space_uri, "label": space_uri}
+                ]
+            }
+            if space_code and space_uri
+            else {
+                "createRequest": {
+                    "requestId": idempotency_key or f"req_{int(datetime.now().timestamp())}",
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"}
+                }
+            }
+        )
+
         payload = {
             "summary": title,
             "description": description,
@@ -177,15 +224,7 @@ async def create_calendar_event_with_meet(
             "guestsCanModify": False,
             "guestsCanInviteOthers": False,
             "guestsCanSeeOtherGuests": False,
-            "conferenceData": {
-                "createRequest": {
-                    # Derived from the booking, not the clock. Google treats requestId as an
-                    # idempotency key: a retry with the same id returns the conference that
-                    # already exists instead of minting a second Meet link for one booking.
-                    "requestId": idempotency_key or f"req_{int(datetime.now().timestamp())}",
-                    "conferenceSolutionKey": {"type": "hangoutsMeet"}
-                }
-            },
+            "conferenceData": conf_spec,
             "reminders": {
                 "useDefault": False,
                 "overrides": [
@@ -222,9 +261,22 @@ async def create_calendar_event_with_meet(
                 # meet_link stays None when Google created no conference: a fabricated
                 # meet.google.com URL would be emailed to a paying client and resolve to
                 # nothing. The caller decides what to do with a missing link.
+                if not meet_link and space_uri:
+                    meet_link = space_uri
+
+                if not space_name and meet_link:
+                    conf_id = conf_data.get("conferenceId")
+                    if conf_id:
+                        space_name = f"spaces/{conf_id}"
+                    else:
+                        m = re.search(r"meet\.google\.com/([a-zA-Z0-9-]+)", meet_link)
+                        if m:
+                            space_name = f"spaces/{m.group(1)}"
+
                 return {
                     "event_id": data.get("id"),
                     "meet_link": meet_link,
+                    "space_name": space_name,
                     "html_link": data.get("htmlLink")
                 }
             else:

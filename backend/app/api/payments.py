@@ -461,10 +461,26 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         # the client would follow it and land nowhere.
         meet_link = event_res.get("meet_link")
         calendar_error = event_res.get("error")
+        space_name = event_res.get("space_name")
+        if not space_name and meet_link:
+            import re
+            m = re.search(r"meet\.google\.com/([a-zA-Z0-9-]+)", meet_link)
+            if m:
+                space_name = f"spaces/{m.group(1)}"
+        booking.google_meet_space_id = space_name
+        booking.termination_status = "pending" if meet_link else "not_applicable"
+        booking.termination_error = None
+        booking.terminated_at = None
+        booking.termination_retries = 0
     else:
         # No calendar connected for this admin: nothing real to link to.
         meet_link = None
         calendar_error = "not_connected"
+        booking.google_meet_space_id = None
+        booking.termination_status = "not_applicable"
+        booking.termination_error = None
+        booking.terminated_at = None
+        booking.termination_retries = 0
 
     booking.google_meet_link = meet_link
 

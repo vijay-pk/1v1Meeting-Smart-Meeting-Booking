@@ -41,6 +41,23 @@ def reconcile_database_schema(bind_engine):
                         if tbl in tables:
                             conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
                 logger.info("Legacy tables dropped successfully. create_all will rebuild them with correct foreign keys.")
+                inspector = inspect(bind_engine)
+                tables = set(inspector.get_table_names())
+
+        if "bookings" in tables:
+            booking_cols = {c["name"] for c in inspector.get_columns("bookings")}
+            new_cols = [
+                ("google_meet_space_id", "VARCHAR(255)"),
+                ("termination_status", "VARCHAR(30) DEFAULT 'pending'"),
+                ("termination_error", "TEXT"),
+                ("terminated_at", "TIMESTAMP"),
+                ("termination_retries", "INTEGER DEFAULT 0"),
+                ("grace_notified_at", "TIMESTAMP"),
+            ]
+            with bind_engine.begin() as conn:
+                for col_name, col_type in new_cols:
+                    if col_name not in booking_cols:
+                        conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type}"))
     except Exception as exc:
         logger.error("Schema reconciliation check failed: %s", exc)
 
@@ -121,15 +138,30 @@ async def lifespan(app: FastAPI):
         from app.services.reminders import reminder_worker
 
         reminder_task = asyncio.create_task(reminder_worker(reminder_stop))
+
+    # Automatic Google Meet termination enforcement at scheduled end time.
+    termination_stop = asyncio.Event()
+    termination_task = None
+    if settings.TERMINATION_WORKER_ENABLED:
+        from app.services.meeting_termination import termination_worker
+
+        termination_task = asyncio.create_task(termination_worker(termination_stop))
+
     yield
     # Shutdown
     logger.info("Shutting down backend...")
     reminder_stop.set()
+    termination_stop.set()
     if reminder_task:
         try:
             await asyncio.wait_for(reminder_task, timeout=10)
         except Exception:  # noqa: BLE001
             reminder_task.cancel()
+    if termination_task:
+        try:
+            await asyncio.wait_for(termination_task, timeout=10)
+        except Exception:  # noqa: BLE001
+            termination_task.cancel()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

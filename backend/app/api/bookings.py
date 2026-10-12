@@ -143,6 +143,17 @@ def get_admin_bookings(
             "duration_minutes": b.meeting_type.duration_minutes if b.meeting_type else 30,
             "price": b.meeting_type.price if b.meeting_type else 0,
             "google_meet_link": b.google_meet_link,
+            "google_meet_space_id": b.google_meet_space_id,
+            "termination_status": b.termination_status,
+            "termination_error": b.termination_error,
+            "terminated_at": (
+                (b.terminated_at if b.terminated_at.tzinfo else b.terminated_at.replace(tzinfo=timezone.utc)).isoformat()
+                if b.terminated_at else None
+            ),
+            "grace_notified_at": (
+                (b.grace_notified_at if b.grace_notified_at.tzinfo else b.grace_notified_at.replace(tzinfo=timezone.utc)).isoformat()
+                if b.grace_notified_at else None
+            ),
             # Stored as naive UTC; say so, or the browser reads it as local time.
             "created_at": (
                 (b.created_at if b.created_at.tzinfo else b.created_at.replace(tzinfo=timezone.utc)).isoformat()
@@ -176,6 +187,7 @@ def cancel_my_booking(
         return {"id": booking.id, "status": booking.status}
 
     booking.status = "cancelled"
+    booking.termination_status = "cancelled"
 
     # Free any active hold on this slot so the time is immediately bookable again.
     db.query(SlotLock).filter(
@@ -195,6 +207,36 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Booking not found")
 
     admin = booking.admin
+    from app.services.meeting_termination import (
+        booking_end_utc,
+        booking_termination_utc,
+        format_localized_termination_time,
+        _utc_now,
+    )
+
+    now = _utc_now()
+    end_utc = booking_end_utc(booking.end_time)
+    term_utc = booking_termination_utc(booking.end_time)
+
+    # Has the 2-minute grace period elapsed, or is termination already completed?
+    is_expired = bool(
+        booking.termination_status == "completed" or (term_utc and term_utc <= now)
+    )
+
+    # Are we currently within the 2-minute wrap-up grace period?
+    is_grace_period = bool(
+        not is_expired
+        and end_utc
+        and end_utc <= now
+        and (term_utc and now < term_utc)
+    )
+
+    grace_remaining_seconds = 0
+    if is_grace_period and term_utc:
+        grace_remaining_seconds = max(0, int((term_utc - now).total_seconds()))
+
+    localized_term_time = format_localized_termination_time(booking.end_time, booking.timezone)
+
     return {
         "public_id": booking.public_id,
         "client_name": booking.client_name,
@@ -207,5 +249,14 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         "timezone": booking.timezone,
         "status": booking.status,
         "payment_status": booking.payment_status,
-        "google_meet_link": booking.google_meet_link
+        "google_meet_link": None if is_expired else booking.google_meet_link,
+        "is_expired": is_expired,
+        "is_grace_period": is_grace_period,
+        "grace_remaining_seconds": grace_remaining_seconds,
+        "grace_termination_time": localized_term_time,
+        "termination_status": booking.termination_status,
+        "grace_notified_at": (
+            (booking.grace_notified_at if booking.grace_notified_at.tzinfo else booking.grace_notified_at.replace(tzinfo=timezone.utc)).isoformat()
+            if booking.grace_notified_at else None
+        ),
     }

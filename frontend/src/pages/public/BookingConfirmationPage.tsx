@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,15 @@ export const BookingConfirmationPage: React.FC = () => {
   // get different screens: one offers a retry, the other does not.
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [nowTs, setNowTs] = useState<number>(Date.now());
+
+  // Timer interval for real-time grace period countdown
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNowTs(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const tz = booking?.customer_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
 
@@ -57,6 +66,10 @@ export const BookingConfirmationPage: React.FC = () => {
             status: remote.status,
             customer_timezone: remote.timezone,
             google_meet_url: remote.google_meet_link,
+            is_expired: remote.is_expired,
+            is_grace_period: remote.is_grace_period,
+            grace_remaining_seconds: remote.grace_remaining_seconds,
+            grace_termination_time: remote.grace_termination_time,
             assigned_admin_name: remote.admin_name,
             meeting_type: {
               name: remote.session_title,
@@ -205,6 +218,48 @@ export const BookingConfirmationPage: React.FC = () => {
       adminEmail: hostEmail,
     });
 
+  // Derive grace period and expiration based on authoritative booking end_time + 2 minutes
+  const endTs = useMemo(() => {
+    if (!booking?.end_time) return 0;
+    return new Date(booking.end_time).getTime();
+  }, [booking?.end_time]);
+
+  const graceEndTs = useMemo(() => {
+    if (!endTs) return 0;
+    return endTs + 2 * 60 * 1000;
+  }, [endTs]);
+
+  const isInGracePeriod = useMemo(() => {
+    if (booking?.is_expired) return false;
+    if (!endTs || !graceEndTs) return Boolean(booking?.is_grace_period);
+    return nowTs >= endTs && nowTs < graceEndTs;
+  }, [booking?.is_expired, booking?.is_grace_period, endTs, graceEndTs, nowTs]);
+
+  const isExpired = useMemo(() => {
+    if (booking?.is_expired) return true;
+    if (graceEndTs && nowTs >= graceEndTs) return true;
+    return false;
+  }, [booking?.is_expired, graceEndTs, nowTs]);
+
+  const secondsRemaining = useMemo(() => {
+    if (!isInGracePeriod || !graceEndTs) return 0;
+    return Math.max(0, Math.floor((graceEndTs - nowTs) / 1000));
+  }, [isInGracePeriod, graceEndTs, nowTs]);
+
+  const formattedCountdown = useMemo(() => {
+    const mins = Math.floor(secondsRemaining / 60);
+    const secs = secondsRemaining % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }, [secondsRemaining]);
+
+  const terminationTimeDisplay = useMemo(() => {
+    if (booking?.grace_termination_time) return booking.grace_termination_time;
+    if (graceEndTs) {
+      return new Date(graceEndTs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+    return 'in 2 minutes';
+  }, [booking?.grace_termination_time, graceEndTs]);
+
   return (
     <div className="max-w-2xl mx-auto py-10 px-4 sm:px-6">
       <Card className="border-border shadow-lg overflow-hidden">
@@ -282,7 +337,48 @@ export const BookingConfirmationPage: React.FC = () => {
 
           {/* Google Calendar & Google Meet Actions */}
           <div className="space-y-3">
-            {booking.google_meet_url ? (
+            {/* 2-Minute Grace Period Warning Banner */}
+            {isInGracePeriod && (
+              <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 flex items-start sm:items-center gap-3.5 text-amber-900 shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-bold text-sm text-amber-950">Booked time ended</h4>
+                    <Badge className="bg-amber-200 text-amber-900 border-amber-300 font-mono text-[11px] font-bold">
+                      {formattedCountdown} remaining
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Your scheduled session has ended. You have {formattedCountdown} minutes remaining. This Google Meet will end automatically at {terminationTimeDisplay}.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {isExpired ? (
+              <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3 text-center sm:text-left">
+                  <div className="w-12 h-12 rounded-xl bg-slate-400 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <Video className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 justify-center sm:justify-start">
+                      <h4 className="font-bold text-slate-700 text-base">Google Meet Session Concluded</h4>
+                      <Badge className="bg-slate-200 text-slate-700 text-[10px]">Ended</Badge>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      This meeting was scheduled to end at {formatBookingTime(booking.end_time)} and is no longer active.
+                    </p>
+                  </div>
+                </div>
+                <Button disabled className="w-full sm:w-auto bg-slate-200 text-slate-500 gap-2 font-bold px-5 h-11 rounded-xl cursor-not-allowed">
+                  <Video className="w-4 h-4" />
+                  <span>Session Ended</span>
+                </Button>
+              </div>
+            ) : booking.google_meet_url ? (
               <div className="bg-emerald-50/80 rounded-2xl p-5 border border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3 text-center sm:text-left">
                   <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
@@ -291,10 +387,14 @@ export const BookingConfirmationPage: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2 justify-center sm:justify-start">
                       <h4 className="font-bold text-slate-900 text-base">Google Meet Video Call</h4>
-                      <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Active</Badge>
+                      {isInGracePeriod ? (
+                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">Grace Period</Badge>
+                      ) : (
+                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Active</Badge>
+                      )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Join directly at your scheduled time with 1-click
+                      {isInGracePeriod ? 'Wrap up your conversation before automatic termination' : 'Join directly at your scheduled time with 1-click'}
                     </p>
                   </div>
                 </div>
@@ -311,7 +411,7 @@ export const BookingConfirmationPage: React.FC = () => {
                 >
                   <Button className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white gap-2 font-bold px-5 h-11 rounded-xl shadow-md cursor-pointer">
                     <Video className="w-4 h-4" />
-                    <span>Join Google Meet</span>
+                    <span>{isInGracePeriod ? 'Wrap up on Google Meet' : 'Join Google Meet'}</span>
                   </Button>
                 </a>
               </div>

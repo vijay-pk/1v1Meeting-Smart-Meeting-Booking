@@ -25,7 +25,8 @@ router = APIRouter()
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/userinfo.email"
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/meetings.space.created"
 ]
 
 # OAuth `state` must prove the callback belongs to the admin who started the flow. An

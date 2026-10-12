@@ -127,6 +127,13 @@ class Settings(BaseSettings):
     REMINDER_POLL_SECONDS: int = int(os.getenv("REMINDER_POLL_SECONDS", "60"))
     CRON_SECRET: str = os.getenv("CRON_SECRET", "")
 
+    # Meeting termination enforcement.
+    # The in-process worker checks for due terminations every TERMINATION_POLL_SECONDS while the
+    # server is running. For hosts that sleep when idle, POST /api/internal/termination/run can be
+    # triggered with the X-Cron-Secret header.
+    TERMINATION_WORKER_ENABLED: bool = os.getenv("TERMINATION_WORKER_ENABLED", "true").lower() in ("1", "true", "yes")
+    TERMINATION_POLL_SECONDS: int = int(os.getenv("TERMINATION_POLL_SECONDS", "30"))
+
     @property
     def EMAIL_ENABLED(self) -> bool:
         """Email is on only when it can actually be delivered."""

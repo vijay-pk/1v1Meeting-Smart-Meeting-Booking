@@ -205,3 +205,43 @@ async def send_meeting_reminder_email(
         )
     )
     return await _send(admin_email, f"Upcoming meeting: {client_name} — {session_title}", html)
+
+
+async def send_grace_period_warning_email(
+    admin_email: str,
+    client_email: str,
+    client_name: str,
+    admin_name: str,
+    session_title: str,
+    termination_time_str: str,
+) -> bool:
+    """
+    Notifies host and client that the scheduled booking time has ended and the 2-minute wrap-up grace period has begun.
+    """
+    from html import escape
+
+    safe_client = escape(client_name or "Client")
+    safe_admin = escape(admin_name or "Host")
+    safe_title = escape(session_title or "1:1 Session")
+    safe_time = escape(termination_time_str)
+
+    html = _shell(
+        "Your booked meeting time has ended",
+        f"<p>Hello,</p>"
+        f"<p>Your scheduled <strong>{safe_title}</strong> with {safe_admin} has reached its booked end time.</p>"
+        f'<div style="margin:18px 0;padding:16px;background:#FFF3CD;border:1px solid #FFEEBA;border-radius:8px;color:#856404;">'
+        f'<p style="font-size:16px;font-weight:bold;margin:0 0 8px 0;">Your booked meeting time has ended</p>'
+        f'<p style="margin:0;">Your scheduled session has ended. You have 2 minutes to wrap up your conversation. '
+        f'This Google Meet will end automatically at <strong>{safe_time}</strong>.</p>'
+        f"</div>"
+    )
+    subject = "Your booked meeting time has ended"
+    sent_any = False
+    if client_email:
+        res_c = await _send(client_email, subject, html)
+        sent_any = sent_any or res_c
+    if admin_email and admin_email != client_email:
+        res_a = await _send(admin_email, subject, html)
+        sent_any = sent_any or res_a
+    return sent_any
+

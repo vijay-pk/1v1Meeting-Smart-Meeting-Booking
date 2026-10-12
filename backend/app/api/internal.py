@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.services.reminders import run_due_reminders
+from app.services.meeting_termination import run_due_terminations
 
 router = APIRouter()
 
@@ -29,3 +30,15 @@ async def run_reminders(
     if not hmac.compare_digest(x_cron_secret.encode(), settings.CRON_SECRET.encode()):
         raise HTTPException(status_code=403, detail="Forbidden")
     return await run_due_reminders(db)
+
+
+@router.post("/termination/run")
+async def run_termination(
+    x_cron_secret: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    if not settings.CRON_SECRET:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not hmac.compare_digest(x_cron_secret.encode(), settings.CRON_SECRET.encode()):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return await run_due_terminations(db)

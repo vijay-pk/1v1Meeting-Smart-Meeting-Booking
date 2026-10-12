@@ -49,6 +49,10 @@ export function BookingsPage() {
           created_at: row.created_at,
           customer_timezone: row.timezone,
           google_meet_url: row.google_meet_link,
+          termination_status: row.termination_status,
+          termination_error: row.termination_error,
+          terminated_at: row.terminated_at,
+          grace_notified_at: row.grace_notified_at,
           customer: {
             name: row.client_name,
             email: row.client_email,
@@ -319,14 +323,36 @@ function BookingDetailModal({
               <h3 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-2">
                 Google Meet
               </h3>
-              <a
-                href={booking.google_meet_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-3 py-2 bg-primary-50 text-primary-700 rounded-lg text-sm font-medium hover:bg-primary-100 transition-colors"
-              >
-                📹 Join Google Meet
-              </a>
+              <div className="flex flex-col gap-2">
+                <a
+                  href={booking.google_meet_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-primary-50 text-primary-700 rounded-lg text-sm font-medium hover:bg-primary-100 transition-colors w-fit"
+                >
+                  📹 Join Google Meet
+                </a>
+                {booking.termination_status === 'completed' && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    ✓ Ended automatically at scheduled end time
+                  </p>
+                )}
+                {booking.termination_status === 'failed' && (
+                  <p className="text-xs text-red-600 font-medium">
+                    ⚠️ Termination failed — reconnect Google Calendar/Meet if required
+                  </p>
+                )}
+                {booking.termination_status === 'pending' && (
+                  <p className="text-xs text-text-tertiary">
+                    Scheduled to end automatically at {format(parseServerInstant(booking.end_time), 'h:mm a')}
+                  </p>
+                )}
+                {booking.termination_status === 'retry' && (
+                  <p className="text-xs text-amber-600 font-medium">
+                    Termination pending retry...
+                  </p>
+                )}
+              </div>
             </section>
           )}
 
@@ -411,6 +437,18 @@ function BookingDetailModal({
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500" />
                   Google Meet created
+                </div>
+              )}
+              {booking.grace_notified_at && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  Grace period notice sent — {format(parseServerInstant(booking.grace_notified_at), 'MMM d, h:mm a')}
+                </div>
+              )}
+              {booking.termination_status === 'completed' && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-500" />
+                  Meeting ended automatically
                 </div>
               )}
               {booking.status === 'confirmed' && (

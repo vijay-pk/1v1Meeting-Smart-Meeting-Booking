@@ -242,6 +242,12 @@ class Booking(Base):
     payment_status = Column(String(30), default="pending", nullable=False)  # "pending", "completed", "failed"
     google_event_id = Column(String(255), nullable=True)
     google_meet_link = Column(String(255), nullable=True)
+    google_meet_space_id = Column(String(255), nullable=True)
+    termination_status = Column(String(30), default="pending", nullable=True)  # "pending", "completed", "failed", "cancelled", "not_applicable"
+    termination_error = Column(Text, nullable=True)
+    terminated_at = Column(DateTime, nullable=True)
+    termination_retries = Column(Integer, default=0, nullable=False)
+    grace_notified_at = Column(DateTime, nullable=True)
     cancellation_token = Column(String(64), unique=True, nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

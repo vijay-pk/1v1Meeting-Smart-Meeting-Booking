@@ -232,191 +232,220 @@ export const SuperProfileHomePage: React.FC = () => {
   const themeBg = activeAdmin.theme_settings?.bg_gradient || 'from-[#873600] via-[#A04000] to-[#6E2C00]';
   const buttonColor = activeAdmin.theme_settings?.button_color || '#D32F2F';
   const buttonTextColor = activeAdmin.theme_settings?.button_text_color || '#FFFFFF';
+  const hasIntroVideo = Boolean(activeAdmin.intro_video);
 
   return (
-    <div className={`min-h-screen bg-gradient-to-b ${themeBg} text-slate-800 antialiased font-sans overflow-x-hidden pb-10`}>
-      {/* HEADER: photo, name + verification, headline, compact share */}
-      <header className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 pb-4 sm:pt-6 sm:pb-5 relative z-10">
-        <div className="flex items-start gap-3 sm:gap-4">
-          <img
-            src={activeAdmin.photo_url || DEFAULT_AVATAR}
-            alt={activeAdmin.full_name}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover object-top border-2 border-white/70 bg-slate-800 shrink-0"
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.src.endsWith(DEFAULT_AVATAR)) img.src = DEFAULT_AVATAR;
-            }}
-          />
+    <div className={`min-h-screen bg-gradient-to-b ${themeBg} text-slate-800 antialiased font-sans overflow-x-hidden py-4 sm:py-6 pb-12`}>
+      {/* TWO-COLUMN LAYOUT on desktop (lg: >= 1024px) when intro video exists:
+          - LEFT COLUMN: Admin introduction video.
+          - RIGHT COLUMN: Admin profile header + available session booking cards.
+          STACKED LAYOUT on tablet & mobile (< 1024px):
+          - Profile header first -> Intro video below header -> Session cards below video.
+          BALANCED SINGLE-COLUMN LAYOUT when no intro video is configured (max-w-3xl mx-auto). */}
+      <div
+        className={`mx-auto px-3.5 sm:px-6 relative z-10 ${
+          hasIntroVideo
+            ? 'max-w-6xl grid grid-cols-1 lg:grid-cols-[448px_minmax(0,1fr)] gap-4 lg:gap-8 items-start'
+            : 'max-w-3xl space-y-4'
+        }`}
+      >
+        {/* 1. PROFILE HEADER: photo, name + verification, headline, compact share */}
+        <header
+          className={
+            hasIntroVideo
+              ? 'order-1 lg:col-start-2 lg:row-start-1 pb-1 lg:pb-0'
+              : 'pb-1'
+          }
+        >
+          <div className="flex items-start gap-3 sm:gap-4">
+            <img
+              src={activeAdmin.photo_url || DEFAULT_AVATAR}
+              alt={activeAdmin.full_name}
+              className="w-13 h-13 sm:w-16 sm:h-16 rounded-full object-cover object-top border-2 border-white/70 bg-slate-800 shrink-0 shadow-sm"
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (!img.src.endsWith(DEFAULT_AVATAR)) img.src = DEFAULT_AVATAR;
+              }}
+            />
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight truncate">
-                {activeAdmin.full_name}
-              </h1>
-              <ShieldCheck className="w-4 h-4 text-blue-300 shrink-0" aria-label="Verified host" />
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h1 className="text-base sm:text-xl font-bold text-white tracking-tight truncate">
+                  {activeAdmin.full_name}
+                </h1>
+                <ShieldCheck className="w-4 h-4 text-blue-300 shrink-0" aria-label="Verified host" />
+              </div>
+              <p className="text-xs sm:text-sm text-white/85 mt-0.5 leading-snug line-clamp-2">
+                {activeAdmin.heading_text || activeAdmin.title}
+              </p>
             </div>
-            <p className="text-xs sm:text-sm text-white/80 mt-0.5 leading-snug">
-              {activeAdmin.heading_text || activeAdmin.title}
-            </p>
+
+            {/* Compact share action */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setShareOpen(!shareOpen)}
+                aria-label="Share profile"
+                aria-expanded={shareOpen}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/25 hover:bg-black/40 text-white border border-white/15 flex items-center justify-center transition cursor-pointer"
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+              </button>
+
+              {shareOpen && (
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 text-slate-800 space-y-0.5">
+                  <a
+                    href={shareUrls.whatsapp}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
+                  >
+                    WhatsApp
+                  </a>
+                  <a
+                    href={shareUrls.linkedin}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
+                  >
+                    LinkedIn
+                  </a>
+                  <a
+                    href={shareUrls.facebook}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
+                  >
+                    Facebook
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+                  >
+                    <span>{copied ? 'Copied' : 'Copy link'}</span>
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+        </header>
 
-          {/* Compact share action */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setShareOpen(!shareOpen)}
-              aria-label="Share profile"
-              aria-expanded={shareOpen}
-              className="w-10 h-10 rounded-full bg-black/25 hover:bg-black/40 text-white border border-white/15 flex items-center justify-center transition cursor-pointer"
-            >
-              {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-            </button>
+        {/* 2. INTRO VIDEO (LEFT COLUMN on desktop; BELOW HEADER on mobile):
+            Strict Video Size Preservation: exactly retains the original desktop dimensions,
+            16:9 aspect ratio, container padding, borders, and controls without distortion. */}
+        {hasIntroVideo && (
+          <aside className="order-2 lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-6 w-full flex justify-center lg:justify-start">
+            <section className="bg-white rounded-2xl p-3 border border-white/20 shadow-sm max-w-md w-full">
+              <IntroVideoPlayer
+                url={activeAdmin.intro_video}
+                className="rounded-xl border border-slate-200"
+              />
+            </section>
+          </aside>
+        )}
 
-            {shareOpen && (
-              <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 text-slate-800 space-y-0.5">
-                <a
-                  href={shareUrls.whatsapp}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                >
-                  WhatsApp
-                </a>
-                <a
-                  href={shareUrls.linkedin}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                >
-                  LinkedIn
-                </a>
-                <a
-                  href={shareUrls.facebook}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                >
-                  Facebook
-                </a>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition cursor-pointer"
-                >
-                  <span>{copied ? 'Copied' : 'Copy link'}</span>
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
+        {/* 3. SESSION SELECTION & CARDS (RIGHT COLUMN on desktop; BELOW VIDEO on mobile) */}
+        <main
+          className={
+            hasIntroVideo
+              ? 'order-3 lg:col-start-2 lg:row-start-2 space-y-4'
+              : 'space-y-4'
+          }
+        >
+          <section className="bg-white rounded-2xl p-4 sm:p-6 border border-white/20 shadow-sm space-y-4">
+            <div>
+              <h2 className="text-[17px] sm:text-lg font-semibold text-slate-900 tracking-tight">
+                {activeAdmin.welcome_message || 'Book a 1:1 session'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">Google Meet included.</p>
+            </div>
+
+            {/* Uploaded Custom Sections & Links */}
+            {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
+              <div className="space-y-2">
+                {activeAdmin.custom_sections.map((sec) => (
+                  <div
+                    key={sec.id}
+                    className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
+                      {sec.description && (
+                        <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
+                      )}
+                    </div>
+                    {sec.button_url && (
+                      <a
+                        href={sec.button_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
+                      >
+                        {sec.button_text || 'Open'}
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-        </div>
-      </header>
 
-      {/* MAIN: sessions first, everything else after */}
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 relative z-10 space-y-4">
-        <section className="bg-white rounded-2xl p-4 sm:p-6 border border-white/20 shadow-sm space-y-4">
-          <div>
-            <h2 className="text-[17px] sm:text-lg font-semibold text-slate-900 tracking-tight">
-              {activeAdmin.welcome_message || 'Book a 1:1 session'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">Google Meet included.</p>
-          </div>
-
-          {/* Uploaded Custom Sections & Links */}
-          {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
-            <div className="space-y-2">
-              {activeAdmin.custom_sections.map((sec) => (
-                <div
-                  key={sec.id}
-                  className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
-                    {sec.description && (
-                      <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                    )}
-                  </div>
-                  {sec.button_url && (
-                    <a
-                      href={sec.button_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
-                    >
-                      {sec.button_text || 'Open'}
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Sessions — one flat list, one card treatment */}
-          {adminMeetings.length === 0 ? (
-            <p className="text-sm text-slate-500 py-6 text-center">
-              No sessions are published yet.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {adminMeetings.map((meeting: MeetingType) => (
-                <button
-                  key={meeting.id}
-                  type="button"
-                  onClick={() => handleSelectMeeting(meeting.id)}
-                  className="group text-left rounded-xl border border-slate-200 hover:border-slate-300 transition p-4 bg-white flex flex-col gap-2.5 cursor-pointer"
-                >
-                  <div>
-                    <h3 className="font-semibold text-slate-900 text-[15px] leading-snug">
-                      {meeting.name}
-                    </h3>
-                    {meeting.description && (
-                      <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mt-1">
-                        {meeting.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 mt-auto">
-                    {/* Compact duration · price */}
-                    <div className="text-xs text-slate-600 font-medium flex items-center gap-1.5 min-w-0 whitespace-nowrap">
-                      <span>{meeting.duration_minutes} min</span>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-semibold text-slate-900">
-                        {formatPrice(meeting.price, meeting.currency)}
-                      </span>
-                      {meeting.original_price && meeting.original_price > meeting.price && (
-                        <span className="text-slate-400 line-through">
-                          {formatPrice(meeting.original_price, meeting.currency)}
-                        </span>
+            {/* Sessions — one clean list */}
+            {adminMeetings.length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">
+                No sessions are published yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {adminMeetings.map((meeting: MeetingType) => (
+                  <button
+                    key={meeting.id}
+                    type="button"
+                    onClick={() => handleSelectMeeting(meeting.id)}
+                    className="group text-left rounded-xl border border-slate-200 hover:border-slate-300 hover:shadow-xs transition p-4 bg-white flex flex-col gap-3 cursor-pointer"
+                  >
+                    <div>
+                      <h3 className="font-semibold text-slate-900 text-[15px] sm:text-base leading-snug">
+                        {meeting.name}
+                      </h3>
+                      {meeting.description && (
+                        <p className="text-xs sm:text-sm text-slate-500 leading-relaxed line-clamp-2 mt-1">
+                          {meeting.description}
+                        </p>
                       )}
                     </div>
 
-                    <span
-                      style={{ backgroundColor: buttonColor, color: buttonTextColor }}
-                      className="shrink-0 font-semibold text-xs px-3.5 min-h-[36px] rounded-full inline-flex items-center gap-1.5"
-                    >
-                      <span>Choose time</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
+                    <div className="flex flex-wrap items-center justify-between gap-3 mt-auto pt-1">
+                      {/* Duration · price */}
+                      <div className="text-xs sm:text-sm text-slate-600 font-medium flex items-center gap-1.5 min-w-0">
+                        <span>{meeting.duration_minutes} min</span>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-semibold text-slate-900">
+                          {formatPrice(meeting.price, meeting.currency)}
+                        </span>
+                        {meeting.original_price && meeting.original_price > meeting.price && (
+                          <span className="text-slate-400 line-through">
+                            {formatPrice(meeting.original_price, meeting.currency)}
+                          </span>
+                        )}
+                      </div>
 
-        {/* OPTIONAL INTRO VIDEO — compact, non-dominant, below the booking action.
-            Provider-neutral by design: no YouTube/Vimeo logo, icon, badge or name is added
-            by this card. */}
-        {activeAdmin.intro_video && (
-          <section className="bg-white rounded-2xl p-3 border border-white/20 shadow-sm max-w-md mx-auto w-full">
-            <IntroVideoPlayer
-              url={activeAdmin.intro_video}
-              className="rounded-xl border border-slate-200"
-            />
+                      <span
+                        style={{ backgroundColor: buttonColor, color: buttonTextColor }}
+                        className="shrink-0 font-semibold text-xs sm:text-sm px-4 min-h-[38px] rounded-full inline-flex items-center gap-1.5 group-hover:opacity-95 transition shadow-xs"
+                      >
+                        <span>Choose time</span>
+                        <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
-        )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 };

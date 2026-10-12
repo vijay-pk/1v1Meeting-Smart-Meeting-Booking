@@ -201,7 +201,16 @@ export interface Booking {
   calendar_status: CalendarStatus;
   google_calendar_event_id: string | null;
   google_meet_url: string | null;
+  google_meet_space_id?: string | null;
   google_calendar_url?: string | null;
+  termination_status?: string | null;
+  termination_error?: string | null;
+  terminated_at?: string | null;
+  is_expired?: boolean;
+  is_grace_period?: boolean;
+  grace_remaining_seconds?: number;
+  grace_termination_time?: string;
+  grace_notified_at?: string | null;
   notifications_sent?: {
     client_email: string;
     admin_email: string;
