@@ -4,7 +4,6 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
-import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import type { AdminUser, MeetingType } from '@/types';
 import {
   ShieldCheck,
@@ -148,22 +147,6 @@ export const SuperProfileHomePage: React.FC = () => {
     };
   }, [activeAdmin]);
 
-  const RIGHT_COLUMN_MAX_SESSIONS = 3;
-
-  const { rightColumnMeetings, leftColumnOverflowMeetings } = useMemo(() => {
-    const hasVideo = Boolean(activeAdmin?.intro_video);
-    if (!hasVideo || adminMeetings.length <= RIGHT_COLUMN_MAX_SESSIONS) {
-      return {
-        rightColumnMeetings: adminMeetings,
-        leftColumnOverflowMeetings: [],
-      };
-    }
-    return {
-      rightColumnMeetings: adminMeetings.slice(0, RIGHT_COLUMN_MAX_SESSIONS),
-      leftColumnOverflowMeetings: adminMeetings.slice(RIGHT_COLUMN_MAX_SESSIONS),
-    };
-  }, [adminMeetings, activeAdmin?.intro_video]);
-
   // 3. Still asking the backend who this is -- do not flash "not found" first.
   if (loading) {
     return (
@@ -248,7 +231,6 @@ export const SuperProfileHomePage: React.FC = () => {
   const themeBg = activeAdmin.theme_settings?.bg_gradient || 'from-[#873600] via-[#A04000] to-[#6E2C00]';
   const buttonColor = activeAdmin.theme_settings?.button_color || '#D32F2F';
   const buttonTextColor = activeAdmin.theme_settings?.button_text_color || '#FFFFFF';
-  const hasIntroVideo = Boolean(activeAdmin.intro_video);
 
   const renderMeetingCard = (meeting: MeetingType) => (
     <button
@@ -296,11 +278,7 @@ export const SuperProfileHomePage: React.FC = () => {
 
   return (
     <div className={`min-h-screen bg-gradient-to-b ${themeBg} text-slate-800 antialiased font-sans overflow-x-hidden py-4 sm:py-6 pb-12`}>
-      <div
-        className={`mx-auto px-3.5 sm:px-6 relative z-10 space-y-4 sm:space-y-6 ${
-          hasIntroVideo ? 'max-w-6xl' : 'max-w-3xl'
-        }`}
-      >
+      <div className="mx-auto px-3.5 sm:px-6 relative z-10 space-y-4 sm:space-y-6 max-w-3xl">
         {/* 1. TOP PROFILE HEADER: full width across the top */}
         <header className="pb-1">
           <div className="flex items-start justify-between gap-3 sm:gap-4">
@@ -380,137 +358,57 @@ export const SuperProfileHomePage: React.FC = () => {
           </div>
         </header>
 
-        {/* 2. TWO-COLUMN LAYOUT (when intro video exists) OR SINGLE-COLUMN (when no video) */}
-        {hasIntroVideo ? (
-          <div className="grid grid-cols-1 lg:grid-cols-[448px_minmax(0,1fr)] gap-4 lg:gap-8 items-start">
-            {/* LEFT COLUMN: Fixed-size Intro Video + Overflow Sessions */}
-            <aside className="w-full flex flex-col items-center lg:items-start">
-              <section className="bg-white rounded-2xl p-3 border border-white/20 shadow-sm max-w-md w-full">
-                <IntroVideoPlayer
-                  url={activeAdmin.intro_video}
-                  className="rounded-xl border border-slate-200"
-                />
-              </section>
+        {/* 2. SESSION SELECTION CARD */}
+        <main className="space-y-4">
+          <section className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 border border-white/20 shadow-xl space-y-5">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                {activeAdmin.welcome_message || 'Choose your session and pick a convenient time.'}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">Google Meet included.</p>
+            </div>
 
-              {/* Overflow sessions placed below the video on desktop */}
-              {leftColumnOverflowMeetings.length > 0 && (
-                <div className="hidden lg:flex flex-col gap-3 max-w-md w-full mt-4">
-                  {leftColumnOverflowMeetings.map(renderMeetingCard)}
-                </div>
-              )}
-            </aside>
-
-            {/* RIGHT COLUMN: Booking Panel with Sessions 1..3 */}
-            <main className="w-full space-y-4">
-              <section className="bg-white rounded-2xl p-4 sm:p-6 border border-white/20 shadow-sm space-y-4">
-                <div>
-                  <h2 className="text-[17px] sm:text-lg font-semibold text-slate-900 tracking-tight">
-                    {activeAdmin.welcome_message || 'Book a 1:1 session'}
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Google Meet included.</p>
-                </div>
-
-                {/* Uploaded Custom Sections & Links */}
-                {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
-                  <div className="space-y-2">
-                    {activeAdmin.custom_sections.map((sec) => (
-                      <div
-                        key={sec.id}
-                        className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
-                          {sec.description && (
-                            <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                          )}
-                        </div>
-                        {sec.button_url && (
-                          <a
-                            href={sec.button_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
-                          >
-                            {sec.button_text || 'Open'}
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Sessions */}
-                {adminMeetings.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-6 text-center">
-                    No sessions are published yet.
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 gap-3">
-                    {rightColumnMeetings.map(renderMeetingCard)}
-                    {/* On mobile / tablet (< 1024px), render overflow sessions here */}
-                    {leftColumnOverflowMeetings.length > 0 && (
-                      <div className="contents lg:hidden">
-                        {leftColumnOverflowMeetings.map(renderMeetingCard)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            </main>
-          </div>
-        ) : (
-          /* BALANCED SINGLE-COLUMN LAYOUT when no intro video is configured */
-          <main className="space-y-4">
-            <section className="bg-white rounded-2xl p-4 sm:p-6 border border-white/20 shadow-sm space-y-4">
-              <div>
-                <h2 className="text-[17px] sm:text-lg font-semibold text-slate-900 tracking-tight">
-                  {activeAdmin.welcome_message || 'Book a 1:1 session'}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">Google Meet included.</p>
-              </div>
-
-              {/* Uploaded Custom Sections & Links */}
-              {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
-                <div className="space-y-2">
-                  {activeAdmin.custom_sections.map((sec) => (
-                    <div
-                      key={sec.id}
-                      className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
-                        {sec.description && (
-                          <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                        )}
-                      </div>
-                      {sec.button_url && (
-                        <a
-                          href={sec.button_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
-                        >
-                          {sec.button_text || 'Open'}
-                        </a>
+            {/* Uploaded Custom Sections & Links */}
+            {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
+              <div className="space-y-2">
+                {activeAdmin.custom_sections.map((sec) => (
+                  <div
+                    key={sec.id}
+                    className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
+                      {sec.description && (
+                        <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
+                    {sec.button_url && (
+                      <a
+                        href={sec.button_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
+                      >
+                        {sec.button_text || 'Open'}
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-              {/* Sessions */}
-              {adminMeetings.length === 0 ? (
-                <p className="text-sm text-slate-500 py-6 text-center">
-                  No sessions are published yet.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 gap-3">
-                  {adminMeetings.map(renderMeetingCard)}
-                </div>
-              )}
-            </section>
-          </main>
-        )}
+            {/* Sessions list */}
+            {adminMeetings.length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">
+                No sessions are published yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3.5">
+                {adminMeetings.map(renderMeetingCard)}
+              </div>
+            )}
+          </section>
+        </main>
       </div>
     </div>
   );
