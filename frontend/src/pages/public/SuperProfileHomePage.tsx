@@ -148,6 +148,22 @@ export const SuperProfileHomePage: React.FC = () => {
     };
   }, [activeAdmin]);
 
+  const RIGHT_COLUMN_MAX_SESSIONS = 3;
+
+  const { rightColumnMeetings, leftColumnOverflowMeetings } = useMemo(() => {
+    const hasVideo = Boolean(activeAdmin?.intro_video);
+    if (!hasVideo || adminMeetings.length <= RIGHT_COLUMN_MAX_SESSIONS) {
+      return {
+        rightColumnMeetings: adminMeetings,
+        leftColumnOverflowMeetings: [],
+      };
+    }
+    return {
+      rightColumnMeetings: adminMeetings.slice(0, RIGHT_COLUMN_MAX_SESSIONS),
+      leftColumnOverflowMeetings: adminMeetings.slice(RIGHT_COLUMN_MAX_SESSIONS),
+    };
+  }, [adminMeetings, activeAdmin?.intro_video]);
+
   // 3. Still asking the backend who this is -- do not flash "not found" first.
   if (loading) {
     return (
@@ -233,21 +249,6 @@ export const SuperProfileHomePage: React.FC = () => {
   const buttonColor = activeAdmin.theme_settings?.button_color || '#D32F2F';
   const buttonTextColor = activeAdmin.theme_settings?.button_text_color || '#FFFFFF';
   const hasIntroVideo = Boolean(activeAdmin.intro_video);
-
-  const RIGHT_COLUMN_MAX_SESSIONS = 3;
-
-  const { rightColumnMeetings, leftColumnOverflowMeetings } = useMemo(() => {
-    if (!hasIntroVideo || adminMeetings.length <= RIGHT_COLUMN_MAX_SESSIONS) {
-      return {
-        rightColumnMeetings: adminMeetings,
-        leftColumnOverflowMeetings: [],
-      };
-    }
-    return {
-      rightColumnMeetings: adminMeetings.slice(0, RIGHT_COLUMN_MAX_SESSIONS),
-      leftColumnOverflowMeetings: adminMeetings.slice(RIGHT_COLUMN_MAX_SESSIONS),
-    };
-  }, [adminMeetings, hasIntroVideo]);
 
   const renderMeetingCard = (meeting: MeetingType) => (
     <button
