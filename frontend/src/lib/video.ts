@@ -69,3 +69,84 @@ export const INTRO_VIDEO_ARIA_LABEL = 'Play intro video';
 export function withAutoplay(embedUrl: string): string {
   return `${embedUrl}${embedUrl.includes('?') ? '&' : '?'}autoplay=1`;
 }
+
+/** Extracts the 11-character YouTube id from any of the public URL shapes. */
+export function getYouTubeVideoId(url?: string | null): string | null {
+  if (!url) return null;
+  const match = url.trim().match(YOUTUBE_ID);
+  return match ? match[1] : null;
+}
+
+/** Extracts the Vimeo numeric id from any Vimeo URL shape. */
+export function getVimeoVideoId(url?: string | null): string | null {
+  if (!url) return null;
+  const match = url.trim().match(VIMEO_ID);
+  return match ? match[1] : null;
+}
+
+/**
+ * Returns a YouTube thumbnail URL. Prefers maxresdefault with fallback to hqdefault.
+ */
+export function getYouTubeThumbnailUrl(videoId: string, quality: 'hq' | 'maxres' = 'maxres'): string {
+  if (quality === 'hq') {
+    return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  }
+  return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+}
+
+/** In-memory cache of resolved thumbnails so we never refetch for the same video URL. */
+const thumbnailCache = new Map<string, string | null>();
+
+/**
+ * Asynchronously retrieves a reliable cover image URL for a YouTube or Vimeo video.
+ * Handles private videos, unsupported formats, and network issues gracefully without throwing.
+ */
+export async function fetchVideoThumbnail(url?: string | null): Promise<string | null> {
+  if (!url) return null;
+  const clean = url.trim();
+  if (!clean) return null;
+
+  if (thumbnailCache.has(clean)) {
+    return thumbnailCache.get(clean) || null;
+  }
+
+  // 1. YouTube: instant direct URL
+  const ytId = getYouTubeVideoId(clean);
+  if (ytId) {
+    const thumb = getYouTubeThumbnailUrl(ytId, 'maxres');
+    thumbnailCache.set(clean, thumb);
+    return thumb;
+  }
+
+  // 2. Vimeo: fetch via oEmbed
+  const vimeoId = getVimeoVideoId(clean);
+  if (vimeoId) {
+    try {
+      const cached = sessionStorage.getItem(`vimeo_thumb_${vimeoId}`);
+      if (cached) {
+        thumbnailCache.set(clean, cached);
+        return cached;
+      }
+    } catch {}
+
+    try {
+      const res = await fetch(`https://vimeo.com/api/oembed.json?url=https://vimeo.com/${vimeoId}&width=960`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.thumbnail_url) {
+          thumbnailCache.set(clean, data.thumbnail_url);
+          try {
+            sessionStorage.setItem(`vimeo_thumb_${vimeoId}`, data.thumbnail_url);
+          } catch {}
+          return data.thumbnail_url;
+        }
+      }
+    } catch {
+      // Graceful fallback on network/CORS error or private video
+    }
+  }
+
+  thumbnailCache.set(clean, null);
+  return null;
+}
+

@@ -4,6 +4,7 @@ import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 import type { MeetingType, TimeSlot, AdminUser } from '@/types';
 import {
   format,
@@ -13,36 +14,22 @@ import {
 } from 'date-fns';
 import {
   Clock,
-  ArrowRight,
   ArrowLeft,
   AlertCircle,
+  Globe,
+  Sun,
+  Sunrise,
+  Moon,
+  ShieldCheck,
+  Share2,
+  Copy,
+  Check,
+  Video,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /** How many days the date strip offers. Also the window the slot counts are fetched for. */
 const DATE_STRIP_DAYS = 14;
-
-/**
- * Splits slots into the parts of the day people actually think in.
- *
- * A flat list of a dozen times is read one item at a time; three short labelled groups are
- * scanned. Empty groups are dropped so the headings never promise something that is not
- * there.
- */
-function groupByPartOfDay(slots: TimeSlot[]): { label: string; slots: TimeSlot[] }[] {
-  const buckets: Record<string, TimeSlot[]> = { Morning: [], Midday: [], Evening: [] };
-  for (const slot of slots) {
-    // start is "YYYY-MM-DDTHH:MM:00Z" wall clock in the host's zone; read the hour directly
-    // rather than through Date, which would shift it into the browser's zone.
-    const hour = Number(slot.start.slice(11, 13));
-    if (hour < 12) buckets.Morning.push(slot);
-    else if (hour < 17) buckets.Midday.push(slot);
-    else buckets.Evening.push(slot);
-  }
-  return Object.entries(buckets)
-    .filter(([, group]) => group.length > 0)
-    .map(([label, group]) => ({ label, slots: group }));
-}
 
 export const TimeAvailabilityPage: React.FC = () => {
   const navigate = useNavigate();
@@ -59,13 +46,13 @@ export const TimeAvailabilityPage: React.FC = () => {
   const queryAdminId = searchParams.get('adminId') || searchParams.get('username') || routeUsername;
   const targetAdminId = queryAdminId || pendingBooking.adminId;
 
-  // The host comes from the API and nowhere else. Three outcomes have to stay distinct,
-  // because they are three different things to tell a client who is mid-booking:
-  // still asking, the request failed, and this page genuinely does not exist.
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -83,9 +70,6 @@ export const TimeAvailabilityPage: React.FC = () => {
       } catch (err: any) {
         if (!isMounted) return;
         setRemoteProfile(null);
-        // Only a genuine 404 means there is no such page. A 500, a CORS failure, or a
-        // backend still waking from a cold start is temporary and must offer a retry --
-        // this is a link a host has already shared with the client reading it.
         setLoadFailed(!err?.notFound);
       } finally {
         if (isMounted) setLoading(false);
@@ -95,9 +79,6 @@ export const TimeAvailabilityPage: React.FC = () => {
     return () => { isMounted = false; };
   }, [targetAdminId, reloadKey]);
 
-  // Resolve the host from the API only. Falling back to a locally cached admin -- or, as
-  // this page used to, to admins[0] -- meant an unknown or deleted username silently
-  // rendered somebody else's scheduling page, with their Razorpay key on the next step.
   const selectedAdminUser = useMemo<AdminUser | null>(() => {
     if (!remoteProfile) return null;
     return {
@@ -125,8 +106,6 @@ export const TimeAvailabilityPage: React.FC = () => {
 
   const selectedAdminId = selectedAdminUser?.id || '';
 
-  // Sessions come from the API response for this host and nowhere else. The old fallback
-  // invented "₹299 advisory call" packages for any admin the store did not know about.
   const adminMeetingTypes: MeetingType[] = useMemo(() => {
     if (!selectedAdminUser || !remoteProfile?.sessions) return [];
     return remoteProfile.sessions.map((s: any) => ({
@@ -154,7 +133,6 @@ export const TimeAvailabilityPage: React.FC = () => {
     }));
   }, [remoteProfile, selectedAdminUser]);
 
-  // Selected meeting type
   const currentMeetingId = meetingId || pendingBooking.meetingTypeId;
   const selectedMeeting = useMemo(() => {
     if (currentMeetingId) {
@@ -167,8 +145,8 @@ export const TimeAvailabilityPage: React.FC = () => {
 
   const [selectedDate, setSelectedDate] = useState<Date>(startOfToday());
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(pendingBooking.slot || null);
+  const [selectedPeriod, setSelectedPeriod] = useState<'Morning' | 'Midday' | 'Evening'>('Morning');
 
-  // The horizontal date strip.
   const daysList = useMemo(() => {
     const list: Date[] = [];
     const today = startOfToday();
@@ -178,19 +156,11 @@ export const TimeAvailabilityPage: React.FC = () => {
     return list;
   }, []);
 
-  // Available slots come from the backend engine only. It is the single place that knows
-  // the host's working hours, leave, confirmed bookings, slot locks and — crucially — the
-  // busy blocks on their connected Google Calendar.
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState('');
   const [slotsRetryKey, setSlotsRetryKey] = useState(0);
-  // The zone the backend computed these times in -- the host's, which is where their working
-  // hours and calendar live. Never the browser's: this caption used to read
-  // Intl.DateTimeFormat().resolvedOptions().timeZone, so a client in London was shown IST
-  // slots labelled "Europe/London" and would have arrived five and a half hours late.
   const [slotTimezone, setSlotTimezone] = useState<string>('');
-  // Per-day slot counts for the date strip, fetched in one request rather than one per day.
   const [dayCounts, setDayCounts] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
@@ -211,7 +181,7 @@ export const TimeAvailabilityPage: React.FC = () => {
         date_str: dateStr,
       })
       .then((res: any) => {
-        if (ignore) return; // a newer date/session request has superseded this one
+        if (ignore) return;
         if (res?.timezone) setSlotTimezone(res.timezone);
         if (res?.error || res?.calendar_error) {
           setAvailableSlots([]);
@@ -228,8 +198,6 @@ export const TimeAvailabilityPage: React.FC = () => {
         );
       })
       .catch((err: any) => {
-        // Without this the promise rejected unhandled and the grid simply rendered
-        // "0 slots available" -- a failed request shown as a host with no free time.
         if (ignore) return;
         setAvailableSlots([]);
         setSlotsError(err?.message || 'Could not load availability. Please try again.');
@@ -243,11 +211,6 @@ export const TimeAvailabilityPage: React.FC = () => {
     };
   }, [selectedAdminUser?.id, selectedMeeting?.id, selectedDate, slotsRetryKey]);
 
-  // Slot counts for the whole date strip, in one request.
-  //
-  // Without these every pill looks identical and a visitor has to click through empty days
-  // to find one that has anything. One call, so a phone on a slow connection pays for one
-  // round trip instead of fourteen.
   useEffect(() => {
     if (!selectedMeeting || !selectedAdminUser?.id) {
       setDayCounts(null);
@@ -267,8 +230,6 @@ export const TimeAvailabilityPage: React.FC = () => {
         setDayCounts(map);
       })
       .catch(() => {
-        // Counts are an enhancement. If they cannot be fetched the strip still works --
-        // every day stays selectable and the slot grid gives the real answer.
         if (!ignore) setDayCounts(null);
       });
     return () => {
@@ -276,13 +237,6 @@ export const TimeAvailabilityPage: React.FC = () => {
     };
   }, [selectedAdminUser?.id, selectedMeeting?.id, slotsRetryKey]);
 
-  // Land on a day that actually has times.
-  //
-  // The strip defaults to today, and today is very often full -- by mid-afternoon every
-  // remaining slot has passed the host's minimum notice. A visitor arriving on an empty grid
-  // has to work out for themselves that they should try another pill. Once the counts are
-  // known, move to the first day with availability; only ever automatically, and never away
-  // from a day the visitor picked themselves.
   const [dateAutoAdvanced, setDateAutoAdvanced] = useState(false);
   useEffect(() => {
     if (!dayCounts || dateAutoAdvanced) return;
@@ -296,7 +250,42 @@ export const TimeAvailabilityPage: React.FC = () => {
     setDateAutoAdvanced(true);
   }, [dayCounts, daysList, selectedDate, dateAutoAdvanced]);
 
-  // Auto-select first available slot if none selected or if slot is outside available range
+  // Split available slots by part of day
+  const morningSlots = useMemo(() => {
+    return availableSlots.filter((s) => Number(s.start.slice(11, 13)) < 12);
+  }, [availableSlots]);
+
+  const middaySlots = useMemo(() => {
+    return availableSlots.filter((s) => {
+      const h = Number(s.start.slice(11, 13));
+      return h >= 12 && h < 17;
+    });
+  }, [availableSlots]);
+
+  const eveningSlots = useMemo(() => {
+    return availableSlots.filter((s) => Number(s.start.slice(11, 13)) >= 17);
+  }, [availableSlots]);
+
+  // Auto-switch period to the first that has slots
+  useEffect(() => {
+    if (availableSlots.length > 0) {
+      const mCount = morningSlots.length;
+      const midCount = middaySlots.length;
+      const eCount = eveningSlots.length;
+      if (selectedPeriod === 'Morning' && mCount === 0) {
+        if (midCount > 0) setSelectedPeriod('Midday');
+        else if (eCount > 0) setSelectedPeriod('Evening');
+      } else if (selectedPeriod === 'Midday' && midCount === 0) {
+        if (mCount > 0) setSelectedPeriod('Morning');
+        else if (eCount > 0) setSelectedPeriod('Evening');
+      } else if (selectedPeriod === 'Evening' && eCount === 0) {
+        if (mCount > 0) setSelectedPeriod('Morning');
+        else if (midCount > 0) setSelectedPeriod('Midday');
+      }
+    }
+  }, [availableSlots, morningSlots.length, middaySlots.length, eveningSlots.length, selectedPeriod]);
+
+  // Auto-select first slot
   useEffect(() => {
     if (availableSlots.length > 0) {
       if (!selectedSlot || !availableSlots.some((s) => s.start === selectedSlot.start)) {
@@ -307,7 +296,30 @@ export const TimeAvailabilityPage: React.FC = () => {
     }
   }, [availableSlots]);
 
-  // Proceed to Step 3: Payment
+  const activePeriodSlots = useMemo(() => {
+    if (selectedPeriod === 'Morning') return morningSlots;
+    if (selectedPeriod === 'Midday') return middaySlots;
+    return eveningSlots;
+  }, [selectedPeriod, morningSlots, middaySlots, eveningSlots]);
+
+  const handleCopyLink = () => {
+    const fullUrl = window.location.href;
+    navigator.clipboard.writeText(fullUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const shareUrls = useMemo(() => {
+    const currentUrl = encodeURIComponent(window.location.href);
+    const text = encodeURIComponent(`Book a session with ${selectedAdminUser?.full_name || 'Mentor'}`);
+    return {
+      whatsapp: `https://api.whatsapp.com/send?text=${text}%20${currentUrl}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${currentUrl}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${currentUrl}`,
+      twitter: `https://twitter.com/intent/tweet?text=${text}&url=${currentUrl}`,
+    };
+  }, [selectedAdminUser]);
+
   const handleProceedToPayment = () => {
     if (!selectedMeeting || !selectedSlot) return;
 
@@ -322,9 +334,9 @@ export const TimeAvailabilityPage: React.FC = () => {
   };
 
   const profileLink = selectedAdminUser?.username ? `/${selectedAdminUser.username}` : '/';
+  const themeBg = selectedAdminUser?.theme_settings?.bg_gradient || 'from-[#873600] via-[#A04000] to-[#6E2C00]';
   const buttonColor = selectedAdminUser?.theme_settings?.button_color || '#D32F2F';
-
-  // Hooks above have all run, so these early returns are safe.
+  const buttonTextColor = selectedAdminUser?.theme_settings?.button_text_color || '#FFFFFF';
 
   if (loading) {
     return (
@@ -357,7 +369,6 @@ export const TimeAvailabilityPage: React.FC = () => {
     );
   }
 
-  // Unknown or permanently deleted host: no scheduling page.
   if (!selectedAdminUser || selectedAdminUser.status === 'PERMANENTLY_DELETED') {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white text-center font-sans">
@@ -384,219 +395,406 @@ export const TimeAvailabilityPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 antialiased font-sans pb-28">
-      {/* =========================================================================
-          COMPACT CONTEXT HEADER — one back action, no repeated profile block
-         ========================================================================= */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <Link
-            to={profileLink}
-            aria-label={`Back to ${selectedAdminUser.full_name}'s profile`}
-            className="w-10 h-10 -ml-2 rounded-xl hover:bg-slate-100 text-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-
-          <img
-            src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
-            alt=""
-            className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
-          />
-
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-900 truncate">
-              {selectedAdminUser.full_name}
-              {selectedMeeting && (
-                <span className="font-normal text-slate-500">
-                  {' · '}{selectedMeeting.name}
-                </span>
-              )}
-            </p>
-          </div>
-
-          {/* Only offered when there is actually another session to switch to. */}
-          {adminMeetingTypes.length > 1 && (
+    <div className={`min-h-screen bg-gradient-to-b ${themeBg} text-slate-800 antialiased font-sans py-4 sm:py-6 px-3.5 sm:px-6 pb-14`}>
+      <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6">
+        
+        {/* =========================================================================
+            A. COMPACT PROFILE HEADER (Horizontally aligned, on gradient background)
+           ========================================================================= */}
+        <header className="flex items-center justify-between gap-3 text-white">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
             <Link
               to={profileLink}
-              className="shrink-0 text-xs font-semibold px-3 min-h-[36px] inline-flex items-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
+              aria-label={`Back to ${selectedAdminUser.full_name}'s profile`}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/20 hover:bg-black/35 text-white/90 hover:text-white flex items-center justify-center transition cursor-pointer shrink-0 border border-white/15"
             >
-              Change
+              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
             </Link>
-          )}
-        </div>
-      </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 space-y-4">
+            <img
+              src={selectedAdminUser.photo_url || DEFAULT_AVATAR}
+              alt={selectedAdminUser.full_name}
+              className="w-11 h-11 sm:w-13 sm:h-13 rounded-full object-cover object-top border-2 border-white/70 shadow-sm shrink-0"
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (!img.src.endsWith(DEFAULT_AVATAR)) img.src = DEFAULT_AVATAR;
+              }}
+            />
 
-        {/* Session context: title, duration · price */}
-        {selectedMeeting && (
-          <div className="flex items-baseline justify-between gap-3">
-            <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight leading-tight">
-              {selectedMeeting.name}
-            </h1>
-            <p className="text-sm text-slate-600 whitespace-nowrap">
-              {selectedMeeting.duration_minutes} min
-              <span className="text-slate-300"> · </span>
-              <span className="font-semibold text-slate-900">
-                {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
-              </span>
-            </p>
-          </div>
-        )}
-
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-5">
-
-          {/* 1. Choose date */}
-          <div>
-            <div className="flex items-baseline justify-between mb-2.5">
-              <h2 className="text-[15px] font-semibold text-slate-900">Choose date</h2>
-              <span className="text-xs text-slate-500">{format(selectedDate, 'MMMM yyyy')}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-tight leading-tight truncate">
+                  {selectedAdminUser.full_name}
+                </h1>
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-300 shrink-0" aria-label="Verified host" />
+              </div>
+              <p className="text-xs sm:text-sm text-white/80 leading-snug truncate mt-0.5">
+                {selectedAdminUser.heading_text || selectedAdminUser.title || selectedAdminUser.bio}
+              </p>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {daysList.map((day) => {
-                const isSelected = isSameDay(day, selectedDate);
-                const key = format(day, 'yyyy-MM-dd');
-                // undefined = counts unavailable, so every day stays open and the slot
-                // grid gives the real answer.
-                const count = dayCounts ? dayCounts[key] ?? 0 : undefined;
-                const isEmpty = count === 0;
-                return (
-                  <button
-                    key={day.toISOString()}
-                    type="button"
-                    onClick={() => !isEmpty && setSelectedDate(day)}
-                    disabled={isEmpty}
-                    aria-label={
-                      `${format(day, 'EEEE d MMMM')}` +
-                      (count === undefined ? '' : `, ${count} ${count === 1 ? 'slot' : 'slots'}`)
-                    }
-                    aria-pressed={isSelected}
-                    className={`flex-shrink-0 w-14 min-h-[60px] py-2 rounded-xl flex flex-col items-center justify-center transition ${
-                      isEmpty
-                        ? 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed'
-                        : isSelected
-                        ? 'bg-[#0B1E3B] text-white font-semibold cursor-pointer'
-                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 cursor-pointer'
-                    }`}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* SuperProfile branding notice */}
+            <span className="hidden sm:inline-flex text-xs text-white/75 font-medium items-center gap-1">
+              Built with <span className="text-orange-300">🧡</span> on SuperProfile
+            </span>
+
+            {/* Share profile button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShareOpen(!shareOpen)}
+                aria-label="Share booking page"
+                aria-expanded={shareOpen}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/20 hover:bg-black/35 text-white border border-white/15 flex items-center justify-center transition cursor-pointer"
+              >
+                {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Share2 className="w-4 h-4" />}
+              </button>
+
+              {shareOpen && (
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 text-slate-800 space-y-0.5">
+                  <a
+                    href={shareUrls.whatsapp}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
                   >
-                    <span className={`text-[11px] ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
-                      {format(day, 'EEE')}
-                    </span>
-                    <span className={`text-base font-semibold ${isSelected ? 'text-white' : isEmpty ? 'text-slate-300' : 'text-slate-800'}`}>
-                      {format(day, 'd')}
-                    </span>
+                    WhatsApp
+                  </a>
+                  <a
+                    href={shareUrls.linkedin}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
+                  >
+                    LinkedIn
+                  </a>
+                  <a
+                    href={shareUrls.facebook}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
+                  >
+                    Facebook
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition cursor-pointer"
+                  >
+                    <span>{copied ? 'Copied' : 'Copy link'}</span>
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 2. Choose time */}
-          <div>
-            <div className="flex items-baseline justify-between mb-2.5 gap-3">
-              <h2 className="text-[15px] font-semibold text-slate-900">Choose time</h2>
-              {/* The zone the backend computed in -- never the browser's. */}
-              {slotTimezone && (
-                <span className="text-xs text-slate-500 truncate">{slotTimezone}</span>
+                </div>
               )}
             </div>
+          </div>
+        </header>
 
-            {slotsLoading ? (
-              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                <Clock className="w-6 h-6 text-slate-300 mx-auto mb-2 animate-pulse" />
-                <p className="text-sm text-slate-600">Checking availability…</p>
-              </div>
-            ) : slotsError ? (
-              <div className="p-6 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300">
-                <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
-                <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
-                {/* This screen previously had no way out: a transient failure left the
-                    visitor on a dead end with no action but to leave. */}
-                <button
-                  type="button"
-                  onClick={() => setSlotsRetryKey((k) => k + 1)}
-                  className="mt-3 min-h-[44px] px-5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition cursor-pointer"
-                >
-                  Try again
-                </button>
-              </div>
-            ) : availableSlots.length === 0 ? (
-              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                <p className="text-sm text-slate-700">No times available on this day</p>
-                <p className="text-xs text-slate-400 mt-1">Pick another date above.</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {groupByPartOfDay(availableSlots).map((group) => (
-                  <div key={group.label}>
-                    <h3 className="text-xs font-semibold text-slate-400 mb-1.5">
-                      {group.label}
-                    </h3>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                      {group.slots.map((slot) => {
-                        const isSelected = selectedSlot?.start === slot.start;
-                        return (
-                          <button
-                            key={slot.start}
-                            type="button"
-                            onClick={() => setSelectedSlot(slot)}
-                            aria-pressed={isSelected}
-                            className={`min-h-[44px] px-2 rounded-xl text-xs sm:text-sm font-medium transition text-center border cursor-pointer ${
-                              isSelected
-                                ? 'border-[#FF5722] bg-[#FFF8F6] text-[#FF5722] font-semibold'
-                                : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                            }`}
-                          >
-                            {slot.display_start}
-                          </button>
-                        );
-                      })}
-                    </div>
+        {/* =========================================================================
+            B. MAIN WHITE CARD (Two-Column Layout Matching Reference Screenshot)
+           ========================================================================= */}
+        <main className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 md:p-8 shadow-xl border border-white/20">
+          <div className="grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-6 lg:gap-8 items-start">
+
+            {/* ---------------------------------------------------------------------
+                LEFT COLUMN: Selected Session Information and Intro Video
+               --------------------------------------------------------------------- */}
+            <section className="space-y-4">
+              {selectedMeeting ? (
+                <div>
+                  {/* Meeting Title */}
+                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-snug">
+                    {selectedMeeting.name}
+                  </h2>
+
+                  {/* Duration | Google Meet */}
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 mt-2 font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-slate-400" />
+                      <span>{selectedMeeting.duration_minutes} mins</span>
+                    </span>
+                    <span className="text-slate-300">|</span>
+                    <span className="inline-flex items-center gap-1.5 text-slate-800">
+                      <Video className="w-4 h-4 text-emerald-600" />
+                      <span>Google Meet</span>
+                    </span>
                   </div>
-                ))}
+
+                  {/* Price, currency indicator, and badges */}
+                  <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 mt-3">
+                    {selectedMeeting.original_price && selectedMeeting.original_price > selectedMeeting.price && (
+                      <span className="text-sm sm:text-base text-slate-400 line-through">
+                        {formatPrice(selectedMeeting.original_price, selectedMeeting.currency)}
+                      </span>
+                    )}
+                    <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                      {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
+                    </span>
+
+                    {/* Pay in Currency indicator */}
+                    <div className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-700 bg-slate-50 flex items-center gap-1">
+                      <span className="text-slate-500">Pay in</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedMeeting.currency || 'INR'} · Indian Rupee (₹)
+                      </span>
+                    </div>
+
+                    {/* Rating badge */}
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                      ★ 5
+                    </span>
+                    {/* Most popular badge */}
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/80">
+                      Most Popular
+                    </span>
+                  </div>
+
+                  {/* Session Description */}
+                  {selectedMeeting.description && (
+                    <p className="text-xs sm:text-sm text-slate-500 mt-2.5 leading-relaxed line-clamp-3">
+                      {selectedMeeting.description}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-slate-500 text-sm">No meeting session selected.</div>
+              )}
+
+              {/* Admin Intro Video Player with Cover Thumbnail */}
+              {selectedAdminUser.intro_video ? (
+                <div className="rounded-xl overflow-hidden border border-slate-200 shadow-xs max-w-md">
+                  <IntroVideoPlayer
+                    url={selectedAdminUser.intro_video}
+                    className="rounded-xl"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-4 space-y-2 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-800 text-sm">What to expect:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>1:1 private video call with {selectedAdminUser.full_name}</li>
+                    <li>Instant Google Meet link & calendar invitation</li>
+                    <li>Confirmed time slot reserved exclusively for you</li>
+                  </ul>
+                </div>
+              )}
+
+              {/* Quick switch to another session if host has more than 1 */}
+              {adminMeetingTypes.length > 1 && (
+                <div className="pt-1">
+                  <Link
+                    to={profileLink}
+                    className="text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 underline underline-offset-2 transition"
+                  >
+                    View other available session types &rarr;
+                  </Link>
+                </div>
+              )}
+            </section>
+
+            {/* ---------------------------------------------------------------------
+                RIGHT COLUMN: Date strip, Time-of-day tabs, Slot pills & Confirm Action
+               --------------------------------------------------------------------- */}
+            <section className="space-y-5 lg:pl-2">
+              
+              {/* 1. Date Selection Carousel / Strip */}
+              <div>
+                <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 scrollbar-none">
+                  {daysList.map((day) => {
+                    const isSelected = isSameDay(day, selectedDate);
+                    const key = format(day, 'yyyy-MM-dd');
+                    const count = dayCounts ? dayCounts[key] ?? 0 : undefined;
+                    const isEmpty = count === 0;
+
+                    return (
+                      <button
+                        key={day.toISOString()}
+                        type="button"
+                        onClick={() => !isEmpty && setSelectedDate(day)}
+                        disabled={isEmpty}
+                        aria-label={`${format(day, 'EEEE d MMMM')}${count !== undefined ? `, ${count} slots` : ''}`}
+                        aria-pressed={isSelected}
+                        style={isSelected ? { borderColor: buttonColor, backgroundColor: `${buttonColor}0A` } : undefined}
+                        className={`shrink-0 w-16 sm:w-[72px] min-h-[74px] p-2 rounded-xl flex flex-col items-center justify-between transition cursor-pointer ${
+                          isEmpty
+                            ? 'bg-slate-50/70 text-slate-300 border border-slate-100 cursor-not-allowed opacity-60'
+                            : isSelected
+                            ? 'border-2 shadow-xs'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                        }`}
+                      >
+                        <span
+                          style={isSelected ? { color: buttonColor } : undefined}
+                          className={`text-[11px] font-bold tracking-wide uppercase ${
+                            isSelected ? '' : isEmpty ? 'text-slate-300' : 'text-slate-600'
+                          }`}
+                        >
+                          {format(day, 'EEE')}
+                        </span>
+                        <span className={`text-sm sm:text-base font-extrabold ${
+                          isSelected ? 'text-slate-900' : isEmpty ? 'text-slate-300' : 'text-slate-800'
+                        }`}>
+                          {format(day, 'd MMM')}
+                        </span>
+                        <span
+                          style={isSelected ? { color: buttonColor } : undefined}
+                          className={`text-[10px] font-semibold ${
+                            isSelected ? '' : isEmpty ? 'text-slate-300' : 'text-amber-600'
+                          }`}
+                        >
+                          {count !== undefined ? `${count} slots` : 'Available'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+
+              {/* 2. Time Slot Selection Heading */}
+              <div>
+                <h3 className="text-sm sm:text-[15px] font-semibold text-slate-900 mb-3">
+                  Select your preferred time slot
+                </h3>
+
+                {/* Time of Day Filter Tabs */}
+                <div className="flex items-center gap-2 mb-4 p-1 bg-slate-100 rounded-xl max-w-sm sm:max-w-md">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPeriod('Morning')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedPeriod === 'Morning'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Sunrise className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Morning</span>
+                    {morningSlots.length > 0 && <span className="text-[10px] text-slate-500">({morningSlots.length})</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPeriod('Midday')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedPeriod === 'Midday'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Sun className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Midday</span>
+                    {middaySlots.length > 0 && <span className="text-[10px] text-slate-500">({middaySlots.length})</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPeriod('Evening')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedPeriod === 'Evening'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Moon className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Evening</span>
+                    {eveningSlots.length > 0 && <span className="text-[10px] text-slate-500">({eveningSlots.length})</span>}
+                  </button>
+                </div>
+
+                {/* Slot Pills / States */}
+                {slotsLoading ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <Clock className="w-6 h-6 text-slate-400 mx-auto mb-2 animate-pulse" />
+                    <p className="text-sm font-medium text-slate-600">Checking availability…</p>
+                  </div>
+                ) : slotsError ? (
+                  <div className="p-6 text-center bg-amber-50 rounded-2xl border border-dashed border-amber-300">
+                    <p className="text-sm font-semibold text-amber-900">Availability unavailable right now</p>
+                    <p className="text-xs text-amber-700 mt-1">{slotsError}</p>
+                    <button
+                      type="button"
+                      onClick={() => setSlotsRetryKey((k) => k + 1)}
+                      className="mt-3 min-h-[40px] px-5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : availableSlots.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-sm font-semibold text-slate-700">No times available on this date</p>
+                    <p className="text-xs text-slate-400 mt-1">Please select another date from the strip above.</p>
+                  </div>
+                ) : activePeriodSlots.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-xs sm:text-sm text-slate-600">
+                      No {selectedPeriod.toLowerCase()} slots available on this day.
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Check another part of day above.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto pr-1">
+                    {activePeriodSlots.map((slot) => {
+                      const isSelected = selectedSlot?.start === slot.start;
+                      return (
+                        <button
+                          key={slot.start}
+                          type="button"
+                          onClick={() => setSelectedSlot(slot)}
+                          aria-pressed={isSelected}
+                          style={
+                            isSelected
+                              ? {
+                                  borderColor: buttonColor,
+                                  backgroundColor: `${buttonColor}12`,
+                                  color: buttonColor,
+                                }
+                              : undefined
+                          }
+                          className={`min-h-[42px] px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition text-center border cursor-pointer ${
+                            isSelected
+                              ? 'border-2 shadow-xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-slate-800'
+                          }`}
+                        >
+                          {slot.display_start}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Bottom Row: Timezone and Confirm Details Action */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-4 mt-6 border-t border-slate-100">
+                <div className="text-xs sm:text-sm text-slate-600 flex items-center gap-1.5 font-medium">
+                  <Globe className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span>{slotTimezone || 'Asia/Calcutta (GMT+5:30)'}</span>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={handleProceedToPayment}
+                  disabled={!selectedSlot}
+                  style={{
+                    backgroundColor: selectedSlot ? buttonColor : undefined,
+                    color: buttonTextColor,
+                  }}
+                  className="px-8 py-3 min-h-[44px] rounded-full font-bold text-sm shadow-md hover:opacity-95 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  Confirm details
+                </Button>
+              </div>
+
+            </section>
+
           </div>
-        </div>
+        </main>
 
-        {/* What the booking actually includes, as one line. */}
-        <p className="text-xs text-slate-500 text-center px-2">
-          Google Meet · Calendar invite
-        </p>
-      </main>
-
-      {/* =========================================================================
-          STICKY CTA — selected date · time, price, one primary action
-         ========================================================================= */}
-      {selectedMeeting && selectedSlot && (
-        <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 z-40">
-          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2 sm:gap-3">
-            <div className="min-w-0">
-              {/* Date and time each get their own line at phone width, so neither is the
-                  one that gets truncated away. */}
-              <p className="text-[13px] font-semibold text-slate-900 leading-tight">
-                {format(selectedDate, 'EEE, MMM d')}
-                <span className="hidden min-[360px]:inline"> · {selectedSlot.display_start}</span>
-              </p>
-              <p className="text-xs text-slate-500 leading-tight">
-                <span className="min-[360px]:hidden">{selectedSlot.display_start} · </span>
-                {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
-              </p>
-            </div>
-
-            <Button
-              onClick={handleProceedToPayment}
-              style={{ backgroundColor: buttonColor }}
-              className="shrink-0 text-white px-4 sm:px-6 min-h-[44px] rounded-full font-semibold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-98 hover:opacity-95"
-            >
-              <span>Continue</span>
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
