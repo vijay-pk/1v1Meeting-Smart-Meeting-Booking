@@ -240,7 +240,9 @@ export function SessionHoursField({
         <div className="space-y-3 rounded-lg border border-border p-3">
           {!value.perDay ? (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-text-secondary">Time windows</p>
+              <p className="text-xs font-medium text-text-secondary">
+                Time windows <span className="font-normal text-text-tertiary">(24-hour format)</span>
+              </p>
               <TimeWindowList
                 ranges={value.windows}
                 onChange={(windows) => set({ windows })}
