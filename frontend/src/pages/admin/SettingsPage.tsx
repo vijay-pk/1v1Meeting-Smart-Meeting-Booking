@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { buildPublicProfileUrl } from '@/lib/publicUrl';
+import { buildPublicProfileUrl, getPublicAppOrigin } from '@/lib/publicUrl';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MeetingTypesPage } from '@/pages/admin/MeetingTypesPage';
 import { AvailabilityPage } from '@/pages/admin/AvailabilityPage';
@@ -699,7 +699,7 @@ function ProfileCustomizer({
   };
 
   const currentDisplaySlug = username || admin.username || '';
-  const currentPublicLink = `${window.location.origin}/${currentDisplaySlug}`;
+  const currentPublicLink = `${getPublicAppOrigin()}/${currentDisplaySlug}`;
 
   return (
     <div className="bg-surface rounded-2xl border border-border p-4 sm:p-6 space-y-6 shadow-xs">
@@ -760,12 +760,12 @@ function ProfileCustomizer({
             <p className="text-[10px] text-text-tertiary truncate">
               Public link:{' '}
               <a
-                href={`${window.location.origin}/${username}`}
+                href={`${getPublicAppOrigin()}/${username}`}
                 target="_blank"
                 rel="noreferrer"
                 className="press -my-1 inline-flex min-h-11 items-center break-all rounded px-1 font-mono font-bold text-orange-600 hover:underline sm:min-h-6"
               >
-                {window.location.origin}/{username || 'your-slug'}
+                {getPublicAppOrigin()}/{username || 'your-slug'}
               </a>
             </p>
           </div>

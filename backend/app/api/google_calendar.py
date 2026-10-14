@@ -207,7 +207,7 @@ async def disconnect_google_calendar(
 def _get_frontend_url() -> str:
     url = (settings.APP_URL or "").rstrip("/")
     if not url or "localhost" in url:
-        return "https://1v1-meeting-smart-meeting-booking.vercel.app"
+        return "https://meet.adwaysacademy.com"
     return url
 
 @router.get("/callback")

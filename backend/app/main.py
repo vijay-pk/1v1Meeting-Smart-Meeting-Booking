@@ -230,5 +230,5 @@ def health_check():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "BookMyMeet Backend API", "frontend_url": "https://1v1-meeting-smart-meeting-booking.vercel.app", "docs": "/docs"}
+    return {"status": "ok", "service": "BookMyMeet Backend API", "frontend_url": settings.APP_URL, "docs": "/docs"}
 

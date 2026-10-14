@@ -159,6 +159,7 @@ export const TimeAvailabilityPage: React.FC = () => {
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState('');
+  const [slotsReason, setSlotsReason] = useState('');
   const [slotsRetryKey, setSlotsRetryKey] = useState(0);
   const [slotTimezone, setSlotTimezone] = useState<string>('');
   const [dayCounts, setDayCounts] = useState<Record<string, number> | null>(null);
@@ -173,6 +174,7 @@ export const TimeAvailabilityPage: React.FC = () => {
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
     setSlotsLoading(true);
     setSlotsError('');
+    setSlotsReason('');
 
     api
       .getAvailableSlots({
@@ -188,14 +190,17 @@ export const TimeAvailabilityPage: React.FC = () => {
           setSlotsError(res.message || 'Could not load availability. Please try again.');
           return;
         }
-        setAvailableSlots(
-          (res?.available_slots || []).map((s: any) => ({
-            start: s.start_time_iso,
-            end: s.end_time_iso,
-            display_start: s.label,
-            display_end: s.end,
-          }))
-        );
+        const mapped = (res?.available_slots || []).map((s: any) => ({
+          start: s.start_time_iso,
+          end: s.end_time_iso,
+          display_start: s.label,
+          display_end: s.end,
+        }));
+        setAvailableSlots(mapped);
+        // Surface the backend's reason for an empty day ("No working hours configured for
+        // this day", "This session is not offered on this day", horizon/past-date) instead
+        // of a silent blank, so the host can see why their configured slots aren't showing.
+        setSlotsReason(mapped.length === 0 ? (res?.message || '') : '');
       })
       .catch((err: any) => {
         if (ignore) return;
@@ -724,7 +729,7 @@ export const TimeAvailabilityPage: React.FC = () => {
                 ) : availableSlots.length === 0 ? (
                   <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                     <p className="text-sm font-semibold text-slate-700">No times available on this date</p>
-                    <p className="text-xs text-slate-400 mt-1">Please select another date from the strip above.</p>
+                    <p className="text-xs text-slate-400 mt-1">{slotsReason || 'Please select another date from the strip above.'}</p>
                   </div>
                 ) : activePeriodSlots.length === 0 ? (
                   <div className="p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">

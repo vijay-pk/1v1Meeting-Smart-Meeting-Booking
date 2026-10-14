@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { formatPrice, formatBookingDate, formatBookingTime } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
 import type { AdminUser, MeetingType, WeeklyScheduleBlock } from '@/types';
+import { getPublicAppOrigin } from '@/lib/publicUrl';
 import {
   Crown,
   Calendar,
@@ -544,7 +545,7 @@ export const SuperAdminDashboardPage: React.FC = () => {
       `You have been granted admin access to the booking platform.
 
 ` +
-      `• Portal URL: ${window.location.origin}/admin/login
+      `• Portal URL: ${getPublicAppOrigin()}/admin/login
 ` +
       `• Username / Email: ${admin.email} (or ${admin.username})
 ` +
