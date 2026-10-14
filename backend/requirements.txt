@@ -5,6 +5,7 @@ email-validator>=2.0.0
 pydantic-settings>=2.0.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.9
+psycopg[binary]>=3.1.0  # psycopg3 driver — DATABASE_URL on Render uses the postgresql+psycopg:// dialect
 pyjwt>=2.8.0
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.0
