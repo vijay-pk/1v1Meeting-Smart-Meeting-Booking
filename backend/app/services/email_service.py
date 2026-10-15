@@ -139,6 +139,23 @@ async def _send(to_email: str, subject: str, html: str, reply_to: Optional[str] 
     return False
 
 
+def _reschedule_block(reschedule_url: Optional[str], admin_name: str) -> str:
+    """A reschedule link for the client, or the reply-to-change fallback when there is none."""
+    if reschedule_url:
+        return (
+            f'<p style="color:#555;font-size:13px;margin:18px 0 4px;">Need a different time?</p>'
+            f'<p style="margin:0 0 8px;">'
+            f'<a href="{reschedule_url}" '
+            f'style="color:#D32F2F;font-weight:bold;text-decoration:underline;">'
+            f'Reschedule this session</a></p>'
+            f'<p style="color:#888;font-size:12px;">Or reply to this email and {admin_name} will help.</p>'
+        )
+    return (
+        f'<p style="color:#555;font-size:13px;">Need to change something? Reply to this email '
+        f'and {admin_name} will help.</p>'
+    )
+
+
 async def send_booking_confirmation_email(
     to_email: str,
     client_name: str,
@@ -146,7 +163,8 @@ async def send_booking_confirmation_email(
     session_title: str,
     start_time: str,
     duration_minutes: int,
-    meet_link: Optional[str]
+    meet_link: Optional[str],
+    reschedule_url: Optional[str] = None,
 ) -> bool:
     """Confirms a booking to the client. Returns True only if the message was accepted."""
     html = _shell(
@@ -156,8 +174,7 @@ async def send_booking_confirmation_email(
         f'<p style="margin:18px 0;padding:14px 16px;background:#F5F7FA;border-radius:8px;">'
         f'<strong>{_format_when(start_time, duration_minutes)}</strong></p>'
         f'{_meeting_link_block(meet_link)}'
-        f'<p style="color:#555;font-size:13px;">Need to change something? Reply to this email '
-        f'and {admin_name} will help.</p>'
+        f'{_reschedule_block(reschedule_url, admin_name)}'
     )
     return await _send(to_email, f"Confirmed: {session_title} with {admin_name}", html)
 

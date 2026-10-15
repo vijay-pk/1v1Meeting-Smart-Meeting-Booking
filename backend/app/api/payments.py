@@ -544,6 +544,13 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
     session_title = booking.meeting_type.title if booking.meeting_type else "1:1 Session"
     duration_minutes = booking.meeting_type.duration_minutes if booking.meeting_type else 30
 
+    # Reschedule link for the client's inbox, so they can change the time without needing the
+    # confirmation page again. APP_URL points at the frontend; the token is the booking's.
+    reschedule_url = (
+        f"{settings.APP_URL.rstrip('/')}/booking/reschedule/{booking.reschedule_token}"
+        if booking.reschedule_token else None
+    )
+
     try:
         client_sent = await send_booking_confirmation_email(
             to_email=booking.client_email,
@@ -553,6 +560,7 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
             start_time=booking.start_time,
             duration_minutes=duration_minutes,
             meet_link=meet_link,
+            reschedule_url=reschedule_url,
         )
         if not client_sent:
             logger.warning("Client confirmation email not sent for booking %s", booking.public_id)
