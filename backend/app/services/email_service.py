@@ -88,12 +88,16 @@ def _shell(heading: str, body_html: str) -> str:
     )
 
 
-async def _send(to_email: str, subject: str, html: str) -> bool:
+async def _send(to_email: str, subject: str, html: str, reply_to: Optional[str] = None) -> bool:
     """
     Hands one message to Resend. Returns True only if Resend accepted it.
 
     Never raises: the call sites run after a booking is already committed, and an email
     outage must not turn a confirmed, paid booking into an error for the client.
+
+    reply_to defaults to settings.EMAIL_REPLY_TO. The From address must be on a Resend-verified
+    domain -- a gmail.com From is rejected 403 -- so replies are steered to the owner's inbox
+    through Reply-To instead of by forging the sender.
     """
     if not settings.EMAIL_ENABLED:
         # Deliberately False, not True. Reporting success for an email that was never sent is
@@ -105,6 +109,10 @@ async def _send(to_email: str, subject: str, html: str) -> bool:
         return False
 
     sender = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
+    payload = {"from": sender, "to": [to_email], "subject": subject, "html": html}
+    reply_to = reply_to or settings.EMAIL_REPLY_TO
+    if reply_to:
+        payload["reply_to"] = reply_to
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -113,7 +121,7 @@ async def _send(to_email: str, subject: str, html: str) -> bool:
                     "Authorization": f"Bearer {settings.RESEND_API_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={"from": sender, "to": [to_email], "subject": subject, "html": html},
+                json=payload,
                 timeout=TIMEOUT_SECONDS,
             )
     except Exception as exc:
@@ -174,6 +182,37 @@ async def send_admin_new_booking_notification(
         f'{_meeting_link_block(meet_link)}'
     )
     return await _send(admin_email, f"New booking: {client_name} — {session_title}", html)
+
+
+async def send_booking_rescheduled_email(
+    to_email: str,
+    recipient_name: str,
+    other_party: str,
+    session_title: str,
+    new_start_time: str,
+    duration_minutes: Optional[int],
+    meet_link: Optional[str],
+    is_host: bool = False,
+) -> bool:
+    """
+    Tells one party a booking moved to a new time. Used for both client and host; the Meet
+    link is unchanged by a reschedule, so it is included again for convenience.
+    """
+    from html import escape
+
+    safe_name = escape(recipient_name or ("Host" if is_host else "there"))
+    safe_other = escape(other_party or "")
+    safe_title = escape(session_title or "1:1 Session")
+    who = f"with {safe_other}" if safe_other else ""
+    html = _shell(
+        "Your session has been rescheduled",
+        f"<p>Hi {safe_name},</p>"
+        f"<p>The <strong>{safe_title}</strong> {who} has a new time.</p>"
+        f'<p style="margin:18px 0;padding:14px 16px;background:#F5F7FA;border-radius:8px;">'
+        f"<strong>{_format_when(new_start_time, duration_minutes)}</strong></p>"
+        f"{_meeting_link_block(meet_link)}"
+    )
+    return await _send(to_email, f"Rescheduled: {session_title}", html)
 
 
 async def send_meeting_reminder_email(

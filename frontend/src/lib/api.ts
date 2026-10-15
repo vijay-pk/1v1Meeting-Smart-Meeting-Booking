@@ -614,6 +614,32 @@ export const api = {
     await request(`/bookings/release-hold/${lockId}`, { method: 'POST' });
   },
 
+  /** Resolve a reschedule link to its booking (current time + the session it is for). */
+  getRescheduleBooking: async (token: string) => {
+    const res = await request(`/bookings/reschedule/${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const e: any = new Error(err.detail || 'This reschedule link is invalid or has expired.');
+      e.notFound = res.status === 404;
+      throw e;
+    }
+    return res.json();
+  },
+
+  /** Move a booking to a new slot. Backend re-checks the slot and moves the calendar event. */
+  rescheduleBooking: async (token: string, data: { start_time: string; end_time: string }) => {
+    const res = await request(`/bookings/reschedule/${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not reschedule. Please try another slot.');
+    }
+    return res.json();
+  },
+
   // Payments & Booking
   createOrder: async (data: any) => {
     const res = await request(`/payments/create-order`, {

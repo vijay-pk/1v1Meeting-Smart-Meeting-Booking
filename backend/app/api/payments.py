@@ -26,6 +26,10 @@ from app.services.razorpay_service import (
     SIMULATED_PROVIDER, REAL_PROVIDER,
 )
 from app.services.google_calendar import create_calendar_event_with_meet
+from app.services.email_service import (
+    send_booking_confirmation_email,
+    send_admin_new_booking_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +247,7 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
     # 3. Create Booking record in pending_payment
     public_id = f"BK-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
     cancellation_token = secrets.token_hex(16)
+    reschedule_token = secrets.token_hex(16)
 
     booking = Booking(
         public_id=public_id,
@@ -257,6 +262,7 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
         status="pending_payment",
         payment_status="pending",
         cancellation_token=cancellation_token,
+        reschedule_token=reschedule_token,
         notes=req.notes
     )
     # The hold has done its job: the booking below now holds the slot. Leaving the lock
@@ -524,23 +530,50 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
         db.rollback()
         logger.exception("Could not schedule the reminder for booking %s", booking.id)
 
-    # 6. No automatic booking email.
+    # 6. Booking confirmation emails -- client and host both get one, each carrying the Meet
+    #    link (or an honest "link is coming" note when the calendar step produced none).
     #
-    # Deliberate product decision: a confirmed booking sends nothing from this application.
-    # The client learns the details from the confirmation screen and from Google's calendar
-    # invitation; the host learns from the in-app Notification written above and from the
-    # event landing on their calendar.
+    #    After the commit and never fatal: the money has already moved and the booking is
+    #    confirmed. An email-provider outage must not turn a paid booking into a 500, so each
+    #    send is wrapped and its boolean result only logged. The From address sits on a
+    #    Resend-verified domain; replies go to EMAIL_REPLY_TO (see email_service._send).
     #
-    # email_service.py is NOT removed -- it is real, configured, and stays available for any
-    # explicitly requested email. It is simply not part of this transaction, so a booking can
-    # never depend on, or be delayed by, an email provider.
-    #
-    # Worth being precise about one thing: the calendar invitation Google delivers to the
-    # client IS an email, sent by Google, not by us. It is the only mechanism that puts a
-    # single shared event on an attendee's calendar, and this product has no client accounts
-    # and therefore no client calendar to write to directly. Suppressing it (sendUpdates=none,
-    # the API default, which is what the code did before) is exactly what kept the meeting off
-    # the client's calendar.
+    #    Google's calendar invitation is still delivered too (sendUpdates=all above) -- that is
+    #    what puts the single shared event on the client's calendar. These emails are the
+    #    explicit confirmation on top of it.
+    session_title = booking.meeting_type.title if booking.meeting_type else "1:1 Session"
+    duration_minutes = booking.meeting_type.duration_minutes if booking.meeting_type else 30
+
+    try:
+        client_sent = await send_booking_confirmation_email(
+            to_email=booking.client_email,
+            client_name=booking.client_name,
+            admin_name=admin.name if admin else "your host",
+            session_title=session_title,
+            start_time=booking.start_time,
+            duration_minutes=duration_minutes,
+            meet_link=meet_link,
+        )
+        if not client_sent:
+            logger.warning("Client confirmation email not sent for booking %s", booking.public_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Client confirmation email failed for booking %s", booking.public_id)
+
+    if admin and admin.email:
+        try:
+            admin_sent = await send_admin_new_booking_notification(
+                admin_email=admin.email,
+                admin_name=admin.name,
+                client_name=booking.client_name,
+                client_email=booking.client_email,
+                session_title=session_title,
+                start_time=booking.start_time,
+                meet_link=meet_link,
+            )
+            if not admin_sent:
+                logger.warning("Admin booking email not sent for booking %s", booking.public_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Admin booking email failed for booking %s", booking.public_id)
 
     return {
         "status": "confirmed",

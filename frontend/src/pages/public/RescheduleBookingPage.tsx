@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { formatBookingDate, formatBookingTime } from '@/lib/format';
 import type { Booking, MeetingType, TimeSlot } from '@/types';
@@ -51,7 +50,7 @@ export const RescheduleBookingPage: React.FC = () => {
   const [rescheduling, setRescheduling] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const tz = booking?.customer_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+  const tz = (booking as any)?.timezone || booking?.customer_timezone || 'Asia/Kolkata';
 
   useEffect(() => {
     const fetchBooking = async () => {
@@ -61,24 +60,34 @@ export const RescheduleBookingPage: React.FC = () => {
         return;
       }
 
+      // The FastAPI backend is the only source: it owns the booking the payment confirmed.
+      // (This used to read Supabase directly and then save a new time straight to the
+      // Supabase table, bypassing the conflict check and the Google Calendar event entirely.)
       try {
-        const { data, error: fetchErr } = await supabase
-          .from('bookings')
-          .select('*, meeting_type:meeting_types(*), admin:profiles(*)')
-          .eq('reschedule_token', token)
-          .maybeSingle();
-
-        if (fetchErr) throw fetchErr;
-
-        if (!data) {
-          setError('Booking not found or reschedule window has expired.');
-        } else {
-          setBooking(data as unknown as Booking);
-          setMeetingType((data as any).meeting_type as MeetingType);
-        }
+        const data = await api.getRescheduleBooking(token);
+        setBooking({
+          id: data.id,
+          public_id: data.public_id,
+          admin_id: data.admin_id,
+          status: data.status,
+          start_time: data.start_time,
+          end_time: data.end_time,
+          timezone: data.timezone,
+          customer: { name: data.client_name },
+        } as any);
+        // Synthetic meeting-type: the slot fetch only needs the session id and duration.
+        setMeetingType({
+          id: data.meeting_type_id,
+          name: data.session_title,
+          duration_minutes: data.duration_minutes,
+        } as unknown as MeetingType);
       } catch (err: any) {
         console.error('Error loading booking for reschedule:', err);
-        setError(err.message || 'Unable to load booking details.');
+        setError(
+          err?.notFound
+            ? 'Booking not found or the reschedule link has expired.'
+            : err.message || 'Unable to load booking details.'
+        );
       } finally {
         setLoading(false);
       }
@@ -131,22 +140,15 @@ export const RescheduleBookingPage: React.FC = () => {
   }, [selectedDate, meetingType, booking]);
 
   const handleConfirmReschedule = async () => {
-    if (!booking || !selectedSlot) return;
+    if (!booking || !selectedSlot || !token) return;
     setRescheduling(true);
     setError(null);
 
     try {
-      const { error: updateErr } = await supabase
-        .from('bookings')
-        .update({
-          start_time: selectedSlot.start,
-          end_time: selectedSlot.end,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', booking.id);
-
-      if (updateErr) throw updateErr;
-
+      await api.rescheduleBooking(token, {
+        start_time: selectedSlot.start,
+        end_time: selectedSlot.end,
+      });
       setSuccess(true);
     } catch (err: any) {
       console.error('Reschedule error:', err);
@@ -225,7 +227,7 @@ export const RescheduleBookingPage: React.FC = () => {
                 </span>.
               </p>
             </div>
-            <Link to={`/booking/confirmation/${booking?.id}`}>
+            <Link to={`/booking/confirmation/${booking?.public_id || booking?.id}`}>
               <Button className="mt-4 bg-primary-600 hover:bg-primary-700 text-white">
                 View Updated Confirmation
               </Button>

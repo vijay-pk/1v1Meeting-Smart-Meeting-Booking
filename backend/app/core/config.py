@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str = os.getenv("EMAIL_FROM_NAME", "BookMyMeet")
     # Must be an address on a domain verified in Resend, or sends are rejected.
     EMAIL_FROM_ADDRESS: str = os.getenv("EMAIL_FROM_ADDRESS", "")
+    # Reply-To on booking emails. The From address must sit on a Resend-verified domain (a
+    # gmail.com From is a 403), so replies are routed here instead. Defaults to the platform
+    # owner's inbox; set EMAIL_REPLY_TO to override.
+    EMAIL_REPLY_TO: str = os.getenv("EMAIL_REPLY_TO", "creatives.adways@gmail.com")
 
     # Meeting reminders.
     # The in-process worker checks for due reminders every REMINDER_POLL_SECONDS while the

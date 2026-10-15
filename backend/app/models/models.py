@@ -249,6 +249,11 @@ class Booking(Base):
     termination_retries = Column(Integer, default=0, nullable=False)
     grace_notified_at = Column(DateTime, nullable=True)
     cancellation_token = Column(String(64), unique=True, nullable=False)
+    # Nullable: added after the table existed in production, so create_all cannot add it
+    # (migration 005 does). New bookings always populate it at create-order time; legacy rows
+    # stay NULL until a reschedule link is requested for them, and NULLs never collide on the
+    # unique index.
+    reschedule_token = Column(String(64), unique=True, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

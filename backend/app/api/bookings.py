@@ -1,13 +1,19 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.models import User, Session as SessionModel, Booking, SlotLock
-from app.schemas.schemas import SlotLockRequest, SlotLockResponse, BookingResponse
+from sqlalchemy.exc import IntegrityError
+from app.models.models import User, Session as SessionModel, Booking, SlotLock, GoogleConnection
+from app.schemas.schemas import SlotLockRequest, SlotLockResponse, BookingResponse, RescheduleRequest
 from app.api.deps import get_current_admin
 from app.services.booking_slots import expire_abandoned_bookings, is_occupying
+from app.services.google_calendar import update_calendar_event_time
+from app.services.email_service import send_booking_rescheduled_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -259,4 +265,184 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
             (booking.grace_notified_at if booking.grace_notified_at.tzinfo else booking.grace_notified_at.replace(tzinfo=timezone.utc)).isoformat()
             if booking.grace_notified_at else None
         ),
+        # The booking's owner reached this by its public id (the link they were given), so the
+        # action tokens belong to them -- exposing them here is what makes the Reschedule and
+        # Cancel buttons on the confirmation screen work. Not shown once the meeting is over.
+        "reschedule_token": None if is_expired or booking.status in ("cancelled", "completed") else booking.reschedule_token,
+        "cancellation_token": None if is_expired or booking.status in ("cancelled", "completed") else booking.cancellation_token,
+    }
+
+
+def _reschedule_booking_payload(booking: Booking) -> dict:
+    """Shape a booking for the reschedule page: current time plus the session it is for."""
+    mt = booking.meeting_type
+    return {
+        "id": booking.id,
+        "public_id": booking.public_id,
+        "admin_id": booking.admin_id,
+        "status": booking.status,
+        "start_time": booking.start_time,
+        "end_time": booking.end_time,
+        "timezone": booking.timezone,
+        "client_name": booking.client_name,
+        "meeting_type_id": booking.meeting_type_id,
+        "session_title": mt.title if mt else "1:1 Session",
+        "duration_minutes": mt.duration_minutes if mt else 30,
+    }
+
+
+@router.get("/reschedule/{token}")
+def get_booking_for_reschedule(token: str, db: Session = Depends(get_db)):
+    """
+    Resolves a reschedule link to its booking. Public (the booking flow has no login); the
+    token is the secret. A booking that is cancelled, completed or past its time cannot be
+    rescheduled, and says so rather than letting someone pick a new slot that will be refused.
+    """
+    booking = db.query(Booking).filter(Booking.reschedule_token == token).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="This reschedule link is invalid or has expired.")
+    if booking.status not in ("confirmed", "pending_payment"):
+        raise HTTPException(status_code=409, detail="This booking can no longer be rescheduled.")
+    return _reschedule_booking_payload(booking)
+
+
+@router.post("/reschedule/{token}")
+async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = Depends(get_db)):
+    """
+    Moves a booking to a new slot via its reschedule link.
+
+    The new time is validated the same way a fresh booking is: the slot must be free (the
+    partial unique index on (admin_id, start_time) is the final authority, so a race loses
+    with a clean 409, not a double booking). The existing Google Calendar event is patched in
+    place, keeping the same Meet link, and both parties are emailed the new time. The slot the
+    booking is leaving becomes bookable again automatically, because the engine only counts a
+    booking at its current start_time.
+    """
+    booking = db.query(Booking).filter(Booking.reschedule_token == token).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="This reschedule link is invalid or has expired.")
+    if booking.status not in ("confirmed", "pending_payment"):
+        raise HTTPException(status_code=409, detail="This booking can no longer be rescheduled.")
+
+    new_start = req.start_time.strip()
+    new_end = req.end_time.strip()
+    if not new_start or not new_end:
+        raise HTTPException(status_code=400, detail="A new start and end time are required.")
+    if new_start == booking.start_time:
+        raise HTTPException(status_code=400, detail="That is the time the booking is already at.")
+
+    now_utc = datetime.now(timezone.utc)
+
+    # Free the slot being vacated, and check the target slot is not occupied by another
+    # booking -- the same occupancy rule the availability engine and hold-slot use.
+    expire_abandoned_bookings(db, admin_id=booking.admin_id, start_time=new_start, now_utc=now_utc)
+    candidates = (
+        db.query(Booking)
+        .filter(
+            Booking.admin_id == booking.admin_id,
+            Booking.start_time == new_start,
+            Booking.status.in_(["confirmed", "pending_payment"]),
+            Booking.id != booking.id,
+        )
+        .all()
+    )
+    if any(is_occupying(b, now_utc) for b in candidates):
+        raise HTTPException(status_code=409, detail="That slot is no longer available. Please pick another time.")
+
+    old_start = booking.start_time
+    booking.start_time = new_start
+    booking.end_time = new_end
+
+    try:
+        db.flush()
+    except IntegrityError:
+        # The unique index fired: another booking took this exact slot between the check above
+        # and here. Roll back to the original time and report the conflict.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="That slot was just taken. Please pick another time.")
+
+    # Release any active hold left on the slot we just moved away from, so it resells.
+    db.query(SlotLock).filter(
+        SlotLock.admin_id == booking.admin_id,
+        SlotLock.start_time == old_start,
+        SlotLock.status == "active",
+    ).update({SlotLock.status: "released"}, synchronize_session=False)
+
+    db.commit()
+
+    # Move the calendar event (keeps the same Meet link), after the commit and never fatal.
+    calendar_moved = None
+    if booking.google_event_id and booking.admin_id:
+        g_conn = (
+            db.query(GoogleConnection)
+            .filter(
+                GoogleConnection.admin_id == booking.admin_id,
+                GoogleConnection.connection_status == "connected",
+            )
+            .first()
+        )
+        if g_conn and g_conn.encrypted_refresh_token:
+            try:
+                res = await update_calendar_event_time(
+                    encrypted_refresh_token=g_conn.encrypted_refresh_token,
+                    calendar_id=g_conn.calendar_id or "primary",
+                    event_id=booking.google_event_id,
+                    start_time_iso=new_start,
+                    end_time_iso=new_end,
+                )
+                calendar_moved = res.get("ok")
+            except Exception:  # noqa: BLE001
+                logger.exception("Calendar move failed for rescheduled booking %s", booking.public_id)
+
+    # Re-schedule the host reminder onto the new time. ensure_reminder keys on start_time, so
+    # the old reminder is left behind (it is skipped when its start_time no longer matches).
+    try:
+        from app.services.reminders import ensure_reminder
+
+        ensure_reminder(db, booking)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Could not reschedule the reminder for booking %s", booking.public_id)
+
+    # Notify both parties of the new time. Non-fatal.
+    admin = booking.admin
+    mt = booking.meeting_type
+    session_title = mt.title if mt else "1:1 Session"
+    duration_minutes = mt.duration_minutes if mt else None
+    admin_name = admin.name if admin else "your host"
+    try:
+        await send_booking_rescheduled_email(
+            to_email=booking.client_email,
+            recipient_name=booking.client_name,
+            other_party=admin_name,
+            session_title=session_title,
+            new_start_time=new_start,
+            duration_minutes=duration_minutes,
+            meet_link=booking.google_meet_link,
+            is_host=False,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Client reschedule email failed for booking %s", booking.public_id)
+    if admin and admin.email:
+        try:
+            await send_booking_rescheduled_email(
+                to_email=admin.email,
+                recipient_name=admin_name,
+                other_party=booking.client_name,
+                session_title=session_title,
+                new_start_time=new_start,
+                duration_minutes=duration_minutes,
+                meet_link=booking.google_meet_link,
+                is_host=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Host reschedule email failed for booking %s", booking.public_id)
+
+    return {
+        "status": "rescheduled",
+        "public_id": booking.public_id,
+        "start_time": booking.start_time,
+        "end_time": booking.end_time,
+        "google_meet_link": booking.google_meet_link,
+        "calendar_moved": calendar_moved,
     }

@@ -266,6 +266,10 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_payment_id: str
     razorpay_signature: str
 
+class RescheduleRequest(BaseModel):
+    start_time: str
+    end_time: str
+
 class BookingResponse(BaseModel):
     id: str
     public_id: str

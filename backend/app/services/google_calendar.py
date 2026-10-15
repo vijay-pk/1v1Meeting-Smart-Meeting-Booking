@@ -285,3 +285,54 @@ async def create_calendar_event_with_meet(
     except Exception as e:
         logger.error(f"Exception creating Google Calendar event: {e}")
         return {"event_id": None, "meet_link": None, "html_link": None, "error": "exception"}
+
+
+async def update_calendar_event_time(
+    encrypted_refresh_token: str,
+    calendar_id: str,
+    event_id: str,
+    start_time_iso: str,
+    end_time_iso: str,
+) -> dict:
+    """
+    Moves an existing event to a new start/end, keeping the same Meet conference.
+
+    Patches only the times, so the Google Meet link, attendees and invitation thread survive
+    the reschedule -- the client's existing calendar entry shifts rather than a new one being
+    created. sendUpdates=all re-notifies the attendee of the new time.
+
+    Never raises, like create_calendar_event_with_meet: the reschedule has already been
+    written when this runs, and a calendar outage must not undo it. Returns {"ok": bool,
+    "error": str|None}.
+    """
+    try:
+        access_token = await refresh_google_token(encrypted_refresh_token)
+        if access_token == "simulated-access-token":
+            return {"ok": False, "error": "not_configured"}
+
+        target = quote(calendar_id or "primary", safe="")
+        url = (
+            f"https://www.googleapis.com/calendar/v3/calendars/{target}/events/"
+            f"{quote(event_id, safe='')}?sendUpdates=all"
+        )
+        payload = {
+            "start": {"dateTime": _wall_clock(start_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
+            "end": {"dateTime": _wall_clock(end_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},
+        }
+        async with httpx.AsyncClient() as client:
+            res = await client.patch(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=12.0,
+            )
+            if res.status_code in (200, 201):
+                return {"ok": True, "error": None}
+            logger.error("Google Calendar event patch failed: %s %s", res.status_code, res.text[:300])
+            return {"ok": False, "error": "api_error"}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Exception patching Google Calendar event: %s", e)
+        return {"ok": False, "error": "exception"}

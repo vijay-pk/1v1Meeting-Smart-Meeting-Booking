@@ -71,6 +71,8 @@ export const BookingConfirmationPage: React.FC = () => {
             grace_remaining_seconds: remote.grace_remaining_seconds,
             grace_termination_time: remote.grace_termination_time,
             assigned_admin_name: remote.admin_name,
+            reschedule_token: remote.reschedule_token,
+            cancellation_token: remote.cancellation_token,
             meeting_type: {
               name: remote.session_title,
               duration_minutes: remote.duration_minutes,
