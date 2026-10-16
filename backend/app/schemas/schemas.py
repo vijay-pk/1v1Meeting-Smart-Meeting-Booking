@@ -124,7 +124,7 @@ class SessionCreate(BaseModel):
     is_active: bool = True
     buffer_before_minutes: int = 5
     buffer_after_minutes: int = 10
-    min_advance_hours: int = 2
+    min_advance_hours: int = 1
     max_advance_days: int = 30
     # None or [] = use the admin's general availability.
     available_hours: Optional[List[SessionTimeWindowItem]] = None
