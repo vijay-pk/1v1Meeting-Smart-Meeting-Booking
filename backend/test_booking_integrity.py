@@ -506,6 +506,35 @@ def test_slot_counts_are_bounded(admin):
     ).status_code == 422
 
 
+def test_my_payments_returns_this_admins_payments(admin, tracked):
+    """
+    The Payments page reads GET /payments/my-payments (not a Supabase table the app never
+    authenticates against). It must return this admin's own captured payment, carrying the
+    booking and client details the page shows, and must not leak another admin's payments.
+    """
+    held = _hold(admin)
+    order = _order(admin, held.json()["lock_id"]).json()
+    assert _pay(order).status_code == 200
+
+    res = client.get("/api/payments/my-payments", headers=admin["headers"])
+    assert res.status_code == 200, res.text
+    rows = res.json()
+    assert len(rows) == 1
+    p = rows[0]
+    assert p["status"] == "captured"
+    assert p["amount"] > 0
+    assert p["booking_public_id"]
+    assert p["client_name"]
+
+    # A different admin, who took no payment, sees an empty list -- never this admin's row.
+    other = _make_admin(tracked, tag="p2")
+    other_rows = client.get("/api/payments/my-payments", headers=other["headers"]).json()
+    assert other_rows == []
+
+    # Unauthenticated access is rejected.
+    assert client.get("/api/payments/my-payments").status_code in (401, 403)
+
+
 def test_slot_counts_match_slots_when_google_is_busy(tracked, db, monkeypatch):
     """
     slot-counts makes ONE Google FreeBusy call for the whole window and hands the busy

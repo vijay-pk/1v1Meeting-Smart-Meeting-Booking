@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { format } from 'date-fns';
 import { Search, Users } from 'lucide-react';
@@ -31,35 +31,55 @@ export function CustomersPage() {
 
   async function fetchCustomers() {
     setLoading(true);
-    // Get customers who have bookings with this admin
-    const { data, error } = await supabase
-      .from('customers')
-      .select(`
-        *,
-        bookings!inner(admin_id)
-      `)
-      .eq('bookings.admin_id', user!.id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      // Was silent: a failed request rendered as "no records".
-      setLoadError('We could not load your customers just now.');
-    }
-    if (!error && data) {
+    // Customers are derived from this admin's bookings (there is no separate customers table
+    // in the backend -- client details live on the booking). The canonical source is the API;
+    // the page previously queried a Supabase `customers` table the backend never writes, which
+    // the app does not authenticate against, so it was always empty.
+    try {
+      const bookings = (await api.getMyBookings()) as Array<{
+        client_name?: string;
+        client_email?: string;
+        client_phone?: string;
+        created_at?: string;
+        start_time?: string;
+      }>;
       setLoadError('');
-      // Deduplicate and count bookings
-      const customerMap = new Map<string, CustomerRow>();
-      for (const row of data as any[]) {
-        if (customerMap.has(row.id)) {
-          const existing = customerMap.get(row.id)!;
+
+      // Deduplicate by email (falling back to name+phone), count bookings, and keep the
+      // earliest booking as "since".
+      const map = new Map<string, CustomerRow>();
+      for (const b of bookings) {
+        const email = (b.client_email || '').trim().toLowerCase();
+        const key = email || `${b.client_name || ''}|${b.client_phone || ''}`;
+        if (!key || key === '|') continue;
+        const when = b.created_at || b.start_time || '';
+        const existing = map.get(key);
+        if (existing) {
           existing.booking_count = (existing.booking_count || 1) + 1;
+          if (when && existing.created_at && new Date(when) < new Date(existing.created_at)) {
+            existing.created_at = when;
+          }
         } else {
-          customerMap.set(row.id, { ...row, booking_count: 1 });
+          map.set(key, {
+            id: key,
+            name: b.client_name || '—',
+            email: b.client_email || '',
+            phone: b.client_phone || '',
+            created_at: when,
+            booking_count: 1,
+          });
         }
       }
-      setCustomers(Array.from(customerMap.values()));
+      const list = Array.from(map.values()).sort(
+        (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+      setCustomers(list);
+    } catch {
+      // Was silent: a failed request rendered as "no records".
+      setLoadError('We could not load your customers just now.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const filtered = customers.filter(
@@ -137,7 +157,8 @@ export function CustomersPage() {
             {
               header: 'Since',
               collapse: true,
-              cell: (customer) => format(new Date(customer.created_at), 'MMM d, yyyy'),
+              cell: (customer) =>
+                customer.created_at ? format(new Date(customer.created_at), 'MMM d, yyyy') : '—',
             },
           ]}
         />

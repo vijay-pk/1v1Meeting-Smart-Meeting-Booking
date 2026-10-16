@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { CreditCard } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { CURRENCIES } from '@/lib/constants';
 import { format } from 'date-fns';
@@ -13,17 +13,16 @@ import { ErrorNote } from '@/components/common/ErrorNote';
 
 interface PaymentRow {
   id: string;
-  booking_id: string;
-  razorpay_order_id: string;
-  razorpay_payment_id: string | null;
+  order_id: string;
+  payment_id: string | null;
   amount: number;
   currency: string;
   status: string;
   created_at: string;
-  booking?: {
-    public_id: string;
-    customer?: { name: string; email: string };
-  };
+  booking_public_id: string | null;
+  client_name: string | null;
+  client_email: string | null;
+  session_title: string | null;
 }
 
 export function PaymentsPage() {
@@ -45,29 +44,12 @@ export function PaymentsPage() {
 
   async function fetchPayments() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('payments')
-      .select(`
-        *,
-        booking:bookings!inner(
-          public_id,
-          admin_id,
-          customer:customers(name, email)
-        )
-      `)
-      .eq('booking.admin_id', user!.id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      // Was silent: a failed request rendered as "no records".
-      setLoadError('We could not load your payments just now.');
-    }
-    if (!error && data) {
+    try {
+      const rows = (await api.getMyPayments()) as PaymentRow[];
       setLoadError('');
-      const rows = data as unknown as PaymentRow[];
       setPayments(rows);
 
-      // Calculate stats
+      // Only "captured" is real money. Simulated/created/failed never count as revenue.
       const successful = rows.filter((p) => p.status === 'captured');
       const failed = rows.filter((p) => p.status === 'failed');
       const refunded = rows.filter((p) => p.status === 'refunded');
@@ -80,8 +62,12 @@ export function PaymentsPage() {
         refunded: refunded.length,
         revenue,
       });
+    } catch {
+      // Was silent before: a failed request rendered as "no records".
+      setLoadError('We could not load your payments just now.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const statusColors: Record<string, string> = {
@@ -151,10 +137,10 @@ export function PaymentsPage() {
               cell: (payment) => (
                 <div className="min-w-0">
                   <p className="truncate font-medium text-text-primary">
-                    {payment.booking?.customer?.name || '—'}
+                    {payment.client_name || '—'}
                   </p>
                   <p className="truncate text-xs font-normal text-text-tertiary">
-                    {payment.booking?.customer?.email}
+                    {payment.client_email}
                   </p>
                 </div>
               ),
@@ -187,7 +173,7 @@ export function PaymentsPage() {
               header: 'Booking',
               cell: (payment) => (
                 <span className="font-mono text-xs text-primary-600">
-                  {payment.booking?.public_id || '—'}
+                  {payment.booking_public_id || '—'}
                 </span>
               ),
             },
@@ -195,7 +181,7 @@ export function PaymentsPage() {
               header: 'Order ID',
               collapse: true,
               cell: (payment) => (
-                <span className="break-all font-mono text-xs">{payment.razorpay_order_id}</span>
+                <span className="break-all font-mono text-xs">{payment.order_id}</span>
               ),
             },
             {
@@ -203,7 +189,7 @@ export function PaymentsPage() {
               collapse: true,
               cell: (payment) => (
                 <span className="break-all font-mono text-xs">
-                  {payment.razorpay_payment_id || '—'}
+                  {payment.payment_id || '—'}
                 </span>
               ),
             },
