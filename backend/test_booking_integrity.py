@@ -546,14 +546,15 @@ def test_a_confirmed_booking_sends_no_email(admin, db, monkeypatch):
     assert verified.json()["status"] == "confirmed"
 
 
-def test_the_client_is_invited_so_the_event_reaches_their_calendar(admin, db, monkeypatch):
+def test_the_client_is_listed_as_an_attendee_on_the_host_event(admin, db, monkeypatch):
     """
     There is no client account in this product, so no client calendar to write to directly.
-    The single shared event with the client as an attendee is the only mechanism -- and it
-    only reaches them if Google is told to notify attendees.
+    The client is still recorded as an attendee on the host's event (so the host sees who is
+    attending), carrying their real email and the admin's chosen calendar.
 
-    sendUpdates defaults to "none". Without it the client was listed on the host's event and
-    never told, which is the whole of the missing-client-calendar bug.
+    Google is NOT asked to email that attendee (sendUpdates=none): the Resend confirmation is
+    the single email a booking sends, and the client adds the meeting to their own calendar
+    from the confirmation page's "Add to Google Calendar" / .ics options.
     """
     _connect_google(db, admin["id"], calendar_id="work@example.com")
     captured = {}
@@ -580,15 +581,20 @@ def test_the_client_is_invited_so_the_event_reaches_their_calendar(admin, db, mo
     assert captured["idempotency_key"] == f"bmm_{order['booking_id']}"
 
 
-def test_the_event_request_asks_google_to_notify_attendees():
+def test_the_event_request_does_not_let_google_email_attendees():
     """
-    Guards the parameter itself. A structural check, because the behaviour it controls
-    (an invitation actually arriving) cannot be asserted without live Google credentials.
+    Resend is the single email channel for a booking. Notifying attendees from the calendar
+    request (sendUpdates=all) made Google send the client and the host its own invitation on
+    top of the Resend confirmation -- a second email per person, from a second sender. The
+    request must use sendUpdates=none: the event is still created on the host's calendar, but
+    Google emails no one. A structural check, because whether an email is actually sent cannot
+    be asserted without live Google credentials.
     """
     from pathlib import Path
     source = Path(__file__).resolve().parent / "app" / "services" / "google_calendar.py"
     text = source.read_text(encoding="utf-8")
-    assert "sendUpdates=all" in text, "attendees would not be notified"
+    assert "sendUpdates=all" not in text, "Google would email attendees, duplicating the Resend confirmation"
+    assert text.count("sendUpdates=none") >= 2, "both the create and reschedule requests must suppress Google's emails"
     assert "calendars/primary/events" not in text, "the admin's chosen calendar is ignored"
 
 

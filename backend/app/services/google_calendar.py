@@ -149,18 +149,20 @@ async def create_calendar_event_with_meet(
         target = quote(calendar_id or "primary", safe="")
         url = (
             f"https://www.googleapis.com/calendar/v3/calendars/{target}/events"
-            # sendUpdates=all is what puts the meeting on the CLIENT's calendar.
+            # sendUpdates=none: Google does NOT email the attendees. Resend is the single email
+            # channel for this product. Notifying attendees here (the previous behaviour) made
+            # Google send the client and the host its own calendar invitation on top of the
+            # Resend confirmation -- two emails per person, from two different senders -- which
+            # is the duplicate-email bug. This call still creates the event on the HOST's
+            # calendar (unaffected by sendUpdates); it only stops Google from notifying anyone.
             #
             # There is no client account in this product -- bookings carry a name and an email,
-            # not a user row -- so a client cannot connect a calendar of their own, and there
-            # is nothing to write a second event into. The single shared event, created by the
-            # host with the client as an attendee, is the only mechanism available and is also
-            # the one that cannot drift: one event, one link, one time, both calendars.
-            #
-            # The API defaults sendUpdates to "none". The client was therefore listed as an
-            # attendee and never told, so the meeting never reached their calendar. That is
-            # the whole of the missing-client-calendar bug.
-            "?conferenceDataVersion=1&sendUpdates=all"
+            # not a user row -- so the client has no Google Calendar of their own to write to.
+            # Reaching it via a Google invitation is exactly the duplicate email removed here;
+            # instead the client gets the Resend confirmation plus the "Add to Google Calendar"
+            # and .ics options on the confirmation page. The client stays listed as an attendee
+            # on the host's event, just not emailed by Google.
+            "?conferenceDataVersion=1&sendUpdates=none"
         )
         space_name = None
         space_uri = None
@@ -297,9 +299,10 @@ async def update_calendar_event_time(
     """
     Moves an existing event to a new start/end, keeping the same Meet conference.
 
-    Patches only the times, so the Google Meet link, attendees and invitation thread survive
-    the reschedule -- the client's existing calendar entry shifts rather than a new one being
-    created. sendUpdates=all re-notifies the attendee of the new time.
+    Patches only the times, so the Google Meet link and attendees survive the reschedule --
+    the host's event shifts rather than a new one being created. sendUpdates=none: the new
+    time is announced by the Resend reschedule email (api/bookings.py), not by a second Google
+    notification, keeping Resend the single email channel.
 
     Never raises, like create_calendar_event_with_meet: the reschedule has already been
     written when this runs, and a calendar outage must not undo it. Returns {"ok": bool,
@@ -313,7 +316,7 @@ async def update_calendar_event_time(
         target = quote(calendar_id or "primary", safe="")
         url = (
             f"https://www.googleapis.com/calendar/v3/calendars/{target}/events/"
-            f"{quote(event_id, safe='')}?sendUpdates=all"
+            f"{quote(event_id, safe='')}?sendUpdates=none"
         )
         payload = {
             "start": {"dateTime": _wall_clock(start_time_iso), "timeZone": settings.BUSINESS_TIMEZONE},

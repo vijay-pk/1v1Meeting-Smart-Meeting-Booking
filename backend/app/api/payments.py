@@ -538,9 +538,12 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
     #    send is wrapped and its boolean result only logged. The From address sits on a
     #    Resend-verified domain; replies go to EMAIL_REPLY_TO (see email_service._send).
     #
-    #    Google's calendar invitation is still delivered too (sendUpdates=all above) -- that is
-    #    what puts the single shared event on the client's calendar. These emails are the
-    #    explicit confirmation on top of it.
+    #    These Resend messages are the only emails a booking sends. The Google Calendar event
+    #    is created on the host's calendar with sendUpdates=none, so Google does not also mail
+    #    the client and host its own invitation -- that was a second email per person, from a
+    #    second sender, and is the duplicate removed in google_calendar.py. Clients have no
+    #    account here, so they add the meeting from the confirmation page's "Add to Google
+    #    Calendar" / .ics options rather than from a Google invite.
     session_title = booking.meeting_type.title if booking.meeting_type else "1:1 Session"
     duration_minutes = booking.meeting_type.duration_minutes if booking.meeting_type else 30
 
