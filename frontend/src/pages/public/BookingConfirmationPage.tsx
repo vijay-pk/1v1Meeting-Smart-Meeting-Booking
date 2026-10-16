@@ -131,6 +131,52 @@ export const BookingConfirmationPage: React.FC = () => {
     fetchBooking();
   }, [bookingId, reloadKey]);
 
+  // Derive grace period and expiration based on authoritative booking end_time + 2 minutes.
+  // These hooks MUST run on every render — before any early return below — or React sees a
+  // different number of hooks once `booking` loads ("Rendered more hooks than during the
+  // previous render") and unmounts the tree, which is what rendered this page blank after a
+  // successful payment. Each one guards against a null booking, so running early is safe.
+  const endTs = useMemo(() => {
+    if (!booking?.end_time) return 0;
+    return new Date(booking.end_time).getTime();
+  }, [booking?.end_time]);
+
+  const graceEndTs = useMemo(() => {
+    if (!endTs) return 0;
+    return endTs + 2 * 60 * 1000;
+  }, [endTs]);
+
+  const isInGracePeriod = useMemo(() => {
+    if (booking?.is_expired) return false;
+    if (!endTs || !graceEndTs) return Boolean(booking?.is_grace_period);
+    return nowTs >= endTs && nowTs < graceEndTs;
+  }, [booking?.is_expired, booking?.is_grace_period, endTs, graceEndTs, nowTs]);
+
+  const isExpired = useMemo(() => {
+    if (booking?.is_expired) return true;
+    if (graceEndTs && nowTs >= graceEndTs) return true;
+    return false;
+  }, [booking?.is_expired, graceEndTs, nowTs]);
+
+  const secondsRemaining = useMemo(() => {
+    if (!isInGracePeriod || !graceEndTs) return 0;
+    return Math.max(0, Math.floor((graceEndTs - nowTs) / 1000));
+  }, [isInGracePeriod, graceEndTs, nowTs]);
+
+  const formattedCountdown = useMemo(() => {
+    const mins = Math.floor(secondsRemaining / 60);
+    const secs = secondsRemaining % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }, [secondsRemaining]);
+
+  const terminationTimeDisplay = useMemo(() => {
+    if (booking?.grace_termination_time) return booking.grace_termination_time;
+    if (graceEndTs) {
+      return new Date(graceEndTs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+    return 'in 2 minutes';
+  }, [booking?.grace_termination_time, graceEndTs]);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
@@ -198,6 +244,58 @@ export const BookingConfirmationPage: React.FC = () => {
     );
   }
 
+  // The success screen below asserts "Your Meeting Is Confirmed!". Only the backend can make
+  // that claim: `status === 'confirmed'` is set by POST /payments/verify *after* the Razorpay
+  // signature is checked, so it is the authoritative "paid and confirmed" signal. Any other
+  // status (pending_payment, cancelled, failed) must not be dressed up as a confirmation.
+  const bookingStatus = String(booking.status || '').toLowerCase();
+  if (bookingStatus !== 'confirmed') {
+    const pending = bookingStatus === 'pending_payment' || bookingStatus === 'pending';
+    const cancelled = bookingStatus === 'cancelled' || bookingStatus === 'completed';
+    const heading = pending
+      ? 'Payment Being Confirmed'
+      : cancelled
+        ? 'This Booking Is Not Active'
+        : 'Booking Not Confirmed';
+    const message = pending
+      ? 'We have not yet received confirmation of your payment. If you just paid, this can take a few moments — refresh in a minute. No second payment is needed.'
+      : cancelled
+        ? 'This booking has been cancelled or has already taken place, so there is nothing to confirm here.'
+        : 'This booking has not been confirmed. If you completed payment, please wait a moment and try again.';
+    return (
+      <div className="max-w-md mx-auto my-12 px-4">
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="pt-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-text-primary">{heading}</h2>
+              <p className="text-sm text-text-secondary mt-1">{message}</p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+              {pending && (
+                <Button
+                  variant="outline"
+                  className="min-h-[44px]"
+                  onClick={() => {
+                    setLoading(true);
+                    setReloadKey((k) => k + 1);
+                  }}
+                >
+                  Refresh status
+                </Button>
+              )}
+              <Link to="/">
+                <Button variant="ghost" className="min-h-[44px]">Return Home</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const hostName = booking.assigned_admin_name || (booking as any).admin?.full_name || 'your host';
   const hostEmail = (booking as any).assigned_admin_email || (booking as any).admin?.email || '';
   const meetingName = booking.meeting_type?.name || 'Scheduled Meeting';
@@ -220,48 +318,6 @@ export const BookingConfirmationPage: React.FC = () => {
       adminEmail: hostEmail,
     });
 
-  // Derive grace period and expiration based on authoritative booking end_time + 2 minutes
-  const endTs = useMemo(() => {
-    if (!booking?.end_time) return 0;
-    return new Date(booking.end_time).getTime();
-  }, [booking?.end_time]);
-
-  const graceEndTs = useMemo(() => {
-    if (!endTs) return 0;
-    return endTs + 2 * 60 * 1000;
-  }, [endTs]);
-
-  const isInGracePeriod = useMemo(() => {
-    if (booking?.is_expired) return false;
-    if (!endTs || !graceEndTs) return Boolean(booking?.is_grace_period);
-    return nowTs >= endTs && nowTs < graceEndTs;
-  }, [booking?.is_expired, booking?.is_grace_period, endTs, graceEndTs, nowTs]);
-
-  const isExpired = useMemo(() => {
-    if (booking?.is_expired) return true;
-    if (graceEndTs && nowTs >= graceEndTs) return true;
-    return false;
-  }, [booking?.is_expired, graceEndTs, nowTs]);
-
-  const secondsRemaining = useMemo(() => {
-    if (!isInGracePeriod || !graceEndTs) return 0;
-    return Math.max(0, Math.floor((graceEndTs - nowTs) / 1000));
-  }, [isInGracePeriod, graceEndTs, nowTs]);
-
-  const formattedCountdown = useMemo(() => {
-    const mins = Math.floor(secondsRemaining / 60);
-    const secs = secondsRemaining % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }, [secondsRemaining]);
-
-  const terminationTimeDisplay = useMemo(() => {
-    if (booking?.grace_termination_time) return booking.grace_termination_time;
-    if (graceEndTs) {
-      return new Date(graceEndTs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    }
-    return 'in 2 minutes';
-  }, [booking?.grace_termination_time, graceEndTs]);
-
   return (
     <div className="max-w-2xl mx-auto py-10 px-4 sm:px-6">
       <Card className="border-border shadow-lg overflow-hidden">
@@ -269,8 +325,11 @@ export const BookingConfirmationPage: React.FC = () => {
           <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-3">
             <CheckCircle2 className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold">Booking Confirmed!</h1>
+          <h1 className="text-2xl font-bold">Your Meeting Is Confirmed!</h1>
           <p className="text-emerald-100 text-sm mt-1">
+            Your payment was successful, and your meeting has been confirmed.
+          </p>
+          <p className="text-emerald-100 text-xs mt-1">
             We've sent a calendar invitation and confirmation details to{' '}
             <span className="font-semibold text-white">{attendeeEmail || 'your email'}</span>.
           </p>
@@ -511,6 +570,11 @@ export const BookingConfirmationPage: React.FC = () => {
                 </Button>
               </Link>
             )}
+            <Link to="/" className="w-full sm:w-auto">
+              <Button variant="ghost" size="sm" className="w-full gap-2 text-text-secondary">
+                Return Home
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
