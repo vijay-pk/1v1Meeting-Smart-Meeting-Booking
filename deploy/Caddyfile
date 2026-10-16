@@ -1,0 +1,10 @@
+# Caddy automatically obtains and renews a Let's Encrypt TLS certificate for this domain,
+# as long as the domain's A record points at this VPS and ports 80 + 443 are open.
+#
+# Change the domain here if you use a different API subdomain, and keep it in sync with
+# VITE_API_URL (Vercel) and GOOGLE_REDIRECT_URI.
+
+api.adwaysacademy.com {
+	encode zstd gzip
+	reverse_proxy backend:8000
+}

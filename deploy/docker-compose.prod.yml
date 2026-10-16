@@ -1,0 +1,53 @@
+# Production stack for the BookMyMeet BACKEND on a single VPS (e.g. Hostinger, Mumbai).
+#
+# Only the FastAPI backend runs here. The database stays on Supabase (DATABASE_URL points at
+# it) and the frontend stays on Vercel -- do NOT add a postgres or frontend service.
+#
+# Caddy terminates HTTPS for api.adwaysacademy.com and proxies to the backend over the private
+# compose network. The backend is NOT published to the host (no `ports:`), so the only way in
+# is through Caddy on 443.
+#
+# Usage (from the repo root on the VPS):
+#   cp deploy/.env.prod.example deploy/.env.prod   # then fill in real values
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d --build
+#
+# Build context is the repo, so run compose from the repo root (paths below are relative to it).
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: bookmymeet-backend
+    restart: always
+    # Every value comes from deploy/.env.prod. Copy SECRET_KEY and ENCRYPTION_KEY VERBATIM
+    # from the current host -- regenerating them makes every admin's Google/Razorpay tokens
+    # undecryptable and silently lets permanently-deleted admins register again.
+    env_file:
+      - .env.prod
+    expose:
+      - "8000"            # reachable only by Caddy on the internal network, never the host
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: bookmymeet-caddy
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"           # Let's Encrypt HTTP-01 challenge + redirect to HTTPS
+      - "443:443"         # HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data  # issued certificates (persists across restarts -- do not wipe)
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
