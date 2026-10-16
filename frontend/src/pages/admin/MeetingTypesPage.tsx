@@ -52,7 +52,7 @@ const DEFAULT_MEETING: Partial<MeetingType> = {
   is_active: true,
   buffer_before_minutes: 0,
   buffer_after_minutes: 10,
-  min_advance_hours: 2,
+  min_advance_hours: 1,
   max_advance_days: 60,
   cancellation_window_hours: 24,
   reschedule_allowed: true,
@@ -94,7 +94,7 @@ export function MeetingTypesPage() {
           is_active: s.is_active,
           buffer_before_minutes: s.buffer_before_minutes || 0,
           buffer_after_minutes: s.buffer_after_minutes || 0,
-          min_advance_hours: s.min_advance_hours || 2,
+          min_advance_hours: s.min_advance_hours ?? 1,
           max_advance_days: s.max_advance_days || 60,
           cancellation_window_hours: 24,
           reschedule_allowed: true,
@@ -161,6 +161,7 @@ export function MeetingTypesPage() {
         original_price: editingMeeting.original_price || null,
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
+        min_advance_hours: editingMeeting.min_advance_hours ?? 1,
         available_hours: 'windows' in hours ? hours.windows : null,
       };
 
@@ -455,6 +456,34 @@ export function MeetingTypesPage() {
                       (editingMeeting.currency as Currency) || 'INR'
                     )
                   : '₹0'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="mt-advance">Minimum advance notice</Label>
+              <Select
+                value={String(editingMeeting?.min_advance_hours ?? 1)}
+                onValueChange={(v) =>
+                  setEditingMeeting((m) => ({ ...m, min_advance_hours: parseInt(v) }))
+                }
+              >
+                <SelectTrigger id="mt-advance">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">No minimum (book anytime)</SelectItem>
+                  <SelectItem value="1">1 hour before</SelectItem>
+                  <SelectItem value="2">2 hours before</SelectItem>
+                  <SelectItem value="3">3 hours before</SelectItem>
+                  <SelectItem value="6">6 hours before</SelectItem>
+                  <SelectItem value="12">12 hours before</SelectItem>
+                  <SelectItem value="24">1 day before</SelectItem>
+                  <SelectItem value="48">2 days before</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-text-tertiary">
+                How soon before a slot a client may still book it. Earlier slots are hidden
+                on the booking page.
               </p>
             </div>
 

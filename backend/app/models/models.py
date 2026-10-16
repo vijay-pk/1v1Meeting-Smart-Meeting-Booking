@@ -80,7 +80,7 @@ class Session(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     buffer_before_minutes = Column(Integer, default=5, nullable=False)
     buffer_after_minutes = Column(Integer, default=10, nullable=False)
-    min_advance_hours = Column(Integer, default=2, nullable=False)
+    min_advance_hours = Column(Integer, default=1, nullable=False)
     max_advance_days = Column(Integer, default=30, nullable=False)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
