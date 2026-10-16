@@ -4,6 +4,8 @@
 .env
 .env.*
 !.env.example
+# Tracked template for the VPS deploy (no secrets); the real deploy/.env.prod stays ignored.
+!deploy/.env.prod.example
 *.pem
 *.key
 *.p12
