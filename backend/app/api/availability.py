@@ -1,5 +1,6 @@
 import logging
 
+from contextvars import ContextVar
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import List, Optional
@@ -29,6 +30,18 @@ router = APIRouter()
 # (the trailing "Z" on stored ISO strings is cosmetic). Google, by contrast, speaks real
 # UTC -- BUSINESS_TZ is what bridges the two frames.
 BUSINESS_TZ = ZoneInfo(settings.BUSINESS_TIMEZONE)
+
+# Optional pre-fetched window data for get_available_slots, set only by get_slot_counts.
+#
+# /slots serves one day and leaves this None, so it fetches rules, exceptions, bookings, locks
+# and one Google FreeBusy call itself -- unchanged. slot-counts serves up to 31 days and would
+# otherwise call the same engine per day, turning N days into N sequential FreeBusy calls plus
+# N sets of DB queries (measured at ~30s for 14 days). Instead it fetches all of that ONCE for
+# the whole window and leaves it here; the engine reads it in place of querying. The per-day
+# computation (working hours, buffers, collisions) is identical either way, so a pill's count
+# can never disagree with the slots behind it. A ContextVar (not a parameter) because
+# get_available_slots is a FastAPI route and a new parameter would become a query field.
+_SLOT_PREFETCH: ContextVar = ContextVar("slot_prefetch", default=None)
 
 
 def _normalize_time(value):
@@ -227,8 +240,14 @@ async def get_available_slots(
     both emails too, and a parameter that silently does nothing is worse than no parameter.
     """
     # 1. Resolve Admin
+    # When slot-counts has pre-resolved the host and session for the whole window, reuse them
+    # rather than re-querying on every day. _pf is None for the /slots path (one day).
+    _pf = _SLOT_PREFETCH.get()
+
     user = None
-    if admin_id:
+    if _pf is not None:
+        user = _pf["user"]
+    elif admin_id:
         user = db.query(User).filter(User.id == admin_id).first()
     elif username:
         profile = db.query(AdminProfile).filter(AdminProfile.username == username.lower()).first()
@@ -249,6 +268,7 @@ async def get_available_slots(
     # Scoped to this admin: another admin's session id must not be priced and timed against
     # this admin's calendar.
     session_obj = (
+        _pf["session_obj"] if _pf is not None else
         db.query(SessionModel)
         .filter(SessionModel.id == session_id, SessionModel.admin_id == user.id)
         .first()
@@ -280,6 +300,7 @@ async def get_available_slots(
 
     # 3. Check for Date Exception (Leave / Holiday)
     exceptions_today = (
+        _pf["exceptions_by_date"].get(date_str, []) if _pf is not None else
         db.query(AvailabilityException)
         .filter(
             AvailabilityException.admin_id == user.id,
@@ -314,6 +335,7 @@ async def get_available_slots(
     #    same day only ever got slots from the morning window. There is deliberately no
     #    default: hours the admin never configured must not be offered to clients.
     rules = (
+        _pf["rules_by_dow"].get(day_of_week, []) if _pf is not None else
         db.query(AvailabilityRule)
         .filter(
             AvailabilityRule.admin_id == user.id,
@@ -404,20 +426,26 @@ async def get_available_slots(
     # nothing swept those rows, so one closed tab took a slot off the calendar permanently.
     # Bookings past the checkout window are ignored here and are actually released the next
     # time someone tries to book that slot (payments.expire_abandoned_bookings).
-    candidate_bookings = (
-        db.query(Booking)
-        .filter(
-            Booking.admin_id == user.id,
-            Booking.status.in_(["confirmed", "pending_payment"]),
-            Booking.start_time >= day_start_iso,
-            Booking.start_time <= day_end_iso
+    if _pf is not None:
+        # Pre-fetched and occupancy-filtered for the whole window. A booking on another day
+        # never overlaps a slot on this one, so is_colliding below ignores it.
+        existing_bookings = _pf["bookings"]
+    else:
+        candidate_bookings = (
+            db.query(Booking)
+            .filter(
+                Booking.admin_id == user.id,
+                Booking.status.in_(["confirmed", "pending_payment"]),
+                Booking.start_time >= day_start_iso,
+                Booking.start_time <= day_end_iso
+            )
+            .all()
         )
-        .all()
-    )
-    existing_bookings = [b for b in candidate_bookings if is_occupying(b, now_utc)]
+        existing_bookings = [b for b in candidate_bookings if is_occupying(b, now_utc)]
 
     # 6. Fetch Active Slot Locks
     active_locks = (
+        _pf["locks"] if _pf is not None else
         db.query(SlotLock)
         .filter(
             SlotLock.admin_id == user.id,
@@ -430,14 +458,29 @@ async def get_available_slots(
     # 7. Fetch Google Calendar Busy Intervals.
     # The window sent to Google must be real UTC: the admin's local day, converted.
     google_busy = []
-    g_conn = (
-        db.query(GoogleConnection)
-        .filter(
-            GoogleConnection.admin_id == user.id,
-            GoogleConnection.connection_status == "connected"
+    if _pf is not None:
+        # One FreeBusy call already covered the whole window in get_slot_counts. A failure
+        # there pauses booking for every day, exactly as a per-day failure does below.
+        if _pf["calendar_error"]:
+            return {
+                "timezone": settings.BUSINESS_TIMEZONE,
+                "available_slots": [],
+                "date": date_str,
+                "admin_id": user.id,
+                "calendar_error": True,
+                "message": "Calendar sync unavailable — booking is temporarily paused for this host."
+            }
+        google_busy = _pf["google_busy"]
+        g_conn = None
+    else:
+        g_conn = (
+            db.query(GoogleConnection)
+            .filter(
+                GoogleConnection.admin_id == user.id,
+                GoogleConnection.connection_status == "connected"
+            )
+            .first()
         )
-        .first()
-    )
     if g_conn and g_conn.encrypted_refresh_token:
         window_start_utc = (
             datetime.combine(target_date, datetime.min.time(), tzinfo=BUSINESS_TZ)
@@ -576,27 +619,170 @@ async def get_slot_counts(
     Doing it client-side would mean one request per day. That is 14 round trips on a link
     people open from a phone, against a backend that can be cold. One request instead.
 
-    Each day is computed by the same engine that serves /slots, so the count on a pill can
-    never disagree with the slots behind it. That means up to `days` sequential FreeBusy
-    calls for a host with Google connected; the cap keeps that bounded, and it is still one
-    network round trip for the client rather than fourteen.
+    Each day is computed by the same engine that serves /slots (via _SLOT_PREFETCH), so the
+    count on a pill can never disagree with the slots behind it. The data that engine needs --
+    the host, the session, availability rules, leave exceptions, occupying bookings, active
+    locks and the Google busy intervals -- is fetched ONCE here for the whole window and handed
+    to every day, rather than re-queried per day. In particular it is a single Google FreeBusy
+    call for the window instead of one per day: running it per day made 14 days take ~30s even
+    with the backend warm.
     """
     today = datetime.now(BUSINESS_TZ).date()
-    counts = []
-    for offset in range(days):
-        date_str = (today + timedelta(days=offset)).strftime("%Y-%m-%d")
-        result = await get_available_slots(
-            admin_id=admin_id, username=username, session_id=session_id,
-            date_str=date_str, db=db,
+    date_strings = [(today + timedelta(days=o)).strftime("%Y-%m-%d") for o in range(days)]
+
+    # Resolve the host and the session once (the per-day engine would otherwise do this `days`
+    # times). Same lookups and the same 404s as get_available_slots.
+    user = None
+    if admin_id:
+        user = db.query(User).filter(User.id == admin_id).first()
+    elif username:
+        profile = db.query(AdminProfile).filter(AdminProfile.username == username.lower()).first()
+        if profile:
+            user = profile.user
+    if not user:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    session_obj = (
+        db.query(SessionModel)
+        .filter(SessionModel.id == session_id, SessionModel.admin_id == user.id)
+        .first()
+    )
+    if not session_obj or not session_obj.is_active:
+        raise HTTPException(status_code=404, detail="Session not found or inactive")
+
+    # Availability rules grouped by weekday (only seven exist), fetched once and kept sorted
+    # by start time to match the per-day query's ordering.
+    rules_by_dow: dict = {}
+    for r in (
+        db.query(AvailabilityRule)
+        .filter(AvailabilityRule.admin_id == user.id, AvailabilityRule.is_active == True)
+        .order_by(AvailabilityRule.start_time.asc())
+        .all()
+    ):
+        rules_by_dow.setdefault(r.day_of_week, []).append(r)
+
+    # Leave/holiday exceptions inside the window, grouped by their date string (ISO dates sort
+    # and compare lexically, so a string range is correct here).
+    exceptions_by_date: dict = {}
+    for ex in (
+        db.query(AvailabilityException)
+        .filter(
+            AvailabilityException.admin_id == user.id,
+            AvailabilityException.exception_date >= date_strings[0],
+            AvailabilityException.exception_date <= date_strings[-1],
         )
-        slots = result.get("available_slots", [])
-        counts.append({
-            "date": date_str,
-            "count": len(slots),
-            # Surfaced so the UI can distinguish "the host is free on no days" from "we
-            # could not read the host's calendar", which are very different messages.
-            "calendar_error": bool(result.get("calendar_error")),
-        })
+        .all()
+    ):
+        exceptions_by_date.setdefault(ex.exception_date, []).append(ex)
+
+    now_utc = datetime.now(timezone.utc)
+
+    # Occupying bookings across the whole window, in one query (then the same is_occupying
+    # filter the per-day path applies).
+    window_start_iso = f"{date_strings[0]}T00:00:00Z"
+    window_end_iso = f"{date_strings[-1]}T23:59:59Z"
+    bookings = [
+        b
+        for b in (
+            db.query(Booking)
+            .filter(
+                Booking.admin_id == user.id,
+                Booking.status.in_(["confirmed", "pending_payment"]),
+                Booking.start_time >= window_start_iso,
+                Booking.start_time <= window_end_iso,
+            )
+            .all()
+        )
+        if is_occupying(b, now_utc)
+    ]
+
+    # Active slot locks are not date-scoped, so one query serves every day.
+    locks = (
+        db.query(SlotLock)
+        .filter(
+            SlotLock.admin_id == user.id,
+            SlotLock.status == "active",
+            SlotLock.expires_at > now_utc,
+        )
+        .all()
+    )
+
+    # The expensive part collapsed to a single external call: one Google FreeBusy query for
+    # the whole window, converted to business wall clock once, instead of one call per day.
+    google_busy: list = []
+    calendar_error = False
+    g_conn = (
+        db.query(GoogleConnection)
+        .filter(
+            GoogleConnection.admin_id == user.id,
+            GoogleConnection.connection_status == "connected",
+        )
+        .first()
+    )
+    if g_conn and g_conn.encrypted_refresh_token:
+        win_start_utc = (
+            datetime.combine(today, datetime.min.time(), tzinfo=BUSINESS_TZ)
+            .astimezone(timezone.utc)
+        )
+        win_end_utc = (
+            datetime.combine(today + timedelta(days=days), datetime.min.time(), tzinfo=BUSINESS_TZ)
+            .astimezone(timezone.utc)
+        )
+        try:
+            google_busy_raw = await get_google_busy_intervals(
+                g_conn.encrypted_refresh_token,
+                win_start_utc.isoformat().replace("+00:00", "Z"),
+                win_end_utc.isoformat().replace("+00:00", "Z"),
+                g_conn.calendar_id or "primary",
+            )
+        except GoogleCalendarUnavailable as exc:
+            logger.warning("Google Calendar unavailable for admin %s (slot-counts): %s", user.id, exc)
+            calendar_error = True
+            google_busy_raw = []
+        if not calendar_error:
+            for gb in google_busy_raw:
+                try:
+                    gb_start = datetime.fromisoformat(gb["start"].replace("Z", "+00:00"))
+                    gb_end = datetime.fromisoformat(gb["end"].replace("Z", "+00:00"))
+                    google_busy.append({
+                        "start": gb_start.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+                        "end": gb_end.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+                    })
+                except Exception:
+                    # An unparseable interval must not silently vanish into "free"; pause the
+                    # whole window, as a per-day parse failure pauses that day in /slots.
+                    calendar_error = True
+                    google_busy = []
+                    break
+
+    prefetch = {
+        "user": user,
+        "session_obj": session_obj,
+        "rules_by_dow": rules_by_dow,
+        "exceptions_by_date": exceptions_by_date,
+        "bookings": bookings,
+        "locks": locks,
+        "google_busy": google_busy,
+        "calendar_error": calendar_error,
+    }
+
+    counts = []
+    token = _SLOT_PREFETCH.set(prefetch)
+    try:
+        for date_str in date_strings:
+            result = await get_available_slots(
+                admin_id=admin_id, username=username, session_id=session_id,
+                date_str=date_str, db=db,
+            )
+            slots = result.get("available_slots", [])
+            counts.append({
+                "date": date_str,
+                "count": len(slots),
+                # Surfaced so the UI can distinguish "the host is free on no days" from "we
+                # could not read the host's calendar", which are very different messages.
+                "calendar_error": bool(result.get("calendar_error")),
+            })
+    finally:
+        _SLOT_PREFETCH.reset(token)
 
     return {
         "days": counts,

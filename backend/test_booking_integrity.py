@@ -506,6 +506,69 @@ def test_slot_counts_are_bounded(admin):
     ).status_code == 422
 
 
+def test_slot_counts_match_slots_when_google_is_busy(tracked, db, monkeypatch):
+    """
+    slot-counts makes ONE Google FreeBusy call for the whole window and hands the busy
+    intervals to every day, while /slots makes its own call per day. With the calendar
+    actually blocking time, the two must still agree -- a pill must never say a day is free
+    when the slots behind it are blocked by Google. Guards the batched FreeBusy path, which
+    the no-calendar parity test above does not exercise.
+    """
+    from app.api import availability as availability_api
+
+    admin = _make_admin(tracked, tag="g", max_advance_days=3650)
+    client.post("/api/availability/rules", headers=admin["headers"], json={
+        "rules": [
+            {"day_of_week": d, "start_time": "09:00", "end_time": "17:00", "is_active": True}
+            for d in range(7)
+        ]
+    })
+    _connect_google(db, admin["id"])
+
+    biz = availability_api.BUSINESS_TZ
+    # A one-hour busy block at 10:00 business time, two days out (far enough that min-notice
+    # never clips it), expressed in real UTC like Google returns.
+    busy_day = datetime.now(biz).date() + timedelta(days=2)
+    busy_start = datetime.combine(busy_day, datetime.min.time(), tzinfo=biz).replace(hour=10).astimezone(timezone.utc)
+    busy_end = busy_start + timedelta(hours=1)
+
+    calls = {"n": 0}
+
+    async def fake_busy(token, start_iso, end_iso, calendar_id="primary"):
+        calls["n"] += 1
+        ws = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        we = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        if busy_start < we and busy_end > ws:  # busy overlaps the queried window
+            return [{
+                "start": busy_start.isoformat().replace("+00:00", "Z"),
+                "end": busy_end.isoformat().replace("+00:00", "Z"),
+            }]
+        return []
+
+    monkeypatch.setattr(availability_api, "get_google_busy_intervals", fake_busy)
+
+    body = client.get(
+        f"/api/availability/slot-counts?admin_id={admin['id']}"
+        f"&session_id={admin['session_id']}&days=4"
+    ).json()
+    assert calls["n"] == 1, "slot-counts must make exactly one FreeBusy call for the window"
+
+    counts = {}
+    for day in body["days"]:
+        detail = client.get(
+            f"/api/availability/slots?admin_id={admin['id']}"
+            f"&session_id={admin['session_id']}&date_str={day['date']}"
+        ).json()
+        # The count on the pill equals the slots behind it, even with Google busy applied.
+        assert day["count"] == len(detail["available_slots"]), day["date"]
+        counts[day["date"]] = day["count"]
+
+    # The busy block must actually have removed slots on its day, so the test proves the
+    # batched busy intervals reach the right day -- compared to the clean day after it.
+    clean_day = (busy_day + timedelta(days=1)).strftime("%Y-%m-%d")
+    assert counts[busy_day.strftime("%Y-%m-%d")] < counts[clean_day]
+
+
 # --------------------------------------------------------------------------------------
 # Booking sends no email, and puts one shared event on both calendars
 # --------------------------------------------------------------------------------------
