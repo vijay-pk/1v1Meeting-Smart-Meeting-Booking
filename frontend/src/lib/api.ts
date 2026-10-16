@@ -591,6 +591,18 @@ export const api = {
     return res.json();
   },
 
+  /** This admin's payment records (the canonical source for the Payments page). */
+  getMyPayments: async () => {
+    const res = await request(`/payments/my-payments`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not load your payments.');
+    }
+    return res.json();
+  },
+
   cancelMyBooking: async (bookingId: string) => {
     const res = await request(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
       method: 'POST',

@@ -86,6 +86,49 @@ async def get_payment_setup_status(
     return payload
 
 
+@router.get("/my-payments")
+def get_admin_payments(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    This admin's own payment records, for the Payments page.
+
+    The canonical source is this table, written server-side at order creation and flipped to
+    captured/simulated on verify. The page read a Supabase `payments` table directly through
+    the browser client, which the app does not authenticate against (it uses its own JWT, not
+    Supabase Auth), so RLS returned nothing and the page was always empty.
+    """
+    rows = (
+        db.query(Payment)
+        .filter(Payment.admin_id == current_admin.id)
+        .order_by(Payment.created_at.desc())
+        .all()
+    )
+    results = []
+    for p in rows:
+        b = p.booking
+        results.append({
+            "id": p.id,
+            "amount": p.amount,
+            "currency": p.currency,
+            # "created" | "captured" | "failed" | "simulated". Only "captured" is real revenue.
+            "status": p.status,
+            "provider": p.provider,
+            "order_id": p.order_id,
+            "payment_id": p.payment_id,
+            "created_at": (
+                (p.created_at if p.created_at.tzinfo else p.created_at.replace(tzinfo=timezone.utc)).isoformat()
+                if p.created_at else None
+            ),
+            "booking_public_id": b.public_id if b else None,
+            "client_name": b.client_name if b else None,
+            "client_email": b.client_email if b else None,
+            "session_title": b.meeting_type.title if (b and b.meeting_type) else None,
+        })
+    return results
+
+
 @router.post("/admin/disconnect")
 def disconnect_admin_razorpay(
     current_admin: User = Depends(get_current_admin),
