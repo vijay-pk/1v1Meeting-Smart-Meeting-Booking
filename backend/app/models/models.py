@@ -18,8 +18,12 @@ class User(Base):
     email = Column(String(150), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     phone = Column(String(30), nullable=True)
-    role = Column(String(20), default="admin", nullable=False)  # "super_admin", "admin", "client"
+    role = Column(String(20), default="admin", nullable=False)  # "super_admin", "admin", "client", "student"
     status = Column(String(30), default="ACTIVE", nullable=False)  # "ACTIVE", "TEMPORARILY_DISABLED", "PERMANENTLY_DELETED"
+    # Students are created by the Super Admin with a shared temporary password and must set
+    # their own before anything else. Enforced server-side in deps.get_current_student, never
+    # by the UI alone. Nullable column added by migration 006 (create_all cannot add it).
+    must_change_password = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -83,6 +87,10 @@ class Session(Base):
     min_advance_hours = Column(Integer, default=1, nullable=False)
     max_advance_days = Column(Integer, default=30, nullable=False)
     sort_order = Column(Integer, default=0)
+    # Who this meeting type is for. "public" shows on the vanity booking page as always.
+    # "student_free" / "student_paid" are offered only inside the student dashboard and are
+    # excluded from the public profile. Added by migration 006 (create_all cannot add it).
+    audience = Column(String(20), default="public", nullable=True)  # public | student_free | student_paid
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -254,6 +262,14 @@ class Booking(Base):
     # stay NULL until a reschedule link is requested for them, and NULLs never collide on the
     # unique index.
     reschedule_token = Column(String(64), unique=True, nullable=True)
+    # Student system. "client" is an ordinary public booking (default, unchanged behaviour).
+    # "student_free" / "student_paid" are bookings a logged-in student made against the Super
+    # Admin. student_id ties the booking to that student user. attendance_status drives the
+    # free-allowance accounting. All three added by migration 006; the shared unique index on
+    # (admin_id, start_time) is untouched, so every category still shares one physical calendar.
+    category = Column(String(20), default="client", nullable=True)  # client | student_free | student_paid
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    attendance_status = Column(String(20), nullable=True)  # pending | completed | no_show | pending_review
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -456,3 +472,104 @@ class MediaAsset(Base):
     data = Column(LargeBinary, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Student meeting system (migration 006). New TABLES ship via create_all; the
+# new COLUMNS on users/sessions/bookings above ship via 006_student_system.sql.
+# ---------------------------------------------------------------------------
+
+class StudentAllowance(Base):
+    """
+    One student's free-meeting allocation. `allocated` is the only stored number.
+
+    Available = allocated - consumed, where *consumed is derived* by counting the student's
+    completed free bookings (services/student_allowance.py), never stored, so it can never
+    drift from the real booking history. One row per student, created at provisioning.
+    """
+    __tablename__ = "student_allowances"
+
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    allocated = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AllowanceAdjustment(Base):
+    """Audit trail of every change a Super Admin makes to a student's free allocation."""
+    __tablename__ = "allowance_adjustments"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    old_value = Column(Integer, nullable=False)
+    new_value = Column(Integer, nullable=False)
+    changed_by = Column(String(36), nullable=True)  # super admin user id
+    reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class StudentPolicyAcceptance(Base):
+    """Records that a student accepted a given version of the meeting policy."""
+    __tablename__ = "student_policy_acceptances"
+    __table_args__ = (
+        Index("ux_student_policy_student_version", "student_id", "policy_version", unique=True),
+    )
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    policy_version = Column(String(30), nullable=False)
+    accepted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class MeetingRecording(Base):
+    """
+    A recording for one student booking, retrieved from the Super Admin's Google Drive via the
+    Meet REST v2 conferenceRecords API. The video itself is never stored here -- only the
+    reference and status. `email_sent_at` makes the ready-notification idempotent.
+
+    status: unsupported | pending | processing | available | unavailable
+    """
+    __tablename__ = "meeting_recordings"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    booking_id = Column(String(36), ForeignKey("bookings.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    space_name = Column(String(255), nullable=True)
+    drive_file_id = Column(String(255), nullable=True)
+    status = Column(String(20), default="pending", nullable=False)
+    title = Column(String(255), nullable=True)
+    recorded_at = Column(DateTime, nullable=True)
+    email_sent_at = Column(DateTime, nullable=True)
+    detail = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ReportDelivery(Base):
+    """Audit of each student meeting report the Super Admin generated and emailed."""
+    __tablename__ = "report_deliveries"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    generated_by = Column(String(36), nullable=True)  # super admin user id
+    recipient = Column(String(150), nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class StudentCredentialEmail(Base):
+    """
+    Audit + retry state for the one-time credentials email sent when a student is created.
+    Lets the Super Admin see delivery status and safely resend without creating a duplicate
+    account.
+    """
+    __tablename__ = "student_credential_emails"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    student_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(20), default="pending", nullable=False)  # pending | sent | failed
+    attempts = Column(Integer, default=0, nullable=False)
+    last_error = Column(String(255), nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
