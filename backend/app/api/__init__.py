@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.api import (
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload,
-    super_admin_settings, internal,
+    super_admin_settings, internal, students,
 )
 
 api_router = APIRouter()
@@ -16,6 +16,7 @@ api_router.include_router(payments.router, prefix="/payments", tags=["Payments &
 api_router.include_router(google_calendar.router, prefix="/google", tags=["Google Calendar & Meet"])
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["Super Admin"])
 api_router.include_router(super_admin_settings.router, prefix="/super-admin", tags=["Super Admin"])
+api_router.include_router(students.router, prefix="/super-admin", tags=["Super Admin — Students"])
 api_router.include_router(internal.router, prefix="/internal", tags=["Internal"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])

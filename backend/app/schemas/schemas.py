@@ -58,6 +58,31 @@ class Token(BaseModel):
     username: str
     name: str
     status: str
+    must_change_password: bool = False
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+# Student system
+class StudentCreate(BaseModel):
+    name: str
+    email: EmailStr
+    allocated: int = 0
+
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+class AllowanceAdjustRequest(BaseModel):
+    allocated: int
+    reason: Optional[str] = None
+
+class StudentStatusUpdate(BaseModel):
+    status: str  # ACTIVE | TEMPORARILY_DISABLED
+
+class StudentPolicyAcceptRequest(BaseModel):
+    policy_version: str
 
 # Profile schemas
 class ThemeSettings(BaseModel):

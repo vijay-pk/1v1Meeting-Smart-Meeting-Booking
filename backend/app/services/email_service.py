@@ -201,6 +201,71 @@ async def send_admin_new_booking_notification(
     return await _send(admin_email, f"New booking: {client_name} — {session_title}", html)
 
 
+async def send_student_credentials_email(
+    to_email: str,
+    student_name: str,
+    temp_password: str,
+    login_url: str,
+) -> bool:
+    """
+    Sends a newly created student their login email + temporary password. The student is forced
+    to change it on first sign-in. Returns True only if Resend accepted the message.
+    """
+    from html import escape
+
+    html = _shell(
+        "Your BookMyMeet student account is ready",
+        f"<p>Hi {escape(student_name or 'there')},</p>"
+        f"<p>An account has been created for you. Sign in and you'll be asked to set your own "
+        f"password before you continue.</p>"
+        f'<p style="margin:18px 0;padding:14px 16px;background:#F5F7FA;border-radius:8px;">'
+        f"<strong>Email:</strong> {escape(to_email)}<br>"
+        f"<strong>Temporary password:</strong> {escape(temp_password)}</p>"
+        f'<p style="margin:22px 0;">'
+        f'<a href="{login_url}" style="background:#D32F2F;color:#fff;padding:12px 22px;'
+        f'border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">'
+        f"Sign in</a></p>"
+        f'<p style="color:#555;font-size:13px;">For your security, change this temporary '
+        f"password as soon as you sign in.</p>"
+    )
+    return await _send(to_email, "Your BookMyMeet student account", html)
+
+
+async def send_recording_ready_email(
+    to_email: str,
+    student_name: str,
+    meeting_title: str,
+    meeting_date: str,
+    dashboard_url: str,
+) -> bool:
+    """Tells a student their session recording is ready. Link opens the authenticated dashboard."""
+    from html import escape
+
+    html = _shell(
+        "Your session recording is ready",
+        f"<p>Hello {escape(student_name or 'there')},</p>"
+        f"<p>Your recording for <strong>{escape(meeting_title)}</strong> on "
+        f"{escape(meeting_date)} is now available.</p>"
+        f'<p style="margin:22px 0;">'
+        f'<a href="{dashboard_url}" style="background:#D32F2F;color:#fff;padding:12px 22px;'
+        f'border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">'
+        f"Open My Recordings</a></p>"
+        f'<p style="color:#555;font-size:13px;">Sign in to your student dashboard and open the '
+        f"Meeting Recordings section to watch it.</p>"
+    )
+    return await _send(to_email, "Your BookMyMeet session recording is ready", html)
+
+
+async def send_student_report_email(
+    to_email: str,
+    student_name: str,
+    html_body: str,
+) -> bool:
+    """Delivers a Super-Admin-generated meeting report to the student."""
+    html = _shell("Your BookMyMeet meeting report", html_body)
+    return await _send(to_email, "Your BookMyMeet meeting report", html)
+
+
 async def send_booking_rescheduled_email(
     to_email: str,
     recipient_name: str,
