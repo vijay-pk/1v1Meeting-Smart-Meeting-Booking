@@ -30,6 +30,7 @@ from app.services.email_service import (
     send_booking_confirmation_email,
     send_admin_new_booking_notification,
 )
+from app.services.booking_confirm import confirm_booking_side_effects
 
 logger = logging.getLogger(__name__)
 
@@ -475,159 +476,11 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
     if lock:
         lock.status = "confirmed"
 
-    # 4. Create Google Calendar Event & Google Meet with that Admin's Google OAuth tokens
-    meet_link = None
-    g_conn = (
-        db.query(GoogleConnection)
-        .filter(GoogleConnection.admin_id == admin.id, GoogleConnection.connection_status == "connected")
-        .first()
-    )
-    if booking.google_event_id:
-        # This booking already has an event. /verify short-circuits on a confirmed booking,
-        # but a retry reaching here after a partial failure must not create a second event, a
-        # second Meet link, or send the client a second invitation.
-        meet_link = booking.google_meet_link
-        calendar_error = None
-    elif g_conn and g_conn.encrypted_refresh_token:
-        session_title = booking.meeting_type.title if booking.meeting_type else "Mentorship Call"
-        event_res = await create_calendar_event_with_meet(
-            encrypted_refresh_token=g_conn.encrypted_refresh_token,
-            title=f"{session_title} — {booking.client_name} & {admin.name}",
-            description=f"1-to-1 session on BookMyMeet.\nAttendee: {booking.client_name} ({booking.client_email})\nNotes: {booking.notes or 'None'}",
-            start_time_iso=booking.start_time,
-            end_time_iso=booking.end_time,
-            # The calendar the admin actually chose, not a hardcoded "primary".
-            calendar_id=g_conn.calendar_id or "primary",
-            # Derived from the booking, so a retry asks Google for the same conference rather
-            # than minting a second Meet link for one appointment.
-            idempotency_key=f"bmm_{booking.id}",
-            client_name=booking.client_name,
-            client_email=booking.client_email
-        )
-        booking.google_event_id = event_res.get("event_id")
-        # May be None when Google created the event without a conference, or when event
-        # creation failed. A fabricated meet.google.com link would be worse than none:
-        # the client would follow it and land nowhere.
-        meet_link = event_res.get("meet_link")
-        calendar_error = event_res.get("error")
-        space_name = event_res.get("space_name")
-        if not space_name and meet_link:
-            import re
-            m = re.search(r"meet\.google\.com/([a-zA-Z0-9-]+)", meet_link)
-            if m:
-                space_name = f"spaces/{m.group(1)}"
-        booking.google_meet_space_id = space_name
-        booking.termination_status = "pending" if meet_link else "not_applicable"
-        booking.termination_error = None
-        booking.terminated_at = None
-        booking.termination_retries = 0
-    else:
-        # No calendar connected for this admin: nothing real to link to.
-        meet_link = None
-        calendar_error = "not_connected"
-        booking.google_meet_space_id = None
-        booking.termination_status = "not_applicable"
-        booking.termination_error = None
-        booking.terminated_at = None
-        booking.termination_retries = 0
-
-    booking.google_meet_link = meet_link
-
-    # 5. Create in-app Notification for Admin
-    notification = Notification(
-        admin_id=admin.id,
-        type="new_booking",
-        title=f"New Booking: {booking.client_name}",
-        message=f"{booking.client_name} booked {booking.meeting_type.title if booking.meeting_type else 'Session'} for {booking.start_time}.",
-        booking_id=booking.id
-    )
-    db.add(notification)
-
-    # The booking is confirmed either way -- the money moved, and a calendar outage must not
-    # undo a paid booking. But a confirmed session with no meeting link is something the host
-    # has to act on, so it is surfaced rather than left for them to notice.
-    if calendar_error:
-        db.add(Notification(
-            admin_id=admin.id,
-            type="calendar_failed",
-            title="Action needed: no meeting link was created",
-            message=(
-                f"The booking for {booking.client_name} on {booking.start_time} is confirmed "
-                f"and paid, but the Google Calendar event could not be created "
-                f"({calendar_error}). Send the client a meeting link, and reconnect Google "
-                f"Calendar in Settings if the problem persists."
-            ),
-            booking_id=booking.id
-        ))
-
-    db.commit()
-
-    # 5b. Schedule the host's "upcoming meeting" reminder with the Super Admin's current
-    #     setting. After the commit and never fatal: the reminder worker also schedules any
-    #     confirmed booking that is missing one, so a failure here only delays it.
-    try:
-        from app.services.reminders import ensure_reminder
-
-        ensure_reminder(db, booking)
-    except Exception:  # noqa: BLE001
-        db.rollback()
-        logger.exception("Could not schedule the reminder for booking %s", booking.id)
-
-    # 6. Booking confirmation emails -- client and host both get one, each carrying the Meet
-    #    link (or an honest "link is coming" note when the calendar step produced none).
-    #
-    #    After the commit and never fatal: the money has already moved and the booking is
-    #    confirmed. An email-provider outage must not turn a paid booking into a 500, so each
-    #    send is wrapped and its boolean result only logged. The From address sits on a
-    #    Resend-verified domain; replies go to EMAIL_REPLY_TO (see email_service._send).
-    #
-    #    These Resend messages are the only emails a booking sends. The Google Calendar event
-    #    is created on the host's calendar with sendUpdates=none, so Google does not also mail
-    #    the client and host its own invitation -- that was a second email per person, from a
-    #    second sender, and is the duplicate removed in google_calendar.py. Clients have no
-    #    account here, so they add the meeting from the confirmation page's "Add to Google
-    #    Calendar" / .ics options rather than from a Google invite.
-    session_title = booking.meeting_type.title if booking.meeting_type else "1:1 Session"
-    duration_minutes = booking.meeting_type.duration_minutes if booking.meeting_type else 30
-
-    # Reschedule link for the client's inbox, so they can change the time without needing the
-    # confirmation page again. APP_URL points at the frontend; the token is the booking's.
-    reschedule_url = (
-        f"{settings.APP_URL.rstrip('/')}/booking/reschedule/{booking.reschedule_token}"
-        if booking.reschedule_token else None
-    )
-
-    try:
-        client_sent = await send_booking_confirmation_email(
-            to_email=booking.client_email,
-            client_name=booking.client_name,
-            admin_name=admin.name if admin else "your host",
-            session_title=session_title,
-            start_time=booking.start_time,
-            duration_minutes=duration_minutes,
-            meet_link=meet_link,
-            reschedule_url=reschedule_url,
-        )
-        if not client_sent:
-            logger.warning("Client confirmation email not sent for booking %s", booking.public_id)
-    except Exception:  # noqa: BLE001
-        logger.exception("Client confirmation email failed for booking %s", booking.public_id)
-
-    if admin and admin.email:
-        try:
-            admin_sent = await send_admin_new_booking_notification(
-                admin_email=admin.email,
-                admin_name=admin.name,
-                client_name=booking.client_name,
-                client_email=booking.client_email,
-                session_title=session_title,
-                start_time=booking.start_time,
-                meet_link=meet_link,
-            )
-            if not admin_sent:
-                logger.warning("Admin booking email not sent for booking %s", booking.public_id)
-        except Exception:  # noqa: BLE001
-            logger.exception("Admin booking email failed for booking %s", booking.public_id)
+    # 4-6. Calendar event + Meet link, host notification, reminder, and confirmation emails.
+    #      Extracted into one helper so the free student-booking path runs identical
+    #      confirmation side effects (services/booking_confirm.py). Never fatal: the booking is
+    #      already confirmed, and a calendar/email outage must not turn it into a 500.
+    meet_link = await confirm_booking_side_effects(db, booking, admin)
 
     return {
         "status": "confirmed",

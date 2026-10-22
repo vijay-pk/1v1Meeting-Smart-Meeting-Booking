@@ -103,6 +103,38 @@ def _get_student_or_404(db: Session, student_id: str) -> User:
     return student
 
 
+@router.get("/student-policy")
+def get_policy(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    from app.services.platform_settings import get_student_policy
+    return get_student_policy(db)
+
+
+@router.put("/student-policy")
+def put_policy(body: dict, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    from app.services.platform_settings import set_student_policy
+    version = str(body.get("version") or "").strip()
+    text = body.get("text")
+    if not version or not text:
+        raise HTTPException(status_code=400, detail="version and text are required.")
+    return set_student_policy(db, version=version, text=text, updated_by=current.id)
+
+
+@router.get("/grace-period")
+def get_grace(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    from app.services.platform_settings import get_grace_minutes, GRACE_CHOICES
+    return {"minutes": get_grace_minutes(db), "choices": list(GRACE_CHOICES)}
+
+
+@router.put("/grace-period")
+def put_grace(body: dict, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    from app.services.platform_settings import set_grace_minutes
+    try:
+        minutes = set_grace_minutes(db, minutes=int(body.get("minutes")), updated_by=current.id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Unsupported grace period.")
+    return {"minutes": minutes}
+
+
 @router.get("/students")
 def list_students(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
     students = (
@@ -196,6 +228,100 @@ def adjust_allowance(student_id: str, body: AllowanceAdjustRequest, current=Depe
         ))
         db.commit()
     return _student_row(db, student, detail=True)
+
+
+@router.get("/students/{student_id}/bookings")
+def student_bookings(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    student = _get_student_or_404(db, student_id)
+    rows = (
+        db.query(Booking)
+        .filter(Booking.student_id == student.id)
+        .order_by(Booking.start_time.desc())
+        .all()
+    )
+    return [
+        {
+            "id": b.id, "public_id": b.public_id,
+            "session_title": b.meeting_type.title if b.meeting_type else "Session",
+            "category": b.category, "start_time": b.start_time, "end_time": b.end_time,
+            "status": b.status, "attendance_status": b.attendance_status,
+            "payment_status": b.payment_status, "google_meet_link": b.google_meet_link,
+        }
+        for b in rows
+    ]
+
+
+@router.get("/students/{student_id}/recordings")
+def student_recordings(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    from app.services.meeting_recording import recording_capability, ensure_recording_row, recording_out
+    student = _get_student_or_404(db, student_id)
+    cap = recording_capability(db)
+    past = (
+        db.query(Booking)
+        .filter(Booking.student_id == student.id, Booking.google_meet_space_id.isnot(None))
+        .order_by(Booking.start_time.desc())
+        .all()
+    )
+    items = []
+    for b in past:
+        row = ensure_recording_row(db, b)
+        out = recording_out(row)
+        out["session_title"] = b.meeting_type.title if b.meeting_type else "Session"
+        out["start_time"] = b.start_time
+        items.append(out)
+    return {"capability": cap, "recordings": items}
+
+
+@router.post("/students/{student_id}/attendance")
+def set_attendance(student_id: str, body: dict, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    """
+    Super Admin review of a session's attendance (the no-show/complete decision). Audited by the
+    allowance-derived count; a free no-show consumes one meeting, a correction back to pending
+    releases it. Never silently rewrites history -- the change is explicit and logged here.
+    """
+    booking_id = body.get("booking_id")
+    new_status = body.get("attendance_status")
+    if new_status not in ("completed", "no_show", "pending_review", "pending"):
+        raise HTTPException(status_code=400, detail="Invalid attendance_status.")
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id, Booking.student_id == student_id)
+        .first()
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found for this student.")
+    booking.attendance_status = new_status
+    db.commit()
+    return {"booking_id": booking.id, "attendance_status": booking.attendance_status}
+
+
+@router.post("/students/{student_id}/report")
+async def generate_report(student_id: str, body: dict | None = None, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    """
+    Builds the student's meeting report from authoritative DB rows. With {"send": true} it also
+    emails the student via Resend and records the delivery; otherwise it just returns the HTML
+    for preview.
+    """
+    from app.services.student_report import build_report_html
+    from app.services.email_service import send_student_report_email
+    from app.models.models import ReportDelivery
+    from datetime import datetime, timezone
+
+    student = _get_student_or_404(db, student_id)
+    html = build_report_html(db, student)
+    send = bool((body or {}).get("send"))
+    sent = False
+    if send:
+        try:
+            sent = await send_student_report_email(to_email=student.email, student_name=student.name, html_body=html)
+        except Exception:  # noqa: BLE001
+            logger.exception("Report email failed for student %s", student.id)
+        db.add(ReportDelivery(
+            student_id=student.id, generated_by=current.id, recipient=student.email,
+            sent_at=datetime.now(timezone.utc) if sent else None,
+        ))
+        db.commit()
+    return {"html": html, "sent": sent}
 
 
 @router.post("/students/{student_id}/resend-credentials")

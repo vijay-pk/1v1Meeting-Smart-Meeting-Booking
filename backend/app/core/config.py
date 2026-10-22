@@ -131,6 +131,14 @@ class Settings(BaseSettings):
     REMINDER_POLL_SECONDS: int = int(os.getenv("REMINDER_POLL_SECONDS", "60"))
     CRON_SECRET: str = os.getenv("CRON_SECRET", "")
 
+    # Meeting recording retrieval (student system). OFF by default and intentionally so: Google
+    # Meet recordings exist only on a Google Workspace account with recording enabled, and
+    # fetching them needs an added Drive OAuth scope + the Super Admin re-consenting. Until that
+    # external setup is done and this is flipped on, the student "My Recordings" area shows an
+    # honest "recording not configured" status and no recording is ever faked. Do NOT enable
+    # without the documented Workspace + scope setup.
+    RECORDING_RETRIEVAL_ENABLED: bool = os.getenv("RECORDING_RETRIEVAL_ENABLED", "false").lower() in ("1", "true", "yes")
+
     # Meeting termination enforcement.
     # The in-process worker checks for due terminations every TERMINATION_POLL_SECONDS while the
     # server is running. For hosts that sleep when idle, POST /api/internal/termination/run can be
