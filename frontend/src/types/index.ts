@@ -61,6 +61,8 @@ export interface MeetingType {
   offer_price?: number; // offer price (in smallest unit)
   currency: Currency;
   is_active: boolean;
+  /** "public" (default) | "student_free" | "student_paid" — student types are hidden from the public page. */
+  audience?: string;
   buffer_before_minutes: number;
   buffer_after_minutes: number;
   min_advance_hours: number;
