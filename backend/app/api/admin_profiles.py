@@ -67,7 +67,13 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
     if user.status == "ACTIVE":
         active_sessions = (
             db.query(SessionModel)
-            .filter(SessionModel.admin_id == user.id, SessionModel.is_active == True)
+            .filter(
+                SessionModel.admin_id == user.id,
+                SessionModel.is_active == True,
+                # Student-only meeting types never appear on the public vanity page; they are
+                # offered solely inside the student dashboard. NULL (legacy rows) counts public.
+                (SessionModel.audience == "public") | (SessionModel.audience.is_(None)),
+            )
             .order_by(SessionModel.sort_order.asc(), SessionModel.price.asc())
             .all()
         )

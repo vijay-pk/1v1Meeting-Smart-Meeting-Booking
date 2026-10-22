@@ -324,6 +324,17 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
     if booking.status not in ("confirmed", "pending_payment"):
         raise HTTPException(status_code=409, detail="This booking can no longer be rescheduled.")
 
+    # Student self-service changes stop 24h before the session. Enforced on the backend so an
+    # old email link or a direct API call cannot slip past the deadline. Client bookings are
+    # unaffected (no window) -- the rule applies only to student-category bookings.
+    if booking.category in ("student_free", "student_paid"):
+        from app.services.student_rules import within_change_window
+        if not within_change_window(booking.start_time):
+            raise HTTPException(
+                status_code=403,
+                detail="Rescheduling closes 24 hours before the session. Please contact the host.",
+            )
+
     new_start = req.start_time.strip()
     new_end = req.end_time.strip()
     if not new_start or not new_end:

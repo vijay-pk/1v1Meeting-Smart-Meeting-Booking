@@ -58,6 +58,43 @@ class Token(BaseModel):
     username: str
     name: str
     status: str
+    must_change_password: bool = False
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+# Student system
+class StudentCreate(BaseModel):
+    name: str
+    email: EmailStr
+    allocated: int = 0
+
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+class AllowanceAdjustRequest(BaseModel):
+    allocated: int
+    reason: Optional[str] = None
+
+class StudentStatusUpdate(BaseModel):
+    status: str  # ACTIVE | TEMPORARILY_DISABLED
+
+class StudentPolicyAcceptRequest(BaseModel):
+    policy_version: str
+
+class StudentFreeBookingRequest(BaseModel):
+    session_id: str
+    start_time: str
+    end_time: str
+    lock_id: str
+
+class StudentPaidOrderRequest(BaseModel):
+    session_id: str
+    start_time: str
+    end_time: str
+    lock_id: str
 
 # Profile schemas
 class ThemeSettings(BaseModel):
@@ -126,6 +163,8 @@ class SessionCreate(BaseModel):
     buffer_after_minutes: int = 10
     min_advance_hours: int = 1
     max_advance_days: int = 30
+    # "public" (default, shown on the vanity page) | "student_free" | "student_paid".
+    audience: str = "public"
     # None or [] = use the admin's general availability.
     available_hours: Optional[List[SessionTimeWindowItem]] = None
 
@@ -141,6 +180,7 @@ class SessionUpdate(BaseModel):
     buffer_after_minutes: Optional[int] = None
     min_advance_hours: Optional[int] = None
     max_advance_days: Optional[int] = None
+    audience: Optional[str] = None
     # Omitted = unchanged. null or [] = back to the admin's general availability.
     available_hours: Optional[List[SessionTimeWindowItem]] = None
 
@@ -165,6 +205,7 @@ class PublicSessionResponse(BaseModel):
         from_attributes = True
 
 class SessionResponse(PublicSessionResponse):
+    audience: Optional[str] = "public"
     available_hours: Optional[List[SessionTimeWindowItem]] = None
 
 # Availability schemas

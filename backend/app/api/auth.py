@@ -1,6 +1,7 @@
 import logging
 import re
 import secrets
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,10 +10,11 @@ from app.core.database import get_db
 from app.core.security import (
     verify_password, get_password_hash, create_access_token, normalize_email,
 )
-from app.models.models import User, AdminProfile, AvailabilityRule
+from app.models.models import User, AdminProfile, AvailabilityRule, UserSecurityState
 from app.schemas.schemas import (
     UserLogin, UserSignup, Token, AdminProfileResponse,
     GoogleAuthRequest, GoogleAuthCompleteRequest, GoogleAuthResponse, UsernameAvailability,
+    ChangePasswordRequest,
 )
 from app.api.deps import get_current_user
 from app.services.supabase_auth import (
@@ -42,6 +44,9 @@ def _token_response(user: User, username: str) -> dict:
         "username": username,
         "name": user.name,
         "status": user.status,
+        # Lets the frontend route a freshly-created student to the change-password screen
+        # before their dashboard. The backend enforces it regardless (deps.get_current_student).
+        "must_change_password": bool(getattr(user, "must_change_password", False)),
     }
 
 
@@ -224,6 +229,43 @@ def login(login_data: UserLogin, db: Session = Depends(get_db)):
 
     username = user.profile.username if user.profile else user.email.split("@")[0]
     return _token_response(user, username)
+
+
+@router.post("/change-password", response_model=Token)
+def change_password(body: ChangePasswordRequest, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Any signed-in user changes their own password. This is also the one endpoint a freshly
+    created student (must_change_password=True) may call before anything else -- it depends on
+    get_current_user, not get_current_student, so the must-change gate does not block it.
+
+    Verifies the current password, stores the new hash, clears must_change_password, and ends
+    every other session by advancing tokens_valid_after. Returns a fresh token for this caller.
+    """
+    if not verify_password(body.current_password, current.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect.")
+
+    new_password = (body.new_password or "").strip()
+    if len(new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 8 characters.")
+    if verify_password(new_password, current.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different from the current one.")
+
+    current.password_hash = get_password_hash(new_password)
+    if getattr(current, "must_change_password", False):
+        current.must_change_password = False
+
+    # End every session issued before now (the shared temporary password included).
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    state = db.query(UserSecurityState).filter(UserSecurityState.user_id == current.id).first()
+    if state is None:
+        db.add(UserSecurityState(user_id=current.id, tokens_valid_after=now.replace(tzinfo=None)))
+    else:
+        state.tokens_valid_after = now.replace(tzinfo=None)
+    db.commit()
+    db.refresh(current)
+
+    username = current.profile.username if current.profile else current.email.split("@")[0]
+    return _token_response(current, username)
 
 
 @router.post("/signup", response_model=Token)

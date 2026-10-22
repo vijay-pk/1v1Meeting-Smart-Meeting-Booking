@@ -41,6 +41,10 @@ from app.models.models import (
     SlotLock,
 )
 from app.api import payments as payments_api
+# The calendar/meet + confirmation side effects were extracted from payments./verify into this
+# shared helper (reused by the free student-booking path). Tests that stub the Google event
+# patch it here, where the call now lives.
+from app.services import booking_confirm as booking_confirm_svc
 from app.services import booking_slots
 
 seed_initial_data()
@@ -331,7 +335,7 @@ def test_a_calendar_failure_produces_no_link_rather_than_a_fake_one(admin, db, m
     async def failing_event(**kwargs):
         return {"event_id": None, "meet_link": None, "html_link": None, "error": failure}
 
-    monkeypatch.setattr(payments_api, "create_calendar_event_with_meet", failing_event)
+    monkeypatch.setattr(booking_confirm_svc, "create_calendar_event_with_meet", failing_event)
 
     held = _hold(admin)
     order = _order(admin, held.json()["lock_id"]).json()
@@ -659,7 +663,7 @@ def test_the_client_is_listed_as_an_attendee_on_the_host_event(admin, db, monkey
             "html_link": "https://calendar.google.com/x",
         }
 
-    monkeypatch.setattr(payments_api, "create_calendar_event_with_meet", fake_event)
+    monkeypatch.setattr(booking_confirm_svc, "create_calendar_event_with_meet", fake_event)
 
     held = _hold(admin)
     order = _order(admin, held.json()["lock_id"]).json()
@@ -699,7 +703,7 @@ def test_a_retry_does_not_create_a_second_calendar_event(admin, db, monkeypatch)
         calls["n"] += 1
         return {"event_id": "evt_once", "meet_link": "https://meet.google.com/x", "html_link": None}
 
-    monkeypatch.setattr(payments_api, "create_calendar_event_with_meet", counting_event)
+    monkeypatch.setattr(booking_confirm_svc, "create_calendar_event_with_meet", counting_event)
 
     held = _hold(admin)
     order = _order(admin, held.json()["lock_id"]).json()

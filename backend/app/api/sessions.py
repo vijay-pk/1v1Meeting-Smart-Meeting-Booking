@@ -22,6 +22,14 @@ MAX_WINDOWS_PER_DAY = 10
 
 DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
+VALID_AUDIENCES = {"public", "student_free", "student_paid"}
+
+
+def _validate_audience(value):
+    if value is not None and value not in VALID_AUDIENCES:
+        raise HTTPException(status_code=400, detail="audience must be public, student_free or student_paid.")
+    return value
+
 
 def _validated_windows(items: Optional[List[SessionTimeWindowItem]]) -> List[tuple]:
     """
@@ -97,6 +105,7 @@ def create_session(
     db: Session = Depends(get_db)
 ):
     windows = _validated_windows(session_in.available_hours)
+    _validate_audience(session_in.audience)
     new_session = SessionModel(
         admin_id=current_admin.id,
         title=session_in.title,
@@ -109,7 +118,8 @@ def create_session(
         buffer_before_minutes=session_in.buffer_before_minutes,
         buffer_after_minutes=session_in.buffer_after_minutes,
         min_advance_hours=session_in.min_advance_hours,
-        max_advance_days=session_in.max_advance_days
+        max_advance_days=session_in.max_advance_days,
+        audience=session_in.audience or "public",
     )
     _replace_windows(new_session, windows)
     db.add(new_session)
@@ -133,6 +143,8 @@ def update_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     update_data = session_in.dict(exclude_unset=True)
+    if "audience" in update_data:
+        _validate_audience(update_data["audience"])
     # Only touched when the caller sent it, so toggling is_active leaves the hours alone.
     hours_sent = "available_hours" in update_data
     update_data.pop("available_hours", None)

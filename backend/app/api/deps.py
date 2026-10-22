@@ -111,3 +111,31 @@ def get_current_super_admin(current_user: User = Depends(get_current_user)) -> U
             detail="Super Admin privileges required"
         )
     return current_user
+
+
+# Marks a 403 that the client should resolve by sending the student to the change-password
+# screen rather than treating it as a dead session. Not REVOKED (the credential is valid);
+# the account simply cannot proceed until the temporary password is replaced.
+PASSWORD_CHANGE_REQUIRED = "password_change_required"
+
+
+def get_current_student(current_user: User = Depends(get_current_user)) -> User:
+    """
+    A signed-in student whose temporary password has already been replaced.
+
+    Every student API depends on this, so a student created with the shared temporary password
+    (`must_change_password = True`) is refused everything except POST /auth/change-password
+    (which depends on get_current_user, not this) until they set their own password. The gate
+    is here on the backend, never only in the UI.
+    """
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Student account required",
+        )
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PASSWORD_CHANGE_REQUIRED,
+        )
+    return current_user

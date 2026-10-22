@@ -115,6 +115,9 @@ export const AdminLoginPage: React.FC = () => {
       setLoading(false);
       if (data.role === 'super_admin') {
         navigate('/super-admin');
+      } else if (data.role === 'student') {
+        // A student created with the shared temporary password must set their own first.
+        navigate(data.must_change_password ? '/student/change-password' : '/student');
       } else {
         navigate('/admin');
       }

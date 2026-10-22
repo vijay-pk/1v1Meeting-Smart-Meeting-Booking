@@ -894,5 +894,128 @@ export const api = {
     }
 
     return await res.json();
-  }
+  },
+
+  // ---- Auth: change password (students forced on first login; any user) ----
+  changePassword: async (current_password: string, new_password: string) => {
+    const res = await request(`/auth/change-password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    if (!res.ok) throw await failure(res, 'Could not change your password.');
+    return res.json();
+  },
+
+  // ---- Student portal ----
+  studentMe: async () => {
+    const res = await request(`/student/me`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load your account.');
+    return res.json();
+  },
+  studentMeetingTypes: async () => {
+    const res = await request(`/student/meeting-types`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load meeting types.');
+    return res.json();
+  },
+  studentBookFree: async (data: { session_id: string; start_time: string; end_time: string; lock_id: string }) => {
+    const res = await request(`/student/bookings/free`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await failure(res, 'Could not book that session.');
+    return res.json();
+  },
+  studentPaidOrder: async (data: { session_id: string; start_time: string; end_time: string; lock_id: string }) => {
+    const res = await request(`/student/bookings/paid-order`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await failure(res, 'Could not start payment.');
+    return res.json();
+  },
+  studentMyBookings: async () => {
+    const res = await request(`/student/bookings`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load your meetings.');
+    return res.json();
+  },
+  studentCancel: async (bookingId: string) => {
+    const res = await request(`/student/bookings/${bookingId}/cancel`, { method: 'POST', headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not cancel that booking.');
+    return res.json();
+  },
+  studentRecordings: async () => {
+    const res = await request(`/student/recordings`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load recordings.');
+    return res.json();
+  },
+  studentPolicy: async () => {
+    const res = await request(`/student/policy`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load the policy.');
+    return res.json();
+  },
+  studentAcceptPolicy: async (policy_version: string) => {
+    const res = await request(`/student/policy/accept`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ policy_version }),
+    });
+    if (!res.ok) throw await failure(res, 'Could not record acceptance.');
+    return res.json();
+  },
+
+  // ---- Super Admin: students ----
+  saStudentsList: async () => {
+    const res = await request(`/super-admin/students`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load students.');
+    return res.json();
+  },
+  saStudentGet: async (id: string) => {
+    const res = await request(`/super-admin/students/${id}`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load that student.');
+    return res.json();
+  },
+  saStudentCreate: async (data: { name: string; email: string; allocated: number }) => {
+    const res = await request(`/super-admin/students`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await failure(res, 'Could not create the student.');
+    return res.json();
+  },
+  saStudentUpdate: async (id: string, data: { name?: string; email?: string }) => {
+    const res = await request(`/super-admin/students/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw await failure(res, 'Could not update the student.');
+    return res.json();
+  },
+  saStudentStatus: async (id: string, status: string) => {
+    const res = await request(`/super-admin/students/${id}/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw await failure(res, 'Could not update status.');
+    return res.json();
+  },
+  saStudentAllowance: async (id: string, allocated: number, reason?: string) => {
+    const res = await request(`/super-admin/students/${id}/allowance`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ allocated, reason }),
+    });
+    if (!res.ok) throw await failure(res, 'Could not adjust the allowance.');
+    return res.json();
+  },
+  saStudentResendCredentials: async (id: string) => {
+    const res = await request(`/super-admin/students/${id}/resend-credentials`, { method: 'POST', headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not resend credentials.');
+    return res.json();
+  },
+  saStudentReport: async (id: string, send: boolean) => {
+    const res = await request(`/super-admin/students/${id}/report`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ send }),
+    });
+    if (!res.ok) throw await failure(res, 'Could not generate the report.');
+    return res.json();
+  },
 };

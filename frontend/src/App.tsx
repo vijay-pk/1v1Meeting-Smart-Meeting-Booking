@@ -37,6 +37,14 @@ import { TermsPage } from '@/pages/public/TermsPage';
 import { CancelBookingPage } from '@/pages/public/CancelBookingPage';
 import { RescheduleBookingPage } from '@/pages/public/RescheduleBookingPage';
 
+// Student Pages
+import { StudentLayout } from '@/components/layout/StudentLayout';
+import { StudentChangePasswordPage } from '@/pages/student/StudentChangePasswordPage';
+import { StudentOverviewPage } from '@/pages/student/StudentOverviewPage';
+import { StudentBookPage } from '@/pages/student/StudentBookPage';
+import { StudentMeetingsPage } from '@/pages/student/StudentMeetingsPage';
+import { StudentRecordingsPage } from '@/pages/student/StudentRecordingsPage';
+
 import { warmUpBackend } from '@/lib/api';
 
 function RedirectWithSearch({ to }: { to: string }) {
@@ -52,8 +60,9 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Main Interface: Admin Signup Platform */}
-        <Route path="/" element={<SignupPage />} />
+        {/* Sign In is the front door (Section 7): a fresh visit lands on the login form, with
+            a "Sign up" link beneath it. Signup still lives at /signup. */}
+        <Route path="/" element={<AdminLoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/book" element={<SuperProfileHomePage />} />
         <Route path="/book/:username" element={<SuperProfileHomePage />} />
@@ -100,6 +109,15 @@ export const App: React.FC = () => {
           <Route path="/admin/payments" element={<PaymentsPage />} />
           <Route path="/admin/settings" element={<SettingsPage />} />
           <Route path="/admin/settings/:section" element={<SettingsPage />} />
+        </Route>
+
+        {/* Student portal. Must sit above the /:username catch-all. */}
+        <Route path="/student/change-password" element={<StudentChangePasswordPage />} />
+        <Route element={<StudentLayout />}>
+          <Route path="/student" element={<StudentOverviewPage />} />
+          <Route path="/student/book" element={<StudentBookPage />} />
+          <Route path="/student/meetings" element={<StudentMeetingsPage />} />
+          <Route path="/student/recordings" element={<StudentRecordingsPage />} />
         </Route>
 
         {/* Dynamic Personal Admin Root URL: yourdomain.com/:username & yourdomain.com/bookings/:username */}

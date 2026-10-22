@@ -92,6 +92,7 @@ export function MeetingTypesPage() {
           offer_price: s.price,
           currency: (s.currency || 'INR') as Currency,
           is_active: s.is_active,
+          audience: s.audience || 'public',
           buffer_before_minutes: s.buffer_before_minutes || 0,
           buffer_after_minutes: s.buffer_after_minutes || 0,
           min_advance_hours: s.min_advance_hours ?? 1,
@@ -138,7 +139,9 @@ export function MeetingTypesPage() {
       setError('Meeting name is required');
       return;
     }
-    if (!editingMeeting.price || editingMeeting.price <= 0) {
+    // Free student sessions are priced at 0 by design; every other type needs a real price.
+    const isFreeStudent = (editingMeeting as any).audience === 'student_free';
+    if (!isFreeStudent && (!editingMeeting.price || editingMeeting.price <= 0)) {
       setError('Price must be greater than 0');
       return;
     }
@@ -162,6 +165,7 @@ export function MeetingTypesPage() {
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
         min_advance_hours: editingMeeting.min_advance_hours ?? 1,
+        audience: (editingMeeting as any).audience || 'public',
         available_hours: 'windows' in hours ? hours.windows : null,
       };
 
@@ -380,6 +384,27 @@ export function MeetingTypesPage() {
                 }
                 rows={3}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="mt-audience">Audience</Label>
+              <Select
+                value={(editingMeeting as any)?.audience || 'public'}
+                onValueChange={(v) => setEditingMeeting((m) => ({ ...(m as any), audience: v }))}
+              >
+                <SelectTrigger id="mt-audience">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">Public — shown on your booking page</SelectItem>
+                  <SelectItem value="student_free">Students · Free — no charge, uses free allowance</SelectItem>
+                  <SelectItem value="student_paid">Students · Paid — charged via Razorpay</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-text-tertiary">
+                Student types appear only in the student dashboard, never on your public page.
+                Free types can have a price of 0.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
