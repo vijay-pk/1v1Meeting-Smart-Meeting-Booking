@@ -50,6 +50,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { SuperAdminStudents } from '@/components/super-admin/SuperAdminStudents';
 import {
   Dialog,
   DialogContent,
@@ -918,6 +919,12 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               })}
           </div>
         </div>
+
+        {/* =========================================================================
+            SECTION 2b: STUDENTS — Super-Admin-managed student accounts, free/paid
+            allowances, credentials, reports. Backend: /api/super-admin/students.
+           ========================================================================= */}
+        <SuperAdminStudents />
 
         {/* =========================================================================
             SECTION 3: REVENUE BY CONSULTANT + ALL PLATFORM BOOKINGS
