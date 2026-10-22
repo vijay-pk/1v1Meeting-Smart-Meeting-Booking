@@ -52,8 +52,9 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Main Interface: Admin Signup Platform */}
-        <Route path="/" element={<SignupPage />} />
+        {/* Sign In is the front door (Section 7): a fresh visit lands on the login form, with
+            a "Sign up" link beneath it. Signup still lives at /signup. */}
+        <Route path="/" element={<AdminLoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/book" element={<SuperProfileHomePage />} />
         <Route path="/book/:username" element={<SuperProfileHomePage />} />
