@@ -40,30 +40,29 @@ export const SuperAdminStudents: React.FC = () => {
   const [meetings, setMeetings] = useState<any[] | null>(null);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
 
-  // Inline allowance +/- adjustment inside the details modal
-  const [adjustDir, setAdjustDir] = useState<null | 'add' | 'sub'>(null);
-  const [adjustAmt, setAdjustAmt] = useState(1);
-  const [adjustErr, setAdjustErr] = useState<string | null>(null);
+  // Inline allowance step controls (±1) on the Allocated card.
+  const [stepBusy, setStepBusy] = useState<null | 'add' | 'sub'>(null);
+  const [allowErr, setAllowErr] = useState<string | null>(null);
+  const [allowOk, setAllowOk] = useState(false);
 
-  const openAdjust = (dir: 'add' | 'sub') => { setAdjustDir(dir); setAdjustAmt(1); setAdjustErr(null); };
-
-  const applyAdjust = async () => {
-    if (!view || !adjustDir) return;
-    const amt = Number(adjustAmt);
-    if (!amt || amt <= 0) return setAdjustErr('Enter a number greater than 0.');
-    const next = adjustDir === 'add' ? view.allocated + amt : view.allocated - amt;
-    if (next < 0) return setAdjustErr('Allowance cannot be negative.');
-    if (next < view.completed) return setAdjustErr(`Allowance cannot drop below the ${view.completed} already used.`);
-    setBusyId(view.id); setAdjustErr(null);
+  const step = async (dir: 'add' | 'sub') => {
+    if (!view || stepBusy) return;
+    const next = view.allocated + (dir === 'add' ? 1 : -1);
+    if (next < 0) return;
+    if (next < view.completed) { setAllowErr(`Cannot go below the ${view.completed} already used.`); setTimeout(() => setAllowErr(null), 3000); return; }
+    setStepBusy(dir); setAllowErr(null); setAllowOk(false);
     try {
-      const u = await api.saStudentAllowance(view.id, next, adjustDir === 'add' ? `+${amt} meeting(s)` : `-${amt} meeting(s)`);
+      const u = await api.saStudentAllowance(view.id, next, dir === 'add' ? '+1 meeting' : '-1 meeting');
+      // Only on backend success; never optimistic.
       setView({ ...view, allocated: u.allocated, completed: u.completed, remaining: u.remaining });
-      setAdjustDir(null); setAdjustAmt(1);
       load();
+      setAllowOk(true);
+      setTimeout(() => setAllowOk(false), 2000);
     } catch (e: any) {
-      setAdjustErr(e?.message || 'Could not adjust the allowance.');
+      setAllowErr(e?.message || 'Could not update the allowance.');
+      setTimeout(() => setAllowErr(null), 4000);
     } finally {
-      setBusyId(null);
+      setStepBusy(null);
     }
   };
 
@@ -258,42 +257,32 @@ export const SuperAdminStudents: React.FC = () => {
               </div>
               <button onClick={() => setView(null)}><X className="w-5 h-5 text-text-tertiary" /></button>
             </div>
-            <div className="flex items-center justify-between pt-3">
-              <span className="text-xs font-semibold text-text-secondary">Free-meeting allowance</span>
-              <div className="flex items-center gap-1">
-                <Button size="sm" variant="outline" className="h-7 w-7 px-0" title="Decrease allowance" aria-label="Decrease allowance" disabled={busyId === view.id} onClick={() => openAdjust('sub')}><Minus className="w-3.5 h-3.5" /></Button>
-                <Button size="sm" variant="outline" className="h-7 w-7 px-0" title="Increase allowance" aria-label="Increase allowance" disabled={busyId === view.id} onClick={() => openAdjust('add')}><Plus className="w-3.5 h-3.5" /></Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 pt-2 text-center">
-              {[['Allocated', view.allocated], ['Used', view.completed], ['Remaining', view.remaining]].map(([l, v]) => (
-                <div key={l as string} className="rounded-lg border border-border py-2">
-                  <div className="text-lg font-bold text-text-primary">{v as number}</div>
-                  <div className="text-[11px] text-text-tertiary">{l as string}</div>
-                </div>
-              ))}
-            </div>
-            {adjustDir && (
-              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
-                <p className="text-xs font-semibold text-indigo-900">
-                  {adjustDir === 'add' ? 'Add meetings to' : 'Remove meetings from'} the allowance
-                  <span className="font-normal text-indigo-700"> (now: {view.allocated} allocated · {view.completed} used · {view.remaining} left)</span>
-                </p>
-                <div className="flex items-center gap-2">
-                  <Input type="number" min={1} value={adjustAmt} onChange={(e) => setAdjustAmt(Number(e.target.value))} className="h-8 w-24" />
-                  <span className="text-xs text-text-tertiary">
-                    → new allocated: <b>{Math.max(0, adjustDir === 'add' ? view.allocated + (Number(adjustAmt) || 0) : view.allocated - (Number(adjustAmt) || 0))}</b>
-                  </span>
-                </div>
-                {adjustErr && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="w-3.5 h-3.5" /> {adjustErr}</p>}
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setAdjustDir(null)}>Cancel</Button>
-                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={busyId === view.id} onClick={applyAdjust}>
-                    {busyId === view.id ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Saving…</> : 'Confirm'}
+            <div className="grid grid-cols-3 gap-3 pt-3 text-center">
+              <div className="rounded-lg border border-border py-2">
+                <div className="flex items-center justify-center gap-1.5">
+                  <Button size="sm" variant="outline" className="h-6 w-6 px-0 shrink-0" title="Decrease allowance" aria-label="Decrease allowance"
+                    disabled={stepBusy !== null || view.allocated <= view.completed} onClick={() => step('sub')}>
+                    {stepBusy === 'sub' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
+                  </Button>
+                  <span className="w-6 text-lg font-bold text-text-primary tabular-nums">{view.allocated}</span>
+                  <Button size="sm" variant="outline" className="h-6 w-6 px-0 shrink-0" title="Increase allowance" aria-label="Increase allowance"
+                    disabled={stepBusy !== null} onClick={() => step('add')}>
+                    {stepBusy === 'add' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
                   </Button>
                 </div>
+                <div className="mt-0.5 text-[11px] text-text-tertiary">Allocated</div>
               </div>
-            )}
+              <div className="rounded-lg border border-border py-2">
+                <div className="text-lg font-bold text-text-primary">{view.completed}</div>
+                <div className="text-[11px] text-text-tertiary">Used</div>
+              </div>
+              <div className="rounded-lg border border-border py-2">
+                <div className="text-lg font-bold text-text-primary">{view.remaining}</div>
+                <div className="text-[11px] text-text-tertiary">Remaining</div>
+              </div>
+            </div>
+            {allowErr && <p className="mt-1.5 flex items-center gap-1 text-xs text-red-600"><AlertCircle className="w-3.5 h-3.5" /> {allowErr}</p>}
+            {allowOk && <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-600"><Check className="w-3.5 h-3.5" /> Allowance updated.</p>}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
               <span>Status: <b className={view.status === 'ACTIVE' ? 'text-emerald-600' : 'text-amber-600'}>{view.status === 'ACTIVE' ? 'Active' : 'Disabled'}</b></span>
               <span>Paid bookings: {view.paid_sessions}</span>
