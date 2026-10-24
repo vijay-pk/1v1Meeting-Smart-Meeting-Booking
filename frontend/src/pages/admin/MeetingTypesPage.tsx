@@ -61,7 +61,11 @@ const DEFAULT_MEETING: Partial<MeetingType> = {
   sort_order: 0,
 };
 
-export function MeetingTypesPage() {
+export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 'student' } = {}) {
+  // 'public' = regular client meeting types (the public booking page). 'student' = the Super
+  // Admin's student meeting types (free + paid), shown only in the student dashboard. Same form
+  // and list; this flag only changes which audiences are shown and whether price is collected.
+  const isStudent = variant === 'student';
   const { profile } = useAuthStore();
   const [meetingTypes, setMeetingTypes] = useState<MeetingType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,7 +123,7 @@ export function MeetingTypesPage() {
   }, [profile?.id]);
 
   const openCreate = () => {
-    setEditingMeeting({ ...DEFAULT_MEETING });
+    setEditingMeeting({ ...DEFAULT_MEETING, audience: isStudent ? 'student_free' : 'public' } as Partial<MeetingType>);
     setHoursDraft(draftFromWindows(null));
     setError('');
     setDialogOpen(true);
@@ -160,7 +164,8 @@ export function MeetingTypesPage() {
         title: editingMeeting.name!.trim(),
         description: editingMeeting.description || '',
         duration_minutes: editingMeeting.duration_minutes || 30,
-        price: editingMeeting.price!,
+        // Free student types carry no price; the server enforces 0 too.
+        price: isFreeStudent ? 0 : editingMeeting.price!,
         original_price: editingMeeting.original_price || null,
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
@@ -219,15 +224,21 @@ export function MeetingTypesPage() {
     );
   }
 
+  // The two sections never show each other's types: regular = public, student = free + paid.
+  const visible = meetingTypes.filter((m) => {
+    const aud = (m as any).audience || 'public';
+    return isStudent ? aud === 'student_free' || aud === 'student_paid' : aud === 'public';
+  });
+
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader
-        title="Meeting Types"
-        description="Sessions you offer"
+        title={isStudent ? 'Student Meeting Types' : 'Meeting Types'}
+        description={isStudent ? 'Free and paid sessions for your students' : 'Sessions you offer'}
         actions={
           <Button onClick={openCreate} size="touch" className="w-full sm:w-auto">
             <Plus className="w-4 h-4" />
-            New Meeting Type
+            {isStudent ? 'New Student Meeting Type' : 'New Meeting Type'}
           </Button>
         }
       />
@@ -241,25 +252,27 @@ export function MeetingTypesPage() {
         </div>
       )}
 
-      {meetingTypes.length === 0 ? (
+      {visible.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center">
             <Video className="w-12 h-12 text-text-tertiary mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-text-primary mb-2">
-              No meeting types yet
+              {isStudent ? 'No student meeting types yet' : 'No meeting types yet'}
             </h3>
             <p className="text-text-secondary mb-6 max-w-md mx-auto">
-              Add a meeting type to start taking bookings.
+              {isStudent
+                ? 'Create a free or paid session for your students to book.'
+                : 'Add a meeting type to start taking bookings.'}
             </p>
             <Button onClick={openCreate}>
               <Plus className="w-4 h-4" />
-              Add Meeting
+              {isStudent ? 'Create Student Meeting Type' : 'Add Meeting'}
             </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {meetingTypes.map((meeting) => (
+          {visible.map((meeting) => (
             <Card
               key={meeting.id}
               className={`transition-all duration-200 ${
@@ -295,7 +308,9 @@ export function MeetingTypesPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <DollarSign className="w-3.5 h-3.5" />
-                          {formatPrice(meeting.price, meeting.currency as Currency)}
+                          {(meeting as any).audience === 'student_free'
+                            ? 'Free'
+                            : formatPrice(meeting.price, meeting.currency as Currency)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Video className="w-3.5 h-3.5" />
@@ -348,7 +363,9 @@ export function MeetingTypesPage() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingMeeting?.id ? 'Edit Meeting Type' : 'New Meeting Type'}
+              {editingMeeting?.id
+                ? isStudent ? 'Edit Student Meeting Type' : 'Edit Meeting Type'
+                : isStudent ? 'New Student Meeting Type' : 'New Meeting Type'}
             </DialogTitle>
             <DialogDescription className="sr-only">
               Name, duration, price and when this meeting type can be booked
@@ -386,26 +403,26 @@ export function MeetingTypesPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="mt-audience">Audience</Label>
-              <Select
-                value={(editingMeeting as any)?.audience || 'public'}
-                onValueChange={(v) => setEditingMeeting((m) => ({ ...(m as any), audience: v }))}
-              >
-                <SelectTrigger id="mt-audience">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="public">Public — shown on your booking page</SelectItem>
-                  <SelectItem value="student_free">Students · Free — no charge, uses free allowance</SelectItem>
-                  <SelectItem value="student_paid">Students · Paid — charged via Razorpay</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-text-tertiary">
-                Student types appear only in the student dashboard, never on your public page.
-                Free types can have a price of 0.
-              </p>
-            </div>
+            {isStudent && (
+              <div className="space-y-2">
+                <Label htmlFor="mt-audience">Session type</Label>
+                <Select
+                  value={(editingMeeting as any)?.audience || 'student_free'}
+                  onValueChange={(v) => setEditingMeeting((m) => ({ ...(m as any), audience: v }))}
+                >
+                  <SelectTrigger id="mt-audience">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="student_free">Free — no charge, uses the student's free allowance</SelectItem>
+                    <SelectItem value="student_paid">Paid — charged via Razorpay</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-text-tertiary">
+                  Student types appear only in the student dashboard, never on your public page.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -430,28 +447,31 @@ export function MeetingTypesPage() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="mt-currency">Currency</Label>
-                <Select
-                  value={editingMeeting?.currency || 'INR'}
-                  onValueChange={(v) =>
-                    setEditingMeeting((m) => ({ ...m, currency: v as Currency }))
-                  }
-                >
-                  <SelectTrigger id="mt-currency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(CURRENCIES).map(([code, info]) => (
-                      <SelectItem key={code} value={code}>
-                        {info.symbol} {info.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {(editingMeeting as any)?.audience !== 'student_free' && (
+                <div className="space-y-2">
+                  <Label htmlFor="mt-currency">Currency</Label>
+                  <Select
+                    value={editingMeeting?.currency || 'INR'}
+                    onValueChange={(v) =>
+                      setEditingMeeting((m) => ({ ...m, currency: v as Currency }))
+                    }
+                  >
+                    <SelectTrigger id="mt-currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CURRENCIES).map(([code, info]) => (
+                        <SelectItem key={code} value={code}>
+                          {info.symbol} {info.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
+            {(editingMeeting as any)?.audience !== 'student_free' && (
             <div className="space-y-2">
               <Label htmlFor="mt-price">
                 Price ({CURRENCIES[editingMeeting?.currency || 'INR']?.symbol})
@@ -483,6 +503,7 @@ export function MeetingTypesPage() {
                   : '₹0'}
               </p>
             </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="mt-advance">Minimum advance notice</Label>

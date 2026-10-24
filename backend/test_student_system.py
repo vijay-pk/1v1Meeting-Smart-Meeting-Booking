@@ -76,6 +76,45 @@ def test_regular_admin_cannot_list_students(tracked):
     assert r.status_code == 403
 
 
+def test_only_super_admin_manages_student_meeting_types(tracked):
+    """
+    Student meeting types are Super-Admin-only, and a free one is free on the server whatever
+    price the client sent. The price field is removed from the free form, but the guarantee
+    lives on the server, not in the UI.
+    """
+    adm = _user(tracked, "admin", "sx")
+    ah, _ = _headers(adm["email"])
+    denied = client.post("/api/sessions/", headers=ah, json={
+        "title": "Sneaky", "duration_minutes": 30, "price": 50000,
+        "audience": "student_free", "is_active": True,
+    })
+    assert denied.status_code == 403
+
+    boss = _user(tracked, "super_admin", "sy")
+    bh, _ = _headers(boss["email"])
+
+    # A free student type is forced to price 0 even though a price was submitted.
+    free = client.post("/api/sessions/", headers=bh, json={
+        "title": "Free Student", "duration_minutes": 30, "price": 99900,
+        "audience": "student_free", "is_active": True,
+    })
+    assert free.status_code == 200, free.text
+    assert free.json()["audience"] == "student_free"
+    assert free.json()["price"] == 0
+
+    # A paid student type keeps its configured price (existing Razorpay path).
+    paid = client.post("/api/sessions/", headers=bh, json={
+        "title": "Paid Student", "duration_minutes": 30, "price": 150000,
+        "audience": "student_paid", "is_active": True,
+    })
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["price"] == 150000
+
+    # A regular admin cannot touch the Super Admin's student type (scoped out and guarded).
+    edit = client.put(f"/api/sessions/{free.json()['id']}", headers=ah, json={"title": "Hijack"})
+    assert edit.status_code in (403, 404)
+
+
 def test_super_admin_creates_student_with_allowance(tracked):
     boss = _user(tracked, "super_admin", "b")
     headers, _ = _headers(boss["email"])

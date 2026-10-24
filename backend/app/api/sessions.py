@@ -23,12 +23,23 @@ MAX_WINDOWS_PER_DAY = 10
 DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 VALID_AUDIENCES = {"public", "student_free", "student_paid"}
+STUDENT_AUDIENCES = {"student_free", "student_paid"}
 
 
 def _validate_audience(value):
     if value is not None and value not in VALID_AUDIENCES:
         raise HTTPException(status_code=400, detail="audience must be public, student_free or student_paid.")
     return value
+
+
+def _enforce_student_type_permission(current_admin: User, *audiences) -> None:
+    """
+    Only the Super Admin may create or modify a student meeting type. Students book the Super
+    Admin as their host, so student types belong to that account; a regular admin's meeting
+    types and schedule must never depend on them.
+    """
+    if any(a in STUDENT_AUDIENCES for a in audiences) and current_admin.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Only the Super Admin manages student meeting types.")
 
 
 def _validated_windows(items: Optional[List[SessionTimeWindowItem]]) -> List[tuple]:
@@ -105,13 +116,20 @@ def create_session(
     db: Session = Depends(get_db)
 ):
     windows = _validated_windows(session_in.available_hours)
-    _validate_audience(session_in.audience)
+    audience = session_in.audience or "public"
+    _validate_audience(audience)
+    # Student meeting types are the Super Admin's to manage (students book the Super Admin as
+    # their host). A regular admin must not create them, and a free student type is free on the
+    # server regardless of any price the client sent -- the price field is removed from that
+    # form, but the guarantee lives here, not in the UI.
+    _enforce_student_type_permission(current_admin, audience)
+    price = 0 if audience == "student_free" else session_in.price
     new_session = SessionModel(
         admin_id=current_admin.id,
         title=session_in.title,
         description=session_in.description,
         duration_minutes=session_in.duration_minutes,
-        price=session_in.price,
+        price=price,
         original_price=session_in.original_price,
         currency=session_in.currency,
         is_active=session_in.is_active,
@@ -119,7 +137,7 @@ def create_session(
         buffer_after_minutes=session_in.buffer_after_minutes,
         min_advance_hours=session_in.min_advance_hours,
         max_advance_days=session_in.max_advance_days,
-        audience=session_in.audience or "public",
+        audience=audience,
     )
     _replace_windows(new_session, windows)
     db.add(new_session)
@@ -145,6 +163,13 @@ def update_session(
     update_data = session_in.dict(exclude_unset=True)
     if "audience" in update_data:
         _validate_audience(update_data["audience"])
+    # Guard on both the current and the target audience, so a regular admin can neither edit an
+    # existing student type nor switch a type into one. A free student type is forced to price 0
+    # on the server, whatever the client sent.
+    resulting_audience = update_data.get("audience", session_obj.audience)
+    _enforce_student_type_permission(current_admin, session_obj.audience, resulting_audience)
+    if resulting_audience == "student_free":
+        update_data["price"] = 0
     # Only touched when the caller sent it, so toggling is_active leaves the hours alone.
     hours_sent = "available_hours" in update_data
     update_data.pop("available_hours", None)
