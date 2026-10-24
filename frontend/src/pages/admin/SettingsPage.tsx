@@ -21,6 +21,7 @@ import {
   Check,
   Sparkles,
   Video,
+  GraduationCap,
   Palette,
   Share2,
   ShieldCheck,
@@ -54,9 +55,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { getVideoEmbedUrl, INTRO_VIDEO_LABEL } from '@/lib/video';
 import { IntroVideoPlayer } from '@/components/ui/IntroVideoPlayer';
 
-type SettingsTab = 'profile' | 'meeting-types' | 'availability' | 'payment' | 'calendar' | 'email';
+type SettingsTab = 'profile' | 'meeting-types' | 'student-meeting-types' | 'availability' | 'payment' | 'calendar' | 'email';
 
-const SETTINGS_TABS: SettingsTab[] = ['profile', 'meeting-types', 'availability', 'payment', 'calendar', 'email'];
+// 'student-meeting-types' is Super-Admin only (guarded in the nav + render below); it is listed
+// here so the /admin/settings/student-meeting-types URL resolves to a known section.
+const SETTINGS_TABS: SettingsTab[] = ['profile', 'meeting-types', 'student-meeting-types', 'availability', 'payment', 'calendar', 'email'];
 
 /** Canonical URL of each section; Profile is the Settings root. */
 function settingsPath(tab: SettingsTab): string {
@@ -309,6 +312,10 @@ export function SettingsPage() {
   const tabs: { id: SettingsTab; label: string; description: string; icon: any }[] = [
     { id: 'profile', label: 'Profile', description: 'Your public booking page', icon: Palette },
     { id: 'meeting-types', label: 'Meeting Types', description: 'Sessions you offer', icon: Video },
+    // Student Meeting Types: the Super Admin's free + paid sessions for students only.
+    ...(isSuperAdmin
+      ? [{ id: 'student-meeting-types' as SettingsTab, label: 'Student Meeting Types', description: 'Free & paid student sessions', icon: GraduationCap }]
+      : []),
     { id: 'availability', label: 'Availability', description: 'When clients can book', icon: Clock },
     { id: 'payment', label: 'Payments', description: 'Payment gateway', icon: CreditCard },
     { id: 'calendar', label: 'Google Calendar', description: 'Calendar sync and Meet links', icon: CalendarIcon },
@@ -447,6 +454,7 @@ export function SettingsPage() {
         {/* Tab Content */}
         <div className="min-w-0 flex-1 max-w-3xl">
           {activeTab === 'meeting-types' && <MeetingTypesPage />}
+          {activeTab === 'student-meeting-types' && isSuperAdmin && <MeetingTypesPage variant="student" />}
           {activeTab === 'availability' && <AvailabilityPage />}
           {activeTab === 'profile' && (
             <ProfileCustomizer
