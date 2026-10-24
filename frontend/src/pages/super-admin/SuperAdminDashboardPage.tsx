@@ -708,6 +708,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         )}
 
         {/* =========================================================================
+            STUDENTS — Super-Admin-managed student accounts (placed above Admins).
+           ========================================================================= */}
+        <SuperAdminStudents />
+
+        {/* =========================================================================
             SECTION 1: ADMINS & CONSULTANTS MANAGEMENT
            ========================================================================= */}
         <div className="bg-surface rounded-xl border border-border p-4 sm:p-6 space-y-4">
@@ -919,12 +924,6 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
               })}
           </div>
         </div>
-
-        {/* =========================================================================
-            SECTION 2b: STUDENTS — Super-Admin-managed student accounts, free/paid
-            allowances, credentials, reports. Backend: /api/super-admin/students.
-           ========================================================================= */}
-        <SuperAdminStudents />
 
         {/* =========================================================================
             SECTION 3: REVENUE BY CONSULTANT + ALL PLATFORM BOOKINGS
