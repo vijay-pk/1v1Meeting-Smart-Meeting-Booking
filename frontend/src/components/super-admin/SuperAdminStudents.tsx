@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   GraduationCap, UserPlus, RefreshCw, Mail, Power, FileText, Loader2, X, Check, AlertCircle,
@@ -105,9 +106,18 @@ export const SuperAdminStudents: React.FC = () => {
       {adding && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-3">
-            <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <Input placeholder="Free meetings" type="number" min={0} value={allocated} onChange={(e) => setAllocated(Number(e.target.value))} />
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Full name</Label>
+              <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Email</Label>
+              <Input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Number of Classes</Label>
+              <Input placeholder="Number of classes" type="number" min={0} value={allocated} onChange={(e) => setAllocated(Number(e.target.value))} />
+            </div>
           </div>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="w-3.5 h-3.5" /> {formError}</p>}
           <p className="text-xs text-text-tertiary">A temporary password is emailed to the student; they set their own on first sign-in.</p>
