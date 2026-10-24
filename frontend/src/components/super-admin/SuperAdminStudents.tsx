@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   GraduationCap, UserPlus, RefreshCw, Mail, Power, FileText, Loader2, X, Check, AlertCircle,
-  Eye, MoreVertical, Trash2,
+  Eye, MoreVertical, Trash2, ChevronRight, Plus, Minus,
 } from 'lucide-react';
 
 type Student = {
@@ -39,6 +39,33 @@ export const SuperAdminStudents: React.FC = () => {
   const [view, setView] = useState<Student | null>(null);
   const [meetings, setMeetings] = useState<any[] | null>(null);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
+
+  // Inline allowance +/- adjustment inside the details modal
+  const [adjustDir, setAdjustDir] = useState<null | 'add' | 'sub'>(null);
+  const [adjustAmt, setAdjustAmt] = useState(1);
+  const [adjustErr, setAdjustErr] = useState<string | null>(null);
+
+  const openAdjust = (dir: 'add' | 'sub') => { setAdjustDir(dir); setAdjustAmt(1); setAdjustErr(null); };
+
+  const applyAdjust = async () => {
+    if (!view || !adjustDir) return;
+    const amt = Number(adjustAmt);
+    if (!amt || amt <= 0) return setAdjustErr('Enter a number greater than 0.');
+    const next = adjustDir === 'add' ? view.allocated + amt : view.allocated - amt;
+    if (next < 0) return setAdjustErr('Allowance cannot be negative.');
+    if (next < view.completed) return setAdjustErr(`Allowance cannot drop below the ${view.completed} already used.`);
+    setBusyId(view.id); setAdjustErr(null);
+    try {
+      const u = await api.saStudentAllowance(view.id, next, adjustDir === 'add' ? `+${amt} meeting(s)` : `-${amt} meeting(s)`);
+      setView({ ...view, allocated: u.allocated, completed: u.completed, remaining: u.remaining });
+      setAdjustDir(null); setAdjustAmt(1);
+      load();
+    } catch (e: any) {
+      setAdjustErr(e?.message || 'Could not adjust the allowance.');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -195,7 +222,7 @@ export const SuperAdminStudents: React.FC = () => {
                     </td>
                     <td className="pr-3">
                       <div className="flex items-center gap-1">
-                        <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1" onClick={() => openDetails(s)}><Eye className="w-3.5 h-3.5" /> Details</Button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 px-0" title="View details" aria-label="View details" onClick={() => openDetails(s)}><ChevronRight className="w-4 h-4" /></Button>
                         <div className="relative">
                           <Button size="sm" variant="ghost" className="h-8 w-8 px-0" aria-label="More actions" onClick={() => setMenuId(menuId === s.id ? null : s.id)}><MoreVertical className="w-4 h-4" /></Button>
                           {menuId === s.id && (
@@ -231,7 +258,14 @@ export const SuperAdminStudents: React.FC = () => {
               </div>
               <button onClick={() => setView(null)}><X className="w-5 h-5 text-text-tertiary" /></button>
             </div>
-            <div className="grid grid-cols-3 gap-3 py-3 text-center">
+            <div className="flex items-center justify-between pt-3">
+              <span className="text-xs font-semibold text-text-secondary">Free-meeting allowance</span>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="outline" className="h-7 w-7 px-0" title="Decrease allowance" aria-label="Decrease allowance" disabled={busyId === view.id} onClick={() => openAdjust('sub')}><Minus className="w-3.5 h-3.5" /></Button>
+                <Button size="sm" variant="outline" className="h-7 w-7 px-0" title="Increase allowance" aria-label="Increase allowance" disabled={busyId === view.id} onClick={() => openAdjust('add')}><Plus className="w-3.5 h-3.5" /></Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 pt-2 text-center">
               {[['Allocated', view.allocated], ['Used', view.completed], ['Remaining', view.remaining]].map(([l, v]) => (
                 <div key={l as string} className="rounded-lg border border-border py-2">
                   <div className="text-lg font-bold text-text-primary">{v as number}</div>
@@ -239,6 +273,27 @@ export const SuperAdminStudents: React.FC = () => {
                 </div>
               ))}
             </div>
+            {adjustDir && (
+              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
+                <p className="text-xs font-semibold text-indigo-900">
+                  {adjustDir === 'add' ? 'Add meetings to' : 'Remove meetings from'} the allowance
+                  <span className="font-normal text-indigo-700"> (now: {view.allocated} allocated · {view.completed} used · {view.remaining} left)</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input type="number" min={1} value={adjustAmt} onChange={(e) => setAdjustAmt(Number(e.target.value))} className="h-8 w-24" />
+                  <span className="text-xs text-text-tertiary">
+                    → new allocated: <b>{Math.max(0, adjustDir === 'add' ? view.allocated + (Number(adjustAmt) || 0) : view.allocated - (Number(adjustAmt) || 0))}</b>
+                  </span>
+                </div>
+                {adjustErr && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="w-3.5 h-3.5" /> {adjustErr}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setAdjustDir(null)}>Cancel</Button>
+                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={busyId === view.id} onClick={applyAdjust}>
+                    {busyId === view.id ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Saving…</> : 'Confirm'}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
               <span>Status: <b className={view.status === 'ACTIVE' ? 'text-emerald-600' : 'text-amber-600'}>{view.status === 'ACTIVE' ? 'Active' : 'Disabled'}</b></span>
               <span>Paid bookings: {view.paid_sessions}</span>
@@ -262,7 +317,6 @@ export const SuperAdminStudents: React.FC = () => {
 
             <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
               <Button size="sm" variant="outline" onClick={() => toggleStatus(view)}>{view.status === 'ACTIVE' ? 'Disable' : 'Enable'}</Button>
-              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setEditId(view.id); setEditValue(view.allocated); setView(null); }}><GraduationCap className="w-4 h-4" /> Allowance</Button>
               <Button size="sm" variant="outline" className="gap-1" onClick={() => resend(view.id)}><Mail className="w-4 h-4" /> Credentials</Button>
               <Button size="sm" variant="outline" className="gap-1" onClick={() => { setView(null); openReport(view); }}><FileText className="w-4 h-4" /> Report</Button>
               <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === view.id} onClick={() => del(view)}><Trash2 className="w-4 h-4" /> Delete</Button>

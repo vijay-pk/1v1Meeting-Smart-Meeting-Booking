@@ -40,6 +40,7 @@ import {
   MessageSquare,
   MoreVertical,
   Eye,
+  ChevronRight,
   Phone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -841,8 +842,8 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
                           <span className={adm.razorpay_configured ? 'text-blue-600 font-medium' : 'text-text-tertiary'}>Razorpay: {adm.razorpay_configured ? 'Live ✓' : 'Not set'}</span>
                         </div>
                         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button variant="outline" size="sm" className="h-8 px-2 text-xs gap-1" onClick={() => setViewAdmin(adm)}>
-                            <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Details</span>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 px-0" title="View details" aria-label="View details" onClick={() => setViewAdmin(adm)}>
+                            <ChevronRight className="w-4 h-4" />
                           </Button>
                           {!isSuper && (
                             <div className="relative">
