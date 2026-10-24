@@ -61,7 +61,10 @@ class Token(BaseModel):
     must_change_password: bool = False
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
+    # Optional: a student finishing the forced first-login change has no current password to
+    # give (the temp-password field was removed). The endpoint still requires it for every
+    # voluntary change -- see change_password().
+    current_password: Optional[str] = None
     new_password: str
 
 # Student system

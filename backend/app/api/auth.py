@@ -241,8 +241,16 @@ def change_password(body: ChangePasswordRequest, current: User = Depends(get_cur
     Verifies the current password, stores the new hash, clears must_change_password, and ends
     every other session by advancing tokens_valid_after. Returns a fresh token for this caller.
     """
-    if not verify_password(body.current_password, current.password_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect.")
+    is_first_login = bool(getattr(current, "must_change_password", False))
+
+    # A voluntary change still requires the current password. The forced first-login change
+    # does not: this session was just minted by /auth/login from the shared temporary password,
+    # so identity is already proven, and that screen no longer has a temp-password field. The
+    # deps gate (must_change_password) lets such a user reach only this endpoint, and an
+    # unauthenticated caller is rejected by get_current_user before this runs.
+    if not is_first_login:
+        if not body.current_password or not verify_password(body.current_password, current.password_hash):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect.")
 
     new_password = (body.new_password or "").strip()
     if len(new_password) < 8:

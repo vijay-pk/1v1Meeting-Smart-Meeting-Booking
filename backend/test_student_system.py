@@ -123,18 +123,60 @@ def test_student_temp_password_is_gated_until_changed(tracked):
     assert ok.json()["allowance"]["allocated"] == 1
 
 
-def test_change_password_rejects_wrong_current(tracked):
+def test_first_login_change_needs_no_current_password(tracked):
+    """
+    The forced first-login change sends only the new password -- the temp-password field was
+    removed from that screen. The session, minted from the temp password at /auth/login, is the
+    authorization; the backend skips the current-password check while must_change_password is set.
+    """
     boss = _user(tracked, "super_admin", "d")
     bh, _ = _headers(boss["email"])
     email = f"stud_{uuid.uuid4().hex[:6]}@testdomain.com"
     created = client.post("/api/super-admin/students", headers=bh,
-                          json={"name": "Wrong", "email": email, "allocated": 0}).json()
+                          json={"name": "NoCur", "email": email, "allocated": 0}).json()
     tracked.append(created["id"])
     login = client.post("/api/auth/login", json={"username_or_email": email, "password": TEMP_PASSWORD})
     sh = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    r = client.post("/api/auth/change-password", headers=sh,
-                    json={"current_password": "not-it", "new_password": "MyNewPass!99"})
-    assert r.status_code == 400
+
+    r = client.post("/api/auth/change-password", headers=sh, json={"new_password": "MyNewPass!99"})
+    assert r.status_code == 200, r.text
+    assert r.json()["must_change_password"] is False
+
+
+def test_change_password_requires_authentication():
+    """An unauthenticated caller can never set a password -- no token, no change."""
+    r = client.post("/api/auth/change-password", json={"new_password": "Whatever!99"})
+    assert r.status_code in (401, 403)
+
+
+def test_voluntary_change_still_requires_correct_current(tracked):
+    """
+    Once must_change_password is cleared, a further change is voluntary and still requires the
+    correct current password. Removing the temp field for first-login must not weaken that.
+    """
+    boss = _user(tracked, "super_admin", "d2")
+    bh, _ = _headers(boss["email"])
+    email = f"stud_{uuid.uuid4().hex[:6]}@testdomain.com"
+    created = client.post("/api/super-admin/students", headers=bh,
+                          json={"name": "Vol", "email": email, "allocated": 0}).json()
+    tracked.append(created["id"])
+    login = client.post("/api/auth/login", json={"username_or_email": email, "password": TEMP_PASSWORD})
+    sh = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    # First-login change clears must_change_password and rotates the token.
+    first = client.post("/api/auth/change-password", headers=sh, json={"new_password": "MyNewPass!99"})
+    assert first.status_code == 200, first.text
+    nh = {"Authorization": f"Bearer {first.json()['access_token']}"}
+
+    # A further (voluntary) change with a wrong current password is rejected...
+    wrong = client.post("/api/auth/change-password", headers=nh,
+                        json={"current_password": "not-it", "new_password": "Another!100"})
+    assert wrong.status_code == 400
+
+    # ...and accepted with the correct current password.
+    right = client.post("/api/auth/change-password", headers=nh,
+                        json={"current_password": "MyNewPass!99", "new_password": "Another!100"})
+    assert right.status_code == 200, right.text
 
 
 # --- allowance accounting ----------------------------------------------------------------

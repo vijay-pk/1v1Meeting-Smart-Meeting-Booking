@@ -896,11 +896,14 @@ export const api = {
     return await res.json();
   },
 
-  // ---- Auth: change password (students forced on first login; any user) ----
-  changePassword: async (current_password: string, new_password: string) => {
+  // ---- Auth: change password ----
+  // The forced first-login change sends only new_password (the session, minted from the temp
+  // password at sign-in, is the proof of identity; the backend skips the current-password check
+  // only when must_change_password is set). A voluntary change passes current_password too.
+  changePassword: async (new_password: string, current_password?: string) => {
     const res = await request(`/auth/change-password`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({ current_password, new_password }),
+      body: JSON.stringify(current_password ? { current_password, new_password } : { new_password }),
     });
     if (!res.ok) throw await failure(res, 'Could not change your password.');
     return res.json();
