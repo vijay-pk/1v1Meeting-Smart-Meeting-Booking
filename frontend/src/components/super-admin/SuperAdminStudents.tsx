@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   GraduationCap, UserPlus, RefreshCw, Mail, Power, FileText, Loader2, X, Check, AlertCircle,
+  Eye, MoreVertical, Trash2,
 } from 'lucide-react';
 
 type Student = {
@@ -31,6 +33,12 @@ export const SuperAdminStudents: React.FC = () => {
   // Allowance edit
   const [editId, setEditId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState(0);
+
+  // Row ⋮ menu + details modal
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [view, setView] = useState<Student | null>(null);
+  const [meetings, setMeetings] = useState<any[] | null>(null);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -82,6 +90,21 @@ export const SuperAdminStudents: React.FC = () => {
     finally { setBusyId(null); }
   };
 
+  const del = async (s: Student) => {
+    if (!window.confirm(`Delete ${s.name}? Their account is disabled and upcoming meetings cancelled. Past bookings, payments and allowance history are kept.`)) return;
+    setBusyId(s.id);
+    try { await api.saStudentDelete(s.id); setView(null); load(); }
+    catch (e: any) { alert(e?.message || 'Could not delete.'); }
+    finally { setBusyId(null); }
+  };
+
+  const openDetails = async (s: Student) => {
+    setView(s); setMeetings(null); setMenuId(null); setMeetingsLoading(true);
+    try { setMeetings(await api.saStudentBookings(s.id)); }
+    catch { setMeetings([]); }
+    finally { setMeetingsLoading(false); }
+  };
+
   const sendReport = async () => {
     if (!report) return;
     setBusyId(report.id);
@@ -105,9 +128,18 @@ export const SuperAdminStudents: React.FC = () => {
       {adding && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-3">
-            <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <Input placeholder="Free meetings" type="number" min={0} value={allocated} onChange={(e) => setAllocated(Number(e.target.value))} />
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Full name</Label>
+              <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Email</Label>
+              <Input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-text-secondary">Number of Classes</Label>
+              <Input placeholder="Number of classes" type="number" min={0} value={allocated} onChange={(e) => setAllocated(Number(e.target.value))} />
+            </div>
           </div>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="w-3.5 h-3.5" /> {formError}</p>}
           <p className="text-xs text-text-tertiary">A temporary password is emailed to the student; they set their own on first sign-in.</p>
@@ -162,10 +194,24 @@ export const SuperAdminStudents: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="pr-3">
-                      <div className="flex flex-wrap gap-1">
-                        <Button size="sm" variant="ghost" className="h-8 px-2" title="Resend credentials" disabled={busyId === s.id} onClick={() => resend(s.id)}><Mail className="w-3.5 h-3.5" /></Button>
-                        <Button size="sm" variant="ghost" className="h-8 px-2" title="Report" disabled={busyId === s.id} onClick={() => openReport(s)}><FileText className="w-3.5 h-3.5" /></Button>
-                        <Button size="sm" variant="ghost" className={`h-8 px-2 ${s.status === 'ACTIVE' ? 'text-amber-700' : 'text-emerald-700'}`} title={s.status === 'ACTIVE' ? 'Disable' : 'Enable'} disabled={busyId === s.id} onClick={() => toggleStatus(s)}><Power className="w-3.5 h-3.5" /></Button>
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" className="h-8 px-2 text-xs gap-1" onClick={() => openDetails(s)}><Eye className="w-3.5 h-3.5" /> Details</Button>
+                        <div className="relative">
+                          <Button size="sm" variant="ghost" className="h-8 w-8 px-0" aria-label="More actions" onClick={() => setMenuId(menuId === s.id ? null : s.id)}><MoreVertical className="w-4 h-4" /></Button>
+                          {menuId === s.id && (
+                            <>
+                              <div className="fixed inset-0 z-10" onClick={() => setMenuId(null)} />
+                              <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-surface py-1 shadow-lg text-left">
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-surface-secondary" onClick={() => openDetails(s)}><Eye className="w-3.5 h-3.5" /> View details</button>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-surface-secondary" onClick={() => { setMenuId(null); toggleStatus(s); }}><Power className="w-3.5 h-3.5" /> {s.status === 'ACTIVE' ? 'Disable' : 'Enable'}</button>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-surface-secondary" onClick={() => { setMenuId(null); setEditId(s.id); setEditValue(s.allocated); }}><GraduationCap className="w-3.5 h-3.5" /> Adjust allowance</button>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-surface-secondary" onClick={() => { setMenuId(null); resend(s.id); }}><Mail className="w-3.5 h-3.5" /> Send credentials</button>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-surface-secondary" onClick={() => { setMenuId(null); openReport(s); }}><FileText className="w-3.5 h-3.5" /> Report</button>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50" onClick={() => { setMenuId(null); del(s); }}><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -174,6 +220,56 @@ export const SuperAdminStudents: React.FC = () => {
             </table>
           </div>
         )}
+
+      {view && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setView(null)}>
+          <div className="w-full max-w-lg rounded-2xl bg-surface p-5 shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-border pb-3">
+              <div>
+                <h3 className="font-bold text-text-primary">{view.name}</h3>
+                <p className="text-xs text-text-tertiary">{view.email}</p>
+              </div>
+              <button onClick={() => setView(null)}><X className="w-5 h-5 text-text-tertiary" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 py-3 text-center">
+              {[['Allocated', view.allocated], ['Used', view.completed], ['Remaining', view.remaining]].map(([l, v]) => (
+                <div key={l as string} className="rounded-lg border border-border py-2">
+                  <div className="text-lg font-bold text-text-primary">{v as number}</div>
+                  <div className="text-[11px] text-text-tertiary">{l as string}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
+              <span>Status: <b className={view.status === 'ACTIVE' ? 'text-emerald-600' : 'text-amber-600'}>{view.status === 'ACTIVE' ? 'Active' : 'Disabled'}</b></span>
+              <span>Paid bookings: {view.paid_sessions}</span>
+              <span>Upcoming: {view.upcoming}</span>
+              {view.created_at && <span>Joined: {new Date(view.created_at).toLocaleDateString()}</span>}
+            </div>
+
+            <h4 className="mt-4 mb-1 text-xs font-semibold text-text-secondary">Meeting history</h4>
+            {meetingsLoading ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+              : !meetings || meetings.length === 0 ? <p className="text-xs text-text-tertiary">No meetings yet.</p>
+              : (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+                  {meetings.map((m: any) => (
+                    <div key={m.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                      <span className="truncate">{m.session_title} · {m.start_time?.slice(0, 16).replace('T', ' ')}</span>
+                      <span className="shrink-0 text-text-tertiary">{m.category === 'student_free' ? 'Free' : 'Paid'} · {m.attendance_status || m.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+              <Button size="sm" variant="outline" onClick={() => toggleStatus(view)}>{view.status === 'ACTIVE' ? 'Disable' : 'Enable'}</Button>
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setEditId(view.id); setEditValue(view.allocated); setView(null); }}><GraduationCap className="w-4 h-4" /> Allowance</Button>
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => resend(view.id)}><Mail className="w-4 h-4" /> Credentials</Button>
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setView(null); openReport(view); }}><FileText className="w-4 h-4" /> Report</Button>
+              <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === view.id} onClick={() => del(view)}><Trash2 className="w-4 h-4" /> Delete</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {report && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReport(null)}>

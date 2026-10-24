@@ -1005,6 +1005,16 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not adjust the allowance.');
     return res.json();
   },
+  saStudentDelete: async (id: string) => {
+    const res = await request(`/super-admin/students/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not delete the student.');
+    return res.json();
+  },
+  saStudentBookings: async (id: string) => {
+    const res = await request(`/super-admin/students/${id}/bookings`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load the meetings.');
+    return res.json();
+  },
   saStudentResendCredentials: async (id: string) => {
     const res = await request(`/super-admin/students/${id}/resend-credentials`, { method: 'POST', headers: getAuthHeaders() });
     if (!res.ok) throw await failure(res, 'Could not resend credentials.');

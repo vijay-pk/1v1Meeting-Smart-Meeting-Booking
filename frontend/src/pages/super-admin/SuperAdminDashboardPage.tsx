@@ -38,6 +38,8 @@ import {
   Download,
   CreditCard,
   MessageSquare,
+  MoreVertical,
+  Eye,
   Phone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -161,6 +163,9 @@ export const SuperAdminDashboardPage: React.FC = () => {
   // Search and status filter for admins
   const [adminSearch, setAdminSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'TEMPORARILY_DISABLED'>('all');
+  // Row-list redesign: details modal target + which row's ⋮ menu is open.
+  const [viewAdmin, setViewAdmin] = useState<AdminUser | null>(null);
+  const [adminMenuId, setAdminMenuId] = useState<string | null>(null);
 
   // Deletion modal confirmation
   const [adminToDelete, setAdminToDelete] = useState<AdminUser | null>(null);
@@ -708,6 +713,11 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
         )}
 
         {/* =========================================================================
+            STUDENTS — Super-Admin-managed student accounts (placed above Admins).
+           ========================================================================= */}
+        <SuperAdminStudents />
+
+        {/* =========================================================================
             SECTION 1: ADMINS & CONSULTANTS MANAGEMENT
            ========================================================================= */}
         <div className="bg-surface rounded-xl border border-border p-4 sm:p-6 space-y-4">
@@ -779,152 +789,123 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
             </div>
           </div>
 
-          {/* Admin Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {admins
-              .filter((adm) => {
-                const matchSearch =
-                  adminSearch === '' ||
-                  adm.full_name.toLowerCase().includes(adminSearch.toLowerCase()) ||
-                  adm.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
-                  adm.username.toLowerCase().includes(adminSearch.toLowerCase());
-                const matchStatus =
-                  statusFilter === 'all' || (adm.status || 'ACTIVE') === statusFilter;
-                return matchSearch && matchStatus;
-              })
-              .map((adm) => {
-                const isSuper = adm.role === 'super_admin';
-                const isActive = (adm.status || 'ACTIVE') === 'ACTIVE';
-
-                return (
-                  <div
-                    key={adm.id}
-                    className="p-4 rounded-xl border border-border bg-surface hover:shadow-md transition space-y-3 flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
+          {/* Admins — one account per row (responsive: horizontal scroll on small screens) */}
+          {(() => {
+            const list = admins.filter((adm) => {
+              const matchSearch =
+                adminSearch === '' ||
+                adm.full_name.toLowerCase().includes(adminSearch.toLowerCase()) ||
+                adm.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
+                adm.username.toLowerCase().includes(adminSearch.toLowerCase());
+              const matchStatus = statusFilter === 'all' || (adm.status || 'ACTIVE') === statusFilter;
+              return matchSearch && matchStatus;
+            });
+            if (!list.length) {
+              return (
+                <div className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-text-tertiary">
+                  {adminSearch ? 'No accounts match your search.' : 'No admins yet.'}
+                </div>
+              );
+            }
+            return (
+              <div className="overflow-x-auto rounded-xl border border-border">
+                <div className="min-w-[760px]">
+                  <div className="grid grid-cols-[2.2fr_2fr_0.9fr_1.4fr_auto] gap-3 border-b border-border bg-surface-tertiary px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-text-tertiary">
+                    <span>Account</span><span>Email</span><span>Status</span><span>Integrations</span><span className="text-right">Actions</span>
+                  </div>
+                  {list.map((adm) => {
+                    const isSuper = adm.role === 'super_admin';
+                    const isActive = (adm.status || 'ACTIVE') === 'ACTIVE';
+                    return (
+                      <div
+                        key={adm.id}
+                        onClick={() => setViewAdmin(adm)}
+                        className="grid grid-cols-[2.2fr_2fr_0.9fr_1.4fr_auto] items-center gap-3 border-b border-border/60 px-4 py-2.5 text-sm hover:bg-surface-secondary cursor-pointer"
+                      >
                         <div className="flex items-center gap-3 min-w-0">
-                          <img
-                            src={adm.photo_url || DEFAULT_AVATAR}
-                            alt={adm.full_name}
-                            className="w-10 h-10 rounded-full object-cover object-top border shrink-0"
-                          />
-                          <div className="truncate">
+                          <img src={adm.photo_url || DEFAULT_AVATAR} alt="" className="w-9 h-9 rounded-full object-cover object-top border shrink-0" />
+                          <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <p className="text-sm font-bold text-text-primary truncate">{adm.full_name}</p>
+                              <span className="font-semibold text-text-primary truncate">{adm.full_name}</span>
                               {isSuper && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                             </div>
-                            <a
-                              href={`/${adm.username}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="press -my-1 inline-flex min-h-11 w-full items-center truncate rounded px-1 font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-400 sm:min-h-6"
-                            >
-                              /{adm.username}
-                            </a>
+                            <span className="block font-mono text-xs text-indigo-600 truncate">/{adm.username}</span>
                           </div>
                         </div>
-
-                        <span
-                          className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md shrink-0 ${
-                            isActive
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
-                          }`}
-                        >
-                          {isActive ? 'ACTIVE' : 'PAUSED'}
+                        <span className="truncate text-text-secondary">{adm.email}</span>
+                        <span className={`justify-self-start text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {isActive ? 'Active' : 'Paused'}
                         </span>
-                      </div>
-
-                      <div className="mt-3 space-y-1 text-xs text-text-secondary">
-                        <p className="truncate flex items-center gap-1.5">
-                          <Mail className="w-3 h-3 text-text-tertiary shrink-0" />
-                          <span>{adm.email}</span>
-                        </p>
-                        {adm.phone && (
-                          <p className="truncate flex items-center gap-1.5">
-                            <Phone className="w-3 h-3 text-text-tertiary shrink-0" />
-                            <span>{adm.phone}</span>
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Integration Badges */}
-                      <div className="flex items-center gap-3 mt-3 pt-2.5 border-t border-border text-[11px]">
-                        <span className={`inline-flex items-center gap-1 font-medium ${adm.google_connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-tertiary'}`}>
-                          <span>GCal:</span>
-                          <span>{adm.google_connected ? 'Connected ✓' : 'Not linked'}</span>
-                        </span>
-                        <span className="text-slate-300">•</span>
-                        <span className={`inline-flex items-center gap-1 font-medium ${adm.razorpay_configured ? 'text-blue-600 dark:text-blue-400' : 'text-text-tertiary'}`}>
-                          <span>Razorpay:</span>
-                          <span>{adm.razorpay_configured ? 'Live ✓' : 'Not set'}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    {!isSuper && (
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            const newStatus = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE';
-                            try {
-                              await api.superAdminUpdateStatus(adm.id, newStatus);
-                              setAdminStatus(adm.id, newStatus);
-                            } catch (e: any) {
-                              setNotice(e?.message || 'Could not update that admin.');
-                              setTimeout(() => setNotice(''), 6000);
-                            }
-                          }}
-                          className="text-xs h-8 px-2 text-text-secondary hover:text-text-primary"
-                        >
-                          {isActive ? 'Pause Account' : 'Activate Account'}
-                        </Button>
-
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Send Login Credentials"
-                            onClick={() => {
-                              setTargetAdminForEmail(adm);
-                              setIsEmailCredsOpen(true);
-                            }}
-                            className="h-8 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
-                          >
-                            <Mail className="w-3.5 h-3.5 mr-1" />
-                            <span className="text-xs">Email</span>
+                        <div className="flex flex-col text-[11px] leading-tight">
+                          <span className={adm.google_connected ? 'text-emerald-600 font-medium' : 'text-text-tertiary'}>GCal: {adm.google_connected ? 'Connected ✓' : 'Not linked'}</span>
+                          <span className={adm.razorpay_configured ? 'text-blue-600 font-medium' : 'text-text-tertiary'}>Razorpay: {adm.razorpay_configured ? 'Live ✓' : 'Not set'}</span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Button variant="outline" size="sm" className="h-8 px-2 text-xs gap-1" onClick={() => setViewAdmin(adm)}>
+                            <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Details</span>
                           </Button>
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Permanently Delete Admin"
-                            onClick={() => {
-                              setAdminToDelete(adm);
-                              setIsDeleteModalOpen(true);
-                            }}
-                            className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          {!isSuper && (
+                            <div className="relative">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 px-0" aria-label="More actions" onClick={() => setAdminMenuId(adminMenuId === adm.id ? null : adm.id)}>
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                              {adminMenuId === adm.id && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onClick={() => setAdminMenuId(null)} />
+                                  <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-surface py-1 shadow-lg">
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-secondary" onClick={() => { setViewAdmin(adm); setAdminMenuId(null); }}><Eye className="w-3.5 h-3.5" /> View details</button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-secondary" onClick={async () => { setAdminMenuId(null); const ns = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE'; if (isActive && !window.confirm('Pause this account? They will be signed out and blocked until reactivated.')) return; try { await api.superAdminUpdateStatus(adm.id, ns); setAdminStatus(adm.id, ns); } catch (e: any) { setNotice(e?.message || 'Could not update that admin.'); setTimeout(() => setNotice(''), 6000); } }}><UserCheck className="w-3.5 h-3.5" /> {isActive ? 'Pause account' : 'Activate account'}</button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-secondary" onClick={() => { setTargetAdminForEmail(adm); setIsEmailCredsOpen(true); setAdminMenuId(null); }}><Mail className="w-3.5 h-3.5" /> Send email</button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50" onClick={() => { setAdminToDelete(adm); setIsDeleteModalOpen(true); setAdminMenuId(null); }}><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
-        {/* =========================================================================
-            SECTION 2b: STUDENTS — Super-Admin-managed student accounts, free/paid
-            allowances, credentials, reports. Backend: /api/super-admin/students.
-           ========================================================================= */}
-        <SuperAdminStudents />
+        {/* Admin details modal */}
+        <Dialog open={!!viewAdmin} onOpenChange={(o) => !o && setViewAdmin(null)}>
+          <DialogContent className="max-w-md">
+            {viewAdmin && (() => {
+              const isActive = (viewAdmin.status || 'ACTIVE') === 'ACTIVE';
+              const isSuper = viewAdmin.role === 'super_admin';
+              return (
+                <>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <img src={viewAdmin.photo_url || DEFAULT_AVATAR} alt="" className="w-9 h-9 rounded-full object-cover border" />
+                      <span className="flex items-center gap-1.5">{viewAdmin.full_name}{isSuper && <Crown className="w-4 h-4 text-amber-500" />}</span>
+                    </DialogTitle>
+                    <DialogDescription className="font-mono text-indigo-600">/{viewAdmin.username}</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2 text-sm">
+                    <p className="flex items-center gap-2"><Mail className="w-4 h-4 text-text-tertiary" /> {viewAdmin.email}</p>
+                    {viewAdmin.phone && <p className="flex items-center gap-2"><Phone className="w-4 h-4 text-text-tertiary" /> {viewAdmin.phone}</p>}
+                    <p>Status: <span className={`font-semibold ${isActive ? 'text-emerald-600' : 'text-amber-600'}`}>{isActive ? 'Active' : 'Paused'}</span></p>
+                    <p className={viewAdmin.google_connected ? 'text-emerald-600' : 'text-text-tertiary'}>Google Calendar: {viewAdmin.google_connected ? 'Connected ✓' : 'Not linked'}</p>
+                    <p className={viewAdmin.razorpay_configured ? 'text-blue-600' : 'text-text-tertiary'}>Razorpay: {viewAdmin.razorpay_configured ? 'Live ✓' : 'Not set'}</p>
+                  </div>
+                  {!isSuper && (
+                    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+                      <Button variant="outline" size="sm" onClick={async () => { const ns = isActive ? 'TEMPORARILY_DISABLED' : 'ACTIVE'; if (isActive && !window.confirm('Pause this account?')) return; try { await api.superAdminUpdateStatus(viewAdmin.id, ns); setAdminStatus(viewAdmin.id, ns); setViewAdmin({ ...viewAdmin, status: ns } as any); } catch (e: any) { setNotice(e?.message || 'Could not update.'); setTimeout(() => setNotice(''), 6000); } }}>{isActive ? 'Pause' : 'Activate'}</Button>
+                      <Button variant="outline" size="sm" className="gap-1" onClick={() => { setTargetAdminForEmail(viewAdmin); setIsEmailCredsOpen(true); setViewAdmin(null); }}><Mail className="w-4 h-4" /> Email</Button>
+                      <Button variant="outline" size="sm" className="gap-1 text-red-600 border-red-200 hover:bg-red-50" onClick={() => { setAdminToDelete(viewAdmin); setIsDeleteModalOpen(true); setViewAdmin(null); }}><Trash2 className="w-4 h-4" /> Delete</Button>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
 
         {/* =========================================================================
             SECTION 3: REVENUE BY CONSULTANT + ALL PLATFORM BOOKINGS
