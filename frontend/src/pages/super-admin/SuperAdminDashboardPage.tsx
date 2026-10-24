@@ -50,6 +50,7 @@ import { useAdminTheme } from '@/hooks/useAdminTheme';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -1198,8 +1199,7 @@ ${currentSuperAdmin.full_name || 'The platform team'}`
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold text-text-secondary">Initial Password</Label>
-                <Input
-                  type="password"
+                <PasswordInput
                   placeholder="e.g. kavita@123"
                   value={newAdminPassword}
                   onChange={(e) => setNewAdminPassword(e.target.value)}

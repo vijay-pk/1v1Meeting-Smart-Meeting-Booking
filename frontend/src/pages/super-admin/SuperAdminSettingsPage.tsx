@@ -4,6 +4,7 @@ import { ArrowLeft, Bell, Check, KeyRound, UserCog } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ErrorNote } from '@/components/common/ErrorNote';
@@ -173,9 +174,8 @@ function AccountCard({ account, onSaved }: { account: SuperAdminAccount; onSaved
           {identityChanges && (
             <div className="space-y-1.5 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
               <Label htmlFor="sa-confirm-password">Current password</Label>
-              <Input
+              <PasswordInput
                 id="sa-confirm-password"
-                type="password"
                 autoComplete="current-password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
@@ -238,17 +238,17 @@ function PasswordCard() {
           {error && <ErrorNote message={error} />}
           <div className="space-y-1.5">
             <Label htmlFor="sa-current">Current password</Label>
-            <Input id="sa-current" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className="h-11" />
+            <PasswordInput id="sa-current" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className="h-11" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="sa-new">New password</Label>
-              <Input id="sa-new" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className="h-11" />
+              <PasswordInput id="sa-new" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className="h-11" />
               <p className="text-xs text-text-tertiary">At least 8 characters.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sa-confirm">Confirm new password</Label>
-              <Input id="sa-confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="h-11" />
+              <PasswordInput id="sa-confirm" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="h-11" />
             </div>
           </div>
           <p className="text-xs text-text-tertiary">Changing your password signs out every other device.</p>
