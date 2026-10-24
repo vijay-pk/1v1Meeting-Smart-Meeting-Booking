@@ -324,6 +324,34 @@ async def generate_report(student_id: str, body: dict | None = None, current=Dep
     return {"html": html, "sent": sent}
 
 
+@router.delete("/students/{student_id}")
+def delete_student(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    """
+    Soft-deletes a student: marks the account PERMANENTLY_DELETED (login refused, hidden from
+    the list) and cancels their upcoming confirmed bookings so the host's slots free up. All
+    historical rows -- past bookings, payments, allowance adjustments, completed attendance --
+    are preserved for audit and financial records, so this is reversible-safe and never erases
+    history.
+    """
+    student = _get_student_or_404(db, student_id)
+    student.status = "PERMANENTLY_DELETED"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    upcoming = (
+        db.query(Booking)
+        .filter(
+            Booking.student_id == student.id,
+            Booking.status.in_(["confirmed", "pending_payment"]),
+            Booking.start_time > now_iso,
+        )
+        .all()
+    )
+    for b in upcoming:
+        b.status = "cancelled"
+        b.termination_status = "cancelled"
+    db.commit()
+    return {"id": student.id, "status": "PERMANENTLY_DELETED", "cancelled_upcoming": len(upcoming)}
+
+
 @router.post("/students/{student_id}/resend-credentials")
 async def resend_credentials(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
     student = _get_student_or_404(db, student_id)
