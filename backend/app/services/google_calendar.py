@@ -118,10 +118,18 @@ async def create_calendar_event_with_meet(
     client_email: str,
     calendar_id: str = "primary",
     idempotency_key: Optional[str] = None,
+    auto_record: bool = False,
 ) -> dict:
     """
     Creates an event on the Admin's Google Calendar with Google Meet conference data
     and configured 1-hour and 5-minute reminders.
+
+    auto_record asks Google to record the meeting automatically
+    (config.artifactConfig.recordingConfig.autoRecordingGeneration = ON on the space). It is
+    only requested for student bookings. If Google refuses the setting -- for instance on an
+    account that cannot record -- the space is created again without it so the booking and its
+    Meet link still work, and the result says recording_configured=False. Not verified against
+    a live account (see docs/RECORDING_SIMULATION.md).
 
     Never fabricates a meeting link. Every failure path returns meet_link=None plus an
     "error" key naming the cause; only a real conference entry point from Google produces a
@@ -167,6 +175,7 @@ async def create_calendar_event_with_meet(
         space_name = None
         space_uri = None
         space_code = None
+        recording_configured = False
 
         if access_token.startswith("simulated"):
             sim_code = f"sim-{uuid.uuid4().hex[:3]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:3]}"
@@ -176,19 +185,39 @@ async def create_calendar_event_with_meet(
         else:
             try:
                 async with httpx.AsyncClient(timeout=8.0) as meet_client:
-                    m_res = await meet_client.post(
-                        "https://meet.googleapis.com/v2/spaces",
-                        headers={
-                            "Authorization": f"Bearer {access_token}",
-                            "Content-Type": "application/json",
-                        },
-                        json={},
+                    meet_headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    }
+                    meet_url = "https://meet.googleapis.com/v2/spaces"
+                    body = (
+                        {"config": {"artifactConfig": {"recordingConfig": {"autoRecordingGeneration": "ON"}}}}
+                        if auto_record else {}
                     )
+                    m_res = await meet_client.post(meet_url, headers=meet_headers, json=body)
+                    if auto_record and m_res.status_code not in (200, 201):
+                        # Do not lose the booking over a recording setting: create the space
+                        # plainly and report that recording is not configured.
+                        logger.warning(
+                            "Meet rejected the auto-recording config (HTTP %s); creating the space without it",
+                            m_res.status_code,
+                        )
+                        m_res = await meet_client.post(meet_url, headers=meet_headers, json={})
+                    elif auto_record:
+                        recording_configured = True
                     if m_res.status_code in (200, 201):
                         m_data = m_res.json()
                         space_name = m_data.get("name")
                         space_uri = m_data.get("meetingUri")
                         space_code = m_data.get("meetingCode")
+                        if recording_configured:
+                            # If Google echoes the setting back and it is not ON, believe Google.
+                            echoed = (((m_data.get("config") or {}).get("artifactConfig") or {})
+                                      .get("recordingConfig") or {}).get("autoRecordingGeneration")
+                            if echoed is not None and echoed != "ON":
+                                recording_configured = False
+                    else:
+                        recording_configured = False
             except Exception as m_exc:
                 logger.warning("Meet space pre-creation skipped or unavailable: %s", m_exc)
 
@@ -279,7 +308,10 @@ async def create_calendar_event_with_meet(
                     "event_id": data.get("id"),
                     "meet_link": meet_link,
                     "space_name": space_name,
-                    "html_link": data.get("htmlLink")
+                    "html_link": data.get("htmlLink"),
+                    # True only when auto-recording was requested, Google accepted it, and a
+                    # real space exists. Never true for bookings that did not ask for it.
+                    "recording_configured": bool(auto_record and recording_configured and space_name),
                 }
             else:
                 logger.error(f"Google Calendar event creation failed: {data}")

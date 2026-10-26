@@ -31,6 +31,11 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
     Meet link (or None). Used by both paid /verify and the free student booking path.
     """
     meet_link = None
+    wants_recording = bool(
+        booking.category in ("student_free", "student_paid") and settings.RECORDING_RETRIEVAL_ENABLED
+    )
+    recording_configured = False
+    event_created_now = False
     g_conn = (
         db.query(GoogleConnection)
         .filter(GoogleConnection.admin_id == admin.id, GoogleConnection.connection_status == "connected")
@@ -41,7 +46,7 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
         calendar_error = None
     elif g_conn and g_conn.encrypted_refresh_token:
         session_title = booking.meeting_type.title if booking.meeting_type else "Mentorship Call"
-        event_res = await create_calendar_event_with_meet(
+        call_kwargs = dict(
             encrypted_refresh_token=g_conn.encrypted_refresh_token,
             title=f"{session_title} — {booking.client_name} & {admin.name}",
             description=f"1-to-1 session on BookMyMeet.\nAttendee: {booking.client_name} ({booking.client_email})\nNotes: {booking.notes or 'None'}",
@@ -52,6 +57,13 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
             client_name=booking.client_name,
             client_email=booking.client_email,
         )
+        if wants_recording:
+            # Only student bookings, and only once real retrieval is switched on. Every other
+            # booking calls the function exactly as before.
+            call_kwargs["auto_record"] = True
+        event_res = await create_calendar_event_with_meet(**call_kwargs)
+        event_created_now = True
+        recording_configured = bool(event_res.get("recording_configured"))
         booking.google_event_id = event_res.get("event_id")
         meet_link = event_res.get("meet_link")
         calendar_error = event_res.get("error")
@@ -98,6 +110,24 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
         ))
 
     db.commit()
+
+    # Recording row for a student booking. When real retrieval is on but Google would not enable
+    # auto-recording for this meeting, say so now instead of leaving a 'pending' recording that
+    # can never arrive. Non-fatal: the booking is already confirmed.
+    if wants_recording and booking.google_meet_space_id:
+        try:
+            from app.services.meeting_recording import ensure_recording_row
+
+            row = ensure_recording_row(db, booking)
+            # Only judge a space created in THIS call. A retry that reused an existing event
+            # cannot tell us whether recording was configured, so it leaves the row alone.
+            if event_created_now and not recording_configured:
+                row.status = "unsupported"
+                row.detail = "Auto-recording could not be enabled for this meeting."
+                db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.exception("Could not prepare the recording row for booking %s", booking.id)
 
     # Reminder — after the commit, never fatal (the worker also backfills missing ones).
     try:

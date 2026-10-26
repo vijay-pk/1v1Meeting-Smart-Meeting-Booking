@@ -29,6 +29,7 @@ export const StudentRecordingsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);
+  const [streams, setStreams] = useState<Record<string, string>>({});
 
   const load = useCallback((quiet = false) => {
     quiet ? setRefreshing(true) : setLoading(true);
@@ -49,9 +50,14 @@ export const StudentRecordingsPage: React.FC = () => {
 
   const play = async (id: string) => {
     setPlaying(id);
+    setNote((n) => ({ ...n, [id]: '' }));
     try {
       const r = await api.studentRecordingPlay(id);
-      setNote((n) => ({ ...n, [id]: r?.message || 'Playback is not available for this entry.' }));
+      if (r?.stream_url) {
+        setStreams((s) => ({ ...s, [id]: r.stream_url }));
+      } else {
+        setNote((n) => ({ ...n, [id]: r?.message || 'Playback is not available for this entry.' }));
+      }
     } catch (e: any) {
       setNote((n) => ({ ...n, [id]: e?.message || 'This recording is not available.' }));
     } finally {
@@ -114,13 +120,34 @@ export const StudentRecordingsPage: React.FC = () => {
               </div>
             </div>
             {r.status === 'unavailable' && r.detail && <p className="text-xs text-red-600">{r.detail}</p>}
+            {/* Why a real recording is not ready yet (e.g. a missing Google permission). */}
+            {!r.simulated && (r.status === 'pending' || r.status === 'processing') && r.detail && (
+              <p className="text-xs text-text-secondary">{r.detail}</p>
+            )}
             {r.status === 'available' && (
               r.simulated
                 ? <Button size="sm" variant="outline" disabled className="gap-1">Simulated – no video</Button>
                 : r.playable && (
-                  <Button size="sm" className="gap-1 bg-primary-600 text-white hover:bg-primary-700" disabled={playing === r.booking_id} onClick={() => play(r.booking_id)}>
-                    {playing === r.booking_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />} Play
-                  </Button>
+                  streams[r.booking_id]
+                    ? (
+                      <video
+                        controls
+                        autoPlay
+                        preload="metadata"
+                        className="w-full rounded-lg bg-black"
+                        src={streams[r.booking_id]}
+                        onError={() => {
+                          // The signed link is short-lived; drop it so Play can issue a fresh one.
+                          setStreams((s) => { const { [r.booking_id]: _drop, ...rest } = s; return rest; });
+                          setNote((n) => ({ ...n, [r.booking_id]: 'The recording could not be played. Press Play to try again.' }));
+                        }}
+                      />
+                    )
+                    : (
+                      <Button size="sm" className="gap-1 bg-primary-600 text-white hover:bg-primary-700" disabled={playing === r.booking_id} onClick={() => play(r.booking_id)}>
+                        {playing === r.booking_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />} Play
+                      </Button>
+                    )
                 )
             )}
             {note[r.booking_id] && <p className="text-xs text-text-secondary">{note[r.booking_id]}</p>}

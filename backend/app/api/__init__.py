@@ -3,6 +3,7 @@ from app.api import (
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload,
     super_admin_settings, internal, students, student_portal, recording_simulation,
+    student_recordings,
 )
 
 api_router = APIRouter()
@@ -18,6 +19,8 @@ api_router.include_router(super_admin.router, prefix="/super-admin", tags=["Supe
 api_router.include_router(super_admin_settings.router, prefix="/super-admin", tags=["Super Admin"])
 api_router.include_router(students.router, prefix="/super-admin", tags=["Super Admin — Students"])
 api_router.include_router(student_portal.router, prefix="/student", tags=["Student Portal"])
+# Signed-link recording playback (no bearer header: a <video> tag cannot send one).
+api_router.include_router(student_recordings.router, prefix="/student", tags=["Student Recordings"])
 # Dev-only recording simulation. Always registered, but every route 404s unless
 # recording_sim.simulation_allowed() (flag + local APP_URL + retrieval off) is true.
 api_router.include_router(recording_simulation.router, prefix="/super-admin", tags=["Dev Simulation"])

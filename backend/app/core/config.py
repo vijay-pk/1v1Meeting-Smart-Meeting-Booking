@@ -145,6 +145,18 @@ class Settings(BaseSettings):
     # endpoint re-checks that on the backend. Must never be enabled in production.
     RECORDING_SIMULATION_ENABLED: bool = os.getenv("RECORDING_SIMULATION_ENABLED", "false").lower() in ("1", "true", "yes")
 
+    # REAL recording retrieval, step 1 of 2: ask the SUPER ADMIN for the extra Google scopes the
+    # next time they connect Google. Off by default so nothing changes until the host account is
+    # ready. Turn this on first, have the Super Admin reconnect Google and consent, THEN turn on
+    # RECORDING_RETRIEVAL_ENABLED. Regular admins are never asked for these scopes.
+    RECORDING_SCOPES_ENABLED: bool = os.getenv("RECORDING_SCOPES_ENABLED", "false").lower() in ("1", "true", "yes")
+    # Scope used to read the recording file from the host's Drive. drive.meet.readonly is the
+    # narrow "files created by Google Meet" scope; confirm the exact name in the Google Cloud
+    # console and fall back to https://www.googleapis.com/auth/drive.readonly if it is not listed.
+    RECORDING_DRIVE_SCOPE: str = os.getenv("RECORDING_DRIVE_SCOPE", "https://www.googleapis.com/auth/drive.meet.readonly")
+    # How often the in-process worker asks Google about pending recordings.
+    RECORDING_POLL_SECONDS: int = int(os.getenv("RECORDING_POLL_SECONDS", "120"))
+
     # Meeting termination enforcement.
     # The in-process worker checks for due terminations every TERMINATION_POLL_SECONDS while the
     # server is running. For hosts that sleep when idle, POST /api/internal/termination/run can be

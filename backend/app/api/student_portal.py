@@ -378,8 +378,18 @@ def play_recording(booking_id: str, student: User = Depends(get_current_student)
             raise HTTPException(status_code=404, detail="No recording is available for this meeting.")
         # A TEST entry has no video. Say so plainly and never return a URL.
         return {"simulated": True, "playable": False, "message": TEST_LABEL}
-    # A real recording: playback streams through the backend once retrieval is implemented.
-    raise HTTPException(status_code=501, detail="Recording playback is not available yet.")
+    # A real recording: hand back a short-lived signed link to the backend stream. No Google
+    # token and no Drive URL is ever returned.
+    if not row.drive_file_id:
+        raise HTTPException(status_code=404, detail="No recording is available for this meeting.")
+    from app.services.recording_google import make_stream_token, STREAM_TOKEN_TTL_SECONDS
+
+    return {
+        "simulated": False,
+        "playable": True,
+        "stream_path": f"/student/recordings/{booking_id}/stream?t={make_stream_token(student.id, booking_id)}",
+        "expires_in": STREAM_TOKEN_TTL_SECONDS,
+    }
 
 
 @router.get("/bookings")

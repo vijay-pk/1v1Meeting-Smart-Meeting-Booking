@@ -17,6 +17,7 @@ from app.services.google_calendar import (
     get_google_busy_intervals,
     GoogleCalendarUnavailable,
 )
+from app.services.recording_google import recording_scopes_for
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,10 @@ def get_auth_url(current_admin: User = Depends(get_current_admin)):
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
-        "scope": " ".join(GOOGLE_SCOPES),
+        # The recording scopes are added ONLY for the Super Admin and only while
+        # RECORDING_SCOPES_ENABLED is on. A regular admin's consent screen is unchanged, so
+        # connecting Google never asks them for Meet-recording or Drive access.
+        "scope": " ".join(GOOGLE_SCOPES + recording_scopes_for(current_admin.role)),
         # offline + consent is what makes Google return a refresh token.
         # select_account prompts the user to pick which Google/Gmail account to connect.
         "access_type": "offline",

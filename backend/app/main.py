@@ -149,11 +149,26 @@ async def lifespan(app: FastAPI):
 
         termination_task = asyncio.create_task(termination_worker(termination_stop))
 
+    # Student recording retrieval. Server-side so it continues when the student closes the
+    # browser. Only runs once real retrieval has been switched on (see docs/RECORDING_SIMULATION.md).
+    recording_stop = asyncio.Event()
+    recording_task = None
+    if settings.RECORDING_RETRIEVAL_ENABLED:
+        from app.services.recording_providers import recording_worker
+
+        recording_task = asyncio.create_task(recording_worker(recording_stop))
+
     yield
     # Shutdown
     logger.info("Shutting down backend...")
     reminder_stop.set()
     termination_stop.set()
+    recording_stop.set()
+    if recording_task:
+        try:
+            await asyncio.wait_for(recording_task, timeout=10)
+        except Exception:  # noqa: BLE001
+            recording_task.cancel()
     if reminder_task:
         try:
             await asyncio.wait_for(reminder_task, timeout=10)

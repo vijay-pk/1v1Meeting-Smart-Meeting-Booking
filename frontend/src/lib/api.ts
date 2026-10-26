@@ -955,7 +955,10 @@ export const api = {
   studentRecordingPlay: async (bookingId: string) => {
     const res = await request(`/student/recordings/${bookingId}/play`, { headers: getAuthHeaders() });
     if (!res.ok) throw await failure(res, 'This recording is not available.');
-    return res.json();
+    const data = await res.json();
+    // A real recording answers a short-lived signed path; the <video> tag cannot send a bearer
+    // header, so the backend authorises this link itself. Never stored, never logged here.
+    return { ...data, stream_url: data.stream_path ? `${API_BASE}${data.stream_path}` : null } as any;
   },
   studentPolicy: async () => {
     const res = await request(`/student/policy`, { headers: getAuthHeaders() });

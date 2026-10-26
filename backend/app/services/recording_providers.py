@@ -1,18 +1,17 @@
 """
-Recording providers: one interface, a simulated implementation for development, and a stub
-for the real Google Meet retrieval that will replace it.
+Recording providers: one interface, a simulated implementation for development, and the real
+Google Meet implementation.
 
 process_recording() is the single place that moves a MeetingRecording between states and
 triggers the "recording ready" notification, so swapping SimulatedProvider for a real provider
 changes nothing else.
 
-Real retrieval (NOT implemented, NOT verified against Google): after a conference ends, call
-Meet REST v2 conferenceRecords.list (filter=space.name="<space>") then
-conferenceRecords.recordings.list, read recordings[].driveDestination.file, and stream or
-link that Drive file through the backend. It needs a Google Workspace host account with
-recording enabled and the scopes meetings.space.readonly (+ drive.readonly), neither of which
-the app requests today. See docs/RECORDING_SIMULATION.md.
+GoogleMeetProvider calls Meet REST v2 through services/recording_google.py. It is implemented
+from Google's documentation and has NOT been verified against a live account: it needs a
+Google Workspace host with Meet recording enabled and the recording scopes, and it only runs
+when RECORDING_RETRIEVAL_ENABLED is on. See docs/RECORDING_SIMULATION.md.
 """
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,7 +20,7 @@ from typing import Optional, Protocol
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.models import MeetingRecording, Booking, User
+from app.models.models import MeetingRecording, Booking, User, GoogleConnection
 from app.services.recording_sim import (
     is_simulated, is_test_email, simulation_allowed, TEST_TITLE_PREFIX,
 )
@@ -30,12 +29,23 @@ logger = logging.getLogger(__name__)
 
 STATES = ("unsupported", "pending", "processing", "available", "unavailable")
 
-# Allowed moves. "unavailable" is the Failed state (also: the file was removed later).
+# Allowed moves for SIMULATED rows. "unavailable" is the Failed state.
 TRANSITIONS = {
     "pending": {"processing", "unavailable"},
     "processing": {"available", "unavailable"},
     "available": {"unavailable"},
     "unavailable": {"pending"},
+    "unsupported": set(),
+}
+
+# Real rows follow what Google reports, which can skip a step (the first poll after a meeting
+# may already find a finished file) and can recover (a recording that was missing appears
+# later), so the rules are looser. The simulated table above stays strict.
+REAL_TRANSITIONS = {
+    "pending": {"processing", "available", "unavailable"},
+    "processing": {"pending", "available", "unavailable"},
+    "available": {"unavailable"},
+    "unavailable": {"pending", "processing", "available"},
     "unsupported": set(),
 }
 
@@ -83,15 +93,59 @@ class SimulatedProvider:
 
 class GoogleMeetProvider:
     """
-    Placeholder for real Meet artifact retrieval. Makes NO network calls and changes nothing,
-    so it can never fabricate an 'available' recording. Replace fetch() with the Meet v2 +
-    Drive calls described in the module docstring.
+    Real retrieval through the host's Google account (Meet REST v2). It never invents an
+    'available' recording: that status comes only from a FILE_GENERATED recording that Google
+    lists. Anything it cannot determine leaves the status as it was and records why in `detail`.
+    Raises RecordingTemporaryError for transient Google failures so the poll retries.
+    NOT verified against a live Google account.
     """
 
     async def fetch(self, db: Session, row: MeetingRecording) -> RecordingResult:
+        # Imported here so the simulation path never pulls in the Google modules.
+        from app.services import recording_google
+        from app.services.google_calendar import refresh_google_token
+        from app.services.meeting_termination import booking_end_utc
+
+        def unchanged(detail: str) -> RecordingResult:
+            return RecordingResult(
+                status=row.status, drive_file_id=row.drive_file_id, title=row.title,
+                recorded_at=row.recorded_at, detail=detail,
+            )
+
+        booking = db.query(Booking).filter(Booking.id == row.booking_id).first()
+        if booking is None or not row.space_name:
+            return unchanged("No Google Meet space is recorded for this booking.")
+
+        end = booking_end_utc(booking.end_time)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if end is None or now < end:
+            return unchanged("Waiting for the meeting to end.")
+
+        conn = (
+            db.query(GoogleConnection)
+            .filter(GoogleConnection.admin_id == booking.admin_id, GoogleConnection.connection_status == "connected")
+            .first()
+        )
+        if conn is None or not conn.encrypted_refresh_token:
+            return unchanged("Google is not connected for the host, so recordings cannot be retrieved.")
+
+        try:
+            token = await refresh_google_token(conn.encrypted_refresh_token)
+        except Exception as exc:  # noqa: BLE001 -- revoked/invalid grants land here
+            logger.warning("Could not refresh the Google token for recording %s: %s", row.id, exc.__class__.__name__)
+            return unchanged(recording_google.PERMISSION_DETAIL)
+        if token == "simulated-access-token":
+            return unchanged("Google OAuth is not configured on this server.")
+
+        found = await recording_google.lookup(
+            token, row.space_name, ended_minutes_ago=(now - end).total_seconds() / 60.0,
+        )
+        title = row.title or (booking.meeting_type.title if booking.meeting_type else None)
+        if found.state == "unchanged":
+            return unchanged(found.detail or "")
         return RecordingResult(
-            status=row.status, drive_file_id=row.drive_file_id, title=row.title,
-            recorded_at=row.recorded_at, detail="Retrieval not implemented.",
+            status=found.state, drive_file_id=found.drive_file_id or row.drive_file_id,
+            title=title, recorded_at=found.recorded_at or row.recorded_at, detail=found.detail,
         )
 
 
@@ -164,7 +218,9 @@ async def process_recording(db: Session, row: MeetingRecording, provider: Record
     result = await provider.fetch(db, row)
     if result.status not in STATES:
         raise TransitionError(f"Unknown status {result.status!r}.")
-    if result.status != row.status and result.status not in TRANSITIONS.get(row.status, set()):
+    # Simulated rows follow the strict table; real rows follow what Google reports.
+    table = TRANSITIONS if is_simulated(row) else REAL_TRANSITIONS
+    if result.status != row.status and result.status not in table.get(row.status, set()):
         raise TransitionError(f"Cannot move a recording from {row.status} to {result.status}.")
 
     row.status = result.status
@@ -184,19 +240,65 @@ async def process_recording(db: Session, row: MeetingRecording, provider: Record
 
 async def process_due_recordings(db: Session) -> dict:
     """
-    Worker entry point for REAL rows (simulated rows are advanced by hand, never here).
-    A no-op until RECORDING_RETRIEVAL_ENABLED is on and GoogleMeetProvider is implemented.
+    One pass over REAL recordings that are waiting (simulated rows are advanced by hand, never
+    here). A no-op unless RECORDING_RETRIEVAL_ENABLED is on. Only bookings whose scheduled end
+    has passed are asked about; a transient Google failure leaves the row untouched so the next
+    pass retries it, and one bad row never stops the others.
     """
     if not settings.RECORDING_RETRIEVAL_ENABLED:
         return {"scanned": 0, "reason": "retrieval_disabled"}
-    scanned = 0
-    for row in db.query(MeetingRecording).filter(MeetingRecording.status.in_(["pending", "processing"])).all():
+
+    from app.services.meeting_termination import booking_end_utc
+    from app.services.recording_google import RecordingTemporaryError
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    summary = {"scanned": 0, "updated": 0, "retry_later": 0, "failed": 0}
+    waiting = db.query(MeetingRecording).filter(MeetingRecording.status.in_(["pending", "processing"])).all()
+    for row in waiting:
         if is_simulated(row):
             continue
-        scanned += 1
+        booking = db.query(Booking).filter(Booking.id == row.booking_id).first()
+        end = booking_end_utc(booking.end_time) if booking else None
+        if end is None or end > now:
+            continue
+        summary["scanned"] += 1
+        before = (row.status, row.drive_file_id)
         try:
             await process_recording(db, row, GoogleMeetProvider())
+            if (row.status, row.drive_file_id) != before:
+                summary["updated"] += 1
+        except RecordingTemporaryError as exc:
+            db.rollback()
+            summary["retry_later"] += 1
+            logger.warning("Recording %s: temporary Google failure, will retry (%s)", row.id, exc)
         except Exception:  # noqa: BLE001
             db.rollback()
+            summary["failed"] += 1
             logger.exception("Processing recording %s failed", row.id)
-    return {"scanned": scanned}
+    return summary
+
+
+async def recording_worker(stop: asyncio.Event) -> None:
+    """
+    The in-process loop. Server-side, so it keeps working when the student closes the browser.
+    Started from main.py only when RECORDING_RETRIEVAL_ENABLED is on. A host that sleeps when
+    idle should also call POST /api/internal/recordings/run from a scheduler.
+    """
+    from app.core.database import SessionLocal
+
+    interval = max(30, settings.RECORDING_POLL_SECONDS)
+    logger.info("Recording worker started (every %ss).", interval)
+    while not stop.is_set():
+        db = SessionLocal()
+        try:
+            summary = await process_due_recordings(db)
+            if summary.get("scanned"):
+                logger.info("Recordings: %s", summary)
+        except Exception:  # noqa: BLE001 -- the loop must survive a bad run
+            logger.exception("Recording run failed")
+        finally:
+            db.close()
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass

@@ -42,3 +42,18 @@ async def run_termination(
     if not hmac.compare_digest(x_cron_secret.encode(), settings.CRON_SECRET.encode()):
         raise HTTPException(status_code=403, detail="Forbidden")
     return await run_due_terminations(db)
+
+
+@router.post("/recordings/run")
+async def run_recordings(
+    x_cron_secret: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    """One recording-retrieval pass, for hosts that sleep and cannot run the in-process worker."""
+    if not settings.CRON_SECRET:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not hmac.compare_digest(x_cron_secret.encode(), settings.CRON_SECRET.encode()):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from app.services.recording_providers import process_due_recordings
+
+    return await process_due_recordings(db)
