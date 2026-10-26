@@ -26,6 +26,7 @@ from app.schemas.schemas import (
     StudentFreeBookingRequest, StudentPaidOrderRequest, StudentPolicyAcceptRequest,
 )
 from app.services import student_allowance
+from app.services.student_availability_diagnosis import diagnose
 from app.services.booking_slots import as_utc, expire_abandoned_bookings, is_occupying
 from app.services.booking_confirm import confirm_booking_side_effects
 from app.services.razorpay_service import (
@@ -282,6 +283,15 @@ async def student_availability(
     )
     status = "error" if calendar_error else ("connected" if connected else "disconnected")
 
+    # Nothing bookable and the calendar was readable: say WHICH saved setting is responsible
+    # (no working hours, hours that never overlap, a session longer than any window) instead of
+    # leaving an unexplained empty page. None means the setup is sound and the days are full.
+    diagnosis = None
+    if not first_available and status != "error":
+        found = diagnose(db, host.id, session_obj)
+        if found:
+            diagnosis = {"code": found["code"], "message": found["message"]}
+
     return {
         "timezone": counts.get("timezone") or settings.BUSINESS_TIMEZONE,
         "calendar": {"status": status, "checked": status == "connected"},
@@ -292,6 +302,7 @@ async def student_availability(
         "selected_date": selected,
         "requested_date_unavailable": bool(date) and selected != date,
         "slots": slots,
+        "diagnosis": diagnosis,
     }
 
 

@@ -104,6 +104,51 @@ def _get_student_or_404(db: Session, student_id: str) -> User:
     return student
 
 
+@router.get("/student-types/health")
+def student_types_health(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    """
+    For the Student Meeting Types page: which of this Super Admin's active student types cannot
+    currently be booked, and which saved setting is to blame (no working hours, hours that
+    never overlap, a session longer than any window). Reads saved configuration only.
+
+    Also says whether students actually book THIS account: they book the oldest active Super
+    Admin, so with more than one Super Admin, types and hours saved under another account
+    would never reach the student page.
+    """
+    from app.api.student_portal import get_student_host
+    from app.models.models import Session as SessionModel
+    from app.services.student_availability_diagnosis import diagnose
+
+    try:
+        host = get_student_host(db)
+    except HTTPException:
+        host = None
+
+    types = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.admin_id == current.id,
+            SessionModel.audience.in_(["student_free", "student_paid"]),
+            SessionModel.is_active == True,  # noqa: E712
+        )
+        .order_by(SessionModel.sort_order.asc(), SessionModel.created_at.asc())
+        .all()
+    )
+    items = []
+    for s in types:
+        found = diagnose(db, current.id, s)
+        items.append({
+            "session_id": s.id,
+            "title": s.title,
+            "issue": {"code": found["code"], "message": found["admin_message"]} if found else None,
+        })
+    return {
+        "students_book_you": bool(host and host.id == current.id),
+        "host_name": host.name if host else None,
+        "types": items,
+    }
+
+
 @router.get("/student-policy")
 def get_policy(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
     from app.services.platform_settings import get_student_policy

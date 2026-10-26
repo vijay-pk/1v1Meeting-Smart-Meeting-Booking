@@ -21,7 +21,7 @@ from app.core.security import get_password_hash
 from app.main import app, seed_initial_data
 from app.models.models import (
     AdminProfile, AllowanceAdjustment, AvailabilityRule, Booking, GoogleConnection,
-    MeetingReminder, Notification, Payment, Session as SessionModel, SlotLock,
+    MeetingReminder, Notification, Payment, Session as SessionModel, SessionTimeWindow, SlotLock,
     StudentAllowance, User,
 )
 from app.services.google_calendar import GoogleCalendarUnavailable
@@ -48,6 +48,7 @@ def tracked():
             db.query(Notification).filter(Notification.admin_id == uid).delete(synchronize_session=False)
             db.query(Booking).filter((Booking.admin_id == uid) | (Booking.student_id == uid)).delete(synchronize_session=False)
             db.query(SlotLock).filter(SlotLock.admin_id == uid).delete(synchronize_session=False)
+            db.query(SessionTimeWindow).filter(SessionTimeWindow.admin_id == uid).delete(synchronize_session=False)
             db.query(SessionModel).filter(SessionModel.admin_id == uid).delete(synchronize_session=False)
             db.query(AvailabilityRule).filter(AvailabilityRule.admin_id == uid).delete(synchronize_session=False)
             db.query(GoogleConnection).filter(GoogleConnection.admin_id == uid).delete(synchronize_session=False)
@@ -91,8 +92,11 @@ def _student(tracked, allocated=3):
     return {"id": sid, "headers": {"Authorization": f"Bearer {r.json()['access_token']}"}}
 
 
-def _world(tracked, monkeypatch, *, rules, duration=20, audience="student_free", price=0, buffers=(0, 0)):
-    """A throwaway Super Admin host with working hours and one student meeting type."""
+def _world(tracked, monkeypatch, *, rules, duration=20, audience="student_free", price=0, buffers=(0, 0), windows=None):
+    """
+    A throwaway Super Admin host with general working hours (`rules`) and one student meeting
+    type. `windows` are the type's OWN hours ("Set specific hours"); None = general availability.
+    """
     uid = uuid.uuid4().hex[:8]
     db = SessionLocal()
     try:
@@ -109,13 +113,22 @@ def _world(tracked, monkeypatch, *, rules, duration=20, audience="student_free",
             min_advance_hours=1, max_advance_days=3650,
         )
         db.add(sess)
+        db.flush()
+        for dow, start, end in windows or []:
+            db.add(SessionTimeWindow(session_id=sess.id, admin_id=host.id, day_of_week=dow, start_time=start, end_time=end))
         db.commit()
         tracked.append(host.id)
-        host_id, session_id = host.id, sess.id
+        host_id, session_id, host_email = host.id, sess.id, host.email
     finally:
         db.close()
     monkeypatch.setattr(student_portal, "get_student_host", lambda db: db.query(User).filter(User.id == host_id).first())
-    return {"host_id": host_id, "session_id": session_id}
+    return {"host_id": host_id, "session_id": session_id, "host_email": host_email}
+
+
+def _host_headers(world):
+    r = client.post("/api/auth/login", json={"username_or_email": world["host_email"], "password": PW})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 def _availability(student, world, date=None, days=30):
@@ -228,6 +241,9 @@ def test_no_availability_in_the_horizon_is_reported_not_faked(tracked, monkeypat
     body = _availability(_student(tracked), world).json()
     assert body["first_available_date"] is None and body["selected_date"] is None and body["slots"] == []
     assert body["calendar"]["status"] == "disconnected"  # not an error: nothing is configured
+    # ...and it says WHICH setting is missing instead of leaving an unexplained empty page.
+    assert body["diagnosis"]["code"] == "no_working_hours"
+    assert "working hours" in body["diagnosis"]["message"].lower()
 
 
 def test_a_day_fully_booked_by_a_regular_client_is_skipped(tracked, monkeypatch):
@@ -460,3 +476,142 @@ def test_a_paid_booking_is_validated_the_same_way(tracked, monkeypatch):
         assert b.status == "pending_payment" and b.category == "student_paid" and b.end_time == _iso(MONDAY, "10:20")
     finally:
         db.close()
+
+
+# --- specific hours vs general hours, and explaining an empty calendar ---------------------
+
+ALL_DAYS = range(7)
+
+
+def test_specific_hours_are_clipped_to_the_working_hours(tracked, monkeypatch):
+    """The screenshot's setup: type hours 10:00-23:00 every day, host works 09:00-18:00."""
+    _freeze_now(monkeypatch)
+    world = _world(
+        tracked, monkeypatch, duration=20,
+        rules=[(d, "09:00", "18:00") for d in ALL_DAYS],
+        windows=[(d, "10:00", "23:00") for d in ALL_DAYS],
+    )
+    body = _availability(_student(tracked), world).json()
+    starts = [s["start"] for s in body["slots"]]
+    assert body["selected_date"] == MONDAY and body["diagnosis"] is None
+    assert starts[0] == "10:00" and starts[-1] == "17:40"  # nothing before the type's hours or after the working hours
+    assert len(starts) == 24 and "18:00" not in starts and "09:00" not in starts
+
+
+def test_specific_hours_work_when_the_working_hours_are_wide_enough(tracked, monkeypatch):
+    """10:00-23:00 with working hours that cover it: slots run the whole window."""
+    _freeze_now(monkeypatch)
+    world = _world(
+        tracked, monkeypatch, duration=20,
+        rules=[(d, "08:00", "23:30") for d in ALL_DAYS],
+        windows=[(d, "10:00", "23:00") for d in ALL_DAYS],
+    )
+    starts = _starts(_availability(_student(tracked), world))
+    assert starts[0] == "10:00" and starts[-1] == "22:40" and len(starts) == 39
+
+
+def test_general_availability_mode_uses_the_working_hours(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "13:00", "14:00")], windows=None)
+    assert _starts(_availability(_student(tracked), world)) == ["13:00", "13:20", "13:40"]
+
+
+def test_type_hours_that_never_overlap_the_working_hours_are_explained(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(
+        tracked, monkeypatch,
+        rules=[(d, "06:00", "09:00") for d in ALL_DAYS],          # host works early mornings
+        windows=[(d, "10:00", "23:00") for d in ALL_DAYS],         # the type is offered later
+    )
+    body = _availability(_student(tracked), world).json()
+    assert body["slots"] == [] and body["first_available_date"] is None
+    assert body["diagnosis"]["code"] == "hours_do_not_overlap"
+    assert "10:00" not in body["diagnosis"]["message"]  # students get a plain sentence, not config detail
+
+    health = client.get("/api/super-admin/student-types/health", headers=_host_headers(world)).json()
+    issue = health["types"][0]["issue"]
+    assert issue["code"] == "hours_do_not_overlap"
+    assert "every day 10:00-23:00" in issue["message"] and "every day 06:00-09:00" in issue["message"]  # names both settings
+
+
+def test_a_session_longer_than_any_window_is_explained(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(tracked, monkeypatch, duration=30, rules=[(DOW["mon"], "10:00", "10:20")])
+    body = _availability(_student(tracked), world).json()
+    assert body["slots"] == [] and body["diagnosis"]["code"] == "duration_too_long"
+
+
+def test_a_sound_but_full_calendar_has_no_misleading_diagnosis(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "10:40")])
+    _add_booking(world, MONDAY, "10:00", "10:40", category="client")
+    body = _availability(_student(tracked), world, days=1).json()
+    assert body["first_available_date"] is None and body["diagnosis"] is None  # configured fine; simply full
+
+
+def test_a_calendar_error_is_never_blamed_on_the_settings(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "12:00")])  # sound configuration
+    _connect_google(world)
+
+    async def broken(*args, **kwargs):
+        raise GoogleCalendarUnavailable("down")
+
+    monkeypatch.setattr(availability_api, "get_google_busy_intervals", broken)
+    body = _availability(_student(tracked), world).json()
+    assert body["calendar"]["status"] == "error" and body["diagnosis"] is None
+
+
+def test_the_super_admin_is_warned_before_students_hit_a_dead_end(tracked, monkeypatch):
+    world = _world(tracked, monkeypatch, rules=[])
+    host = _host_headers(world)
+    health = client.get("/api/super-admin/student-types/health", headers=host).json()
+    assert health["students_book_you"] is True
+    assert health["types"][0]["issue"]["code"] == "no_working_hours"
+    assert "Settings > Availability" in health["types"][0]["issue"]["message"]
+
+    # A student cannot read the Super Admin's configuration.
+    assert client.get("/api/super-admin/student-types/health", headers=_student(tracked)["headers"]).status_code == 403
+    assert client.get("/api/super-admin/student-types/health").status_code == 401
+
+
+def test_the_health_check_says_when_students_book_a_different_super_admin(tracked, monkeypatch):
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "12:00")])
+    other = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "12:00")])
+    # `other` was created last, so students are pinned to it; `world`'s admin is not the host.
+    health = client.get("/api/super-admin/student-types/health", headers=_host_headers(world)).json()
+    assert health["students_book_you"] is False
+
+
+def test_saving_working_hours_makes_slots_appear_on_the_student_page(tracked, monkeypatch):
+    _freeze_now(monkeypatch)
+    world = _world(tracked, monkeypatch, rules=[])
+    student = _student(tracked)
+    assert _availability(student, world).json()["diagnosis"]["code"] == "no_working_hours"
+
+    saved = client.post("/api/availability/rules", headers=_host_headers(world), json={"rules": [
+        {"day_of_week": DOW["mon"], "start_time": "10:00", "end_time": "11:00", "is_active": True}]})
+    assert saved.status_code == 200, saved.text
+    after = _availability(student, world).json()  # no cache: the very next request sees the change
+    assert after["diagnosis"] is None and [s["start"] for s in after["slots"]] == ["10:00", "10:20", "10:40"]
+
+
+def test_a_saved_student_type_round_trips_its_hours_and_audience(tracked, monkeypatch):
+    world = _world(tracked, monkeypatch, rules=[(d, "08:00", "23:30") for d in ALL_DAYS])
+    host = _host_headers(world)
+    windows = [{"day_of_week": d, "start_time": "10:00", "end_time": "23:00"} for d in ALL_DAYS]
+    created = client.post("/api/sessions/", headers=host, json={
+        "title": "q&a", "duration_minutes": 20, "price": 0, "audience": "student_free",
+        "max_advance_days": 60, "available_hours": windows})
+    assert created.status_code == 200, created.text
+    listed = {s["id"]: s for s in client.get("/api/sessions/", headers=host).json()}
+    saved = listed[created.json()["id"]]
+    assert saved["audience"] == "student_free" and saved["duration_minutes"] == 20
+    assert sorted((w["day_of_week"], w["start_time"], w["end_time"]) for w in saved["available_hours"]) == \
+        [(d, "10:00", "23:00") for d in ALL_DAYS]
+    # ...and the student page offers it, drawing on those saved hours.
+    student = _student(tracked)
+    types = client.get("/api/student/meeting-types", headers=student["headers"]).json()
+    assert created.json()["id"] in [t["id"] for t in types["free"]]
+    world["session_id"] = created.json()["id"]
+    assert _starts(_availability(student, world, date=MONDAY)) not in ([], None)

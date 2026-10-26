@@ -932,6 +932,16 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not load availability.');
     return res.json();
   },
+  /** Super Admin: which active student types cannot be booked yet, and which setting is to blame. */
+  saStudentTypesHealth: async () => {
+    const res = await request(`/super-admin/student-types/health`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not check the student meeting types.');
+    return res.json() as Promise<{
+      students_book_you: boolean;
+      host_name: string | null;
+      types: { session_id: string; title: string; issue: { code: string; message: string } | null }[];
+    }>;
+  },
   studentBookFree: async (data: { session_id: string; start_time: string; end_time: string; lock_id: string }) => {
     const res = await request(`/student/bookings/free`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
