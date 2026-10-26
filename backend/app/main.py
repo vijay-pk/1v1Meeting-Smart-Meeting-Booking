@@ -130,6 +130,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing BookMyMeet backend application...")
     log_database_target()
     seed_initial_data()
+    from app.services.recording_sim import log_simulation_state
+    log_simulation_state()
 
     # Meeting reminders run on the server, never in a browser. See services/reminders.py.
     reminder_stop = asyncio.Event()

@@ -139,6 +139,12 @@ class Settings(BaseSettings):
     # without the documented Workspace + scope setup.
     RECORDING_RETRIEVAL_ENABLED: bool = os.getenv("RECORDING_RETRIEVAL_ENABLED", "false").lower() in ("1", "true", "yes")
 
+    # DEVELOPMENT-ONLY simulation of the student recording workflow (TEST entries, no video).
+    # Default off. Even when on, services/recording_sim.simulation_allowed() also requires a
+    # local/.test APP_URL and RECORDING_RETRIEVAL_ENABLED to be off, and every simulation
+    # endpoint re-checks that on the backend. Must never be enabled in production.
+    RECORDING_SIMULATION_ENABLED: bool = os.getenv("RECORDING_SIMULATION_ENABLED", "false").lower() in ("1", "true", "yes")
+
     # Meeting termination enforcement.
     # The in-process worker checks for due terminations every TERMINATION_POLL_SECONDS while the
     # server is running. For hosts that sleep when idle, POST /api/internal/termination/run can be

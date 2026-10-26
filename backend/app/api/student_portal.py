@@ -345,27 +345,13 @@ def my_recordings(student: User = Depends(get_current_student), db: Session = De
     This student's recordings. One entry per past meeting that had a Meet link, with an honest
     status (unsupported until retrieval is configured). Never fabricates a recording.
     """
-    from app.services.meeting_recording import recording_capability, ensure_recording_row, recording_out
+    from app.services.meeting_recording import recording_capability, list_student_recordings
 
-    cap = recording_capability(db)
-    past = (
-        db.query(Booking)
-        .filter(
-            Booking.student_id == student.id,
-            Booking.status == "confirmed",
-            Booking.google_meet_space_id.isnot(None),
-        )
-        .order_by(Booking.start_time.desc())
-        .all()
-    )
-    items = []
-    for b in past:
-        row = ensure_recording_row(db, b)
-        out = recording_out(row)
-        out["session_title"] = b.meeting_type.title if b.meeting_type else "Session"
-        out["start_time"] = b.start_time
-        items.append(out)
-    return {"capability": cap, "recordings": items}
+    # Scoped to this student's own bookings inside list_student_recordings (student_id filter).
+    return {
+        "capability": recording_capability(db),
+        "recordings": list_student_recordings(db, student.id, confirmed_only=True),
+    }
 
 
 @router.get("/recordings/{booking_id}/play")
@@ -376,16 +362,24 @@ def play_recording(booking_id: str, student: User = Depends(get_current_student)
     clear 404 with status, never a fake link.
     """
     from app.models.models import MeetingRecording
+    from app.services.recording_sim import is_simulated, simulation_allowed, TEST_LABEL
+
     row = (
         db.query(MeetingRecording)
         .join(Booking, Booking.id == MeetingRecording.booking_id)
         .filter(MeetingRecording.booking_id == booking_id, Booking.student_id == student.id)
         .first()
     )
+    # Not found, someone else's, or not available: the same 404, so existence never leaks.
     if not row or row.status != "available":
         raise HTTPException(status_code=404, detail="No recording is available for this meeting.")
-    # When retrieval is built, this streams via the backend / a short-lived signed URL.
-    raise HTTPException(status_code=404, detail="No recording is available for this meeting.")
+    if is_simulated(row):
+        if not simulation_allowed():
+            raise HTTPException(status_code=404, detail="No recording is available for this meeting.")
+        # A TEST entry has no video. Say so plainly and never return a URL.
+        return {"simulated": True, "playable": False, "message": TEST_LABEL}
+    # A real recording: playback streams through the backend once retrieval is implemented.
+    raise HTTPException(status_code=501, detail="Recording playback is not available yet.")
 
 
 @router.get("/bookings")

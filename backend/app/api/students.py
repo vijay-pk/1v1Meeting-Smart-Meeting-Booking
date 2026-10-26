@@ -254,23 +254,12 @@ def student_bookings(student_id: str, current=Depends(get_current_super_admin), 
 
 @router.get("/students/{student_id}/recordings")
 def student_recordings(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
-    from app.services.meeting_recording import recording_capability, ensure_recording_row, recording_out
+    from app.services.meeting_recording import recording_capability, list_student_recordings
     student = _get_student_or_404(db, student_id)
-    cap = recording_capability(db)
-    past = (
-        db.query(Booking)
-        .filter(Booking.student_id == student.id, Booking.google_meet_space_id.isnot(None))
-        .order_by(Booking.start_time.desc())
-        .all()
-    )
-    items = []
-    for b in past:
-        row = ensure_recording_row(db, b)
-        out = recording_out(row)
-        out["session_title"] = b.meeting_type.title if b.meeting_type else "Session"
-        out["start_time"] = b.start_time
-        items.append(out)
-    return {"capability": cap, "recordings": items}
+    return {
+        "capability": recording_capability(db),
+        "recordings": list_student_recordings(db, student.id, confirmed_only=False),
+    }
 
 
 @router.post("/students/{student_id}/attendance")

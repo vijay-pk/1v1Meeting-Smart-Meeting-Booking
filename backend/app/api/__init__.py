@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.api import (
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload,
-    super_admin_settings, internal, students, student_portal,
+    super_admin_settings, internal, students, student_portal, recording_simulation,
 )
 
 api_router = APIRouter()
@@ -18,6 +18,9 @@ api_router.include_router(super_admin.router, prefix="/super-admin", tags=["Supe
 api_router.include_router(super_admin_settings.router, prefix="/super-admin", tags=["Super Admin"])
 api_router.include_router(students.router, prefix="/super-admin", tags=["Super Admin — Students"])
 api_router.include_router(student_portal.router, prefix="/student", tags=["Student Portal"])
+# Dev-only recording simulation. Always registered, but every route 404s unless
+# recording_sim.simulation_allowed() (flag + local APP_URL + retrieval off) is true.
+api_router.include_router(recording_simulation.router, prefix="/super-admin", tags=["Dev Simulation"])
 api_router.include_router(internal.router, prefix="/internal", tags=["Internal"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])
