@@ -951,6 +951,12 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not load recordings.');
     return res.json();
   },
+  /** Playback info for one recording. A simulated TEST entry answers {simulated:true, playable:false}. */
+  studentRecordingPlay: async (bookingId: string) => {
+    const res = await request(`/student/recordings/${bookingId}/play`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'This recording is not available.');
+    return res.json();
+  },
   studentPolicy: async () => {
     const res = await request(`/student/policy`, { headers: getAuthHeaders() });
     if (!res.ok) throw await failure(res, 'Could not load the policy.');

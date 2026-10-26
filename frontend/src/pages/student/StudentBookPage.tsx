@@ -180,6 +180,11 @@ export const StudentBookPage: React.FC = () => {
             </div>
           )}
 
+          <p className="text-xs text-text-tertiary">
+            This session may be recorded by the host. Any recording appears only in your My Recordings page
+            and is visible only to you. By booking you acknowledge the student meeting policy.
+          </p>
+
           <div className="flex justify-end border-t pt-4">
             <Button disabled={!slot || booking} onClick={book} className="min-w-40 bg-primary-600 hover:bg-primary-700 text-white">
               {booking ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Booking…</> : selected.audience === 'student_free' ? 'Confirm free booking' : 'Pay and book'}
