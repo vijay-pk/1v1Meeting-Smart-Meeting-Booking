@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -121,6 +122,16 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
   useEffect(() => {
     fetchMeetingTypes();
   }, [profile?.id]);
+
+  // Student types only: which ones students cannot book yet, and which saved setting is to blame
+  // (usually the working hours under Settings > Availability, which a type's own hours only narrow).
+  const [health, setHealth] = useState<Awaited<ReturnType<typeof api.saStudentTypesHealth>> | null>(null);
+  useEffect(() => {
+    if (!isStudent) return;
+    let cancelled = false;
+    api.saStudentTypesHealth().then((h) => { if (!cancelled) setHealth(h); }).catch(() => { if (!cancelled) setHealth(null); });
+    return () => { cancelled = true; };
+  }, [isStudent, meetingTypes]);
 
   const openCreate = () => {
     setEditingMeeting({ ...DEFAULT_MEETING, audience: isStudent ? 'student_free' : 'public' } as Partial<MeetingType>);
@@ -249,6 +260,26 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
         <div className="flex items-start gap-2 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {isStudent && health && (!health.students_book_you || health.types.some((t) => t.issue)) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-2">
+          <p className="flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 shrink-0" /> Students can't book some of these yet
+          </p>
+          {!health.students_book_you && (
+            <p>
+              Students currently book {health.host_name ? `${health.host_name}'s` : "another Super Admin's"} calendar, not
+              this account's, so meeting types and working hours saved here won't reach the student page.
+            </p>
+          )}
+          <ul className="list-disc space-y-1 pl-5">
+            {health.types.filter((t) => t.issue).map((t) => (
+              <li key={t.session_id}><strong>{t.title}:</strong> {t.issue!.message}</li>
+            ))}
+          </ul>
+          <Link to="/admin/settings/availability" className="inline-block font-semibold underline">Open Availability settings</Link>
         </div>
       )}
 

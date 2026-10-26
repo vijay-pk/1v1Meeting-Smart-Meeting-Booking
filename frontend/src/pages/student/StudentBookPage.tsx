@@ -20,6 +20,9 @@ type Availability = {
   selected_date: string | null;
   requested_date_unavailable: boolean;
   slots: Slot[];
+  // Set when nothing is bookable because of a saved setting (no working hours, hours that never
+  // overlap, ...). null means the setup is fine and the calendar is simply full.
+  diagnosis: { code: string; message: string } | null;
 };
 // loading: first fetch for a type. error: the request or the host calendar failed (never "empty").
 // empty: the server confirmed nothing is bookable in the horizon. ready: dates + times to pick.
@@ -246,9 +249,21 @@ export const StudentBookPage: React.FC = () => {
           )}
 
           {phase === 'empty' && avail && (
-            <div className="rounded-xl border border-border bg-surface-secondary p-4 text-sm text-text-secondary">
-              No available sessions found in the next {avail.horizon_days} days. Please check back later or contact the Super Admin.
-            </div>
+            avail.diagnosis ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-2">
+                <p className="flex items-start gap-2"><Info className="w-4 h-4 mt-0.5 shrink-0" /> {avail.diagnosis.message}</p>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => loadAvailability(selected)}>
+                  <RefreshCw className="w-3.5 h-3.5" /> Check again
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-surface-secondary p-4 text-sm text-text-secondary space-y-2">
+                <p>No available sessions found in the next {avail.horizon_days} days. Please check back later or contact the Super Admin.</p>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => loadAvailability(selected)}>
+                  <RefreshCw className="w-3.5 h-3.5" /> Check again
+                </Button>
+              </div>
+            )
           )}
 
           {phase === 'ready' && avail && (
