@@ -7,24 +7,26 @@ own Razorpay account and the existing /payments/verify to confirm.
 """
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.api.deps import get_current_student
+from app.api.availability import get_available_slots, get_slot_counts
 from app.models.models import (
     User, Session as SessionModel, Booking, SlotLock, RazorpayConnection, Payment,
-    StudentPolicyAcceptance,
+    StudentPolicyAcceptance, GoogleConnection,
 )
 from app.schemas.schemas import (
     StudentFreeBookingRequest, StudentPaidOrderRequest, StudentPolicyAcceptRequest,
 )
 from app.services import student_allowance
-from app.services.booking_slots import expire_abandoned_bookings, is_occupying
+from app.services.booking_slots import as_utc, expire_abandoned_bookings, is_occupying
 from app.services.booking_confirm import confirm_booking_side_effects
 from app.services.razorpay_service import (
     create_razorpay_order, RazorpayConfigurationError, RazorpayOrderError,
@@ -74,7 +76,8 @@ def _consume_lock(db: Session, host: User, lock_id: str, start_time: str) -> Slo
     lock = db.query(SlotLock).filter(SlotLock.id == lock_id).first()
     if (
         not lock or lock.status != "active" or lock.admin_id != host.id
-        or lock.start_time != start_time or lock.expires_at <= now_utc
+        # expires_at is stored naive-UTC (timestamp without time zone); normalise before comparing.
+        or lock.start_time != start_time or as_utc(lock.expires_at) <= now_utc
     ):
         raise HTTPException(status_code=409, detail="Your hold on this slot has expired. Please pick the time again.")
     return lock
@@ -96,6 +99,50 @@ def _conflict_check(db: Session, host: User, start_time: str, exclude_id: str | 
         raise HTTPException(status_code=409, detail="This slot is no longer available. Please pick another time.")
 
 
+_WALL_FMT = "%Y-%m-%dT%H:%M:00Z"
+
+
+async def _validate_student_slot(
+    db: Session, host: User, session_obj: SessionModel, lock: SlotLock, start_time: str, end_time: str,
+) -> str:
+    """
+    The backend is the authority on whether a slot can be booked; the page only displays.
+
+    Re-runs the real availability engine on the exact slot (working hours, the type's own hours,
+    leave, notice and horizon, buffers, existing client + student bookings, other holds, and the
+    host's Google Calendar), requires the requested end to match the type's duration, and
+    returns the server-computed end time. Raises 400 / 409 / 503 and leaves the transaction
+    rolled back (so the student's hold is still active) when the slot cannot be booked.
+
+    The student's OWN hold is set to 'validating' for the duration of the check, because the
+    engine counts every ACTIVE hold as busy -- including the one this student is about to spend.
+    Competing holds from other students stay active and still block.
+    """
+    try:
+        start = datetime.strptime(start_time, _WALL_FMT)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="That start time is not valid.")
+    expected_end = (start + timedelta(minutes=session_obj.duration_minutes)).strftime(_WALL_FMT)
+    if end_time != expected_end:
+        raise HTTPException(status_code=400, detail="The selected time does not match this session's duration.")
+
+    lock.status = "validating"
+    db.flush()
+    res = await get_available_slots(
+        admin_id=host.id, username=None, session_id=session_obj.id, date_str=start_time[:10], db=db,
+    )
+    if res.get("calendar_error"):
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Calendar sync is unavailable, so booking is paused. Please try again shortly.",
+        )
+    if not any(s["start_time_iso"] == start_time for s in res.get("available_slots", [])):
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This slot is no longer available. Please pick another time.")
+    return expected_end
+
+
 def _new_booking(student: User, host: User, session_obj: SessionModel, start_time, end_time, category, status, payment_status):
     return Booking(
         public_id=f"BK-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}",
@@ -107,7 +154,8 @@ def _new_booking(student: User, host: User, session_obj: SessionModel, start_tim
         client_email=student.email,
         start_time=start_time,
         end_time=end_time,
-        timezone="Asia/Kolkata",
+        # The zone the slot engine computed in -- the host's -- not a hardcoded one.
+        timezone=settings.BUSINESS_TIMEZONE,
         status=status,
         payment_status=payment_status,
         attendance_status="pending",
@@ -170,6 +218,83 @@ def _session_out(s: SessionModel) -> dict:
     }
 
 
+@router.get("/availability")
+async def student_availability(
+    session_id: str = Query(...),
+    days: int = Query(30, ge=1, le=31),
+    date: Optional[str] = Query(None, pattern="^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
+    student: User = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """
+    Everything the booking page needs in ONE request: per-day counts across the booking horizon,
+    the earliest date that really has a slot, and that date's slots (or `date`'s, if it still has
+    some). It reuses the public slot engine and the one-FreeBusy-call slot-counts, so a student
+    sees exactly what a client of the same host would -- there is no second scheduling system.
+
+    An unreachable calendar is reported as calendar.status == "error" (the page must show an
+    error, never "no availability"); a host with no connected calendar is "disconnected", i.e.
+    external conflicts were NOT checked, and the page says so.
+    """
+    host = get_student_host(db)
+    session_obj = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.id == session_id,
+            SessionModel.admin_id == host.id,
+            SessionModel.audience.in_(["student_free", "student_paid"]),
+            SessionModel.is_active == True,  # noqa: E712
+        )
+        .first()
+    )
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="That meeting type is not available.")
+
+    # Never search past what the type allows booking ahead (the engine enforces it per day too).
+    horizon = max(1, min(days, (session_obj.max_advance_days or 30) + 1))
+    counts = await get_slot_counts(admin_id=host.id, username=None, session_id=session_obj.id, days=horizon, db=db)
+    day_rows = counts["days"]
+    calendar_error = any(d.get("calendar_error") for d in day_rows)
+
+    usable = [d for d in day_rows if d["count"] > 0 and not d.get("calendar_error")]
+    first_available = usable[0]["date"] if usable else None
+    selected = date if (date and any(d["date"] == date for d in usable)) else first_available
+
+    slots = []
+    if selected and not calendar_error:
+        res = await get_available_slots(
+            admin_id=host.id, username=None, session_id=session_obj.id, date_str=selected, db=db,
+        )
+        if res.get("calendar_error"):
+            calendar_error = True
+        else:
+            slots = res.get("available_slots", [])
+
+    connected = (
+        db.query(GoogleConnection)
+        .filter(
+            GoogleConnection.admin_id == host.id,
+            GoogleConnection.connection_status == "connected",
+            GoogleConnection.encrypted_refresh_token.isnot(None),
+        )
+        .first()
+        is not None
+    )
+    status = "error" if calendar_error else ("connected" if connected else "disconnected")
+
+    return {
+        "timezone": counts.get("timezone") or settings.BUSINESS_TIMEZONE,
+        "calendar": {"status": status, "checked": status == "connected"},
+        "horizon_days": horizon,
+        "session": {"id": session_obj.id, "title": session_obj.title, "duration_minutes": session_obj.duration_minutes},
+        "days": [{"date": d["date"], "count": d["count"]} for d in day_rows],
+        "first_available_date": first_available,
+        "selected_date": selected,
+        "requested_date_unavailable": bool(date) and selected != date,
+        "slots": slots,
+    }
+
+
 @router.post("/bookings/free")
 async def create_free_booking(body: StudentFreeBookingRequest, student: User = Depends(get_current_student), db: Session = Depends(get_db)):
     host = get_student_host(db)
@@ -179,9 +304,10 @@ async def create_free_booking(body: StudentFreeBookingRequest, student: User = D
         raise HTTPException(status_code=402, detail="You have no free meetings left. Choose a paid session to continue.")
 
     lock = _consume_lock(db, host, body.lock_id, body.start_time)
+    end_time = await _validate_student_slot(db, host, session_obj, lock, body.start_time, body.end_time)
     _conflict_check(db, host, body.start_time)
 
-    booking = _new_booking(student, host, session_obj, body.start_time, body.end_time,
+    booking = _new_booking(student, host, session_obj, body.start_time, end_time,
                            category="student_free", status="confirmed", payment_status="free")
     db.add(booking)
     try:
@@ -223,9 +349,10 @@ async def create_paid_order(body: StudentPaidOrderRequest, student: User = Depen
         raise HTTPException(status_code=503, detail="Paid student bookings are not available yet.")
 
     lock = _consume_lock(db, host, body.lock_id, body.start_time)
+    end_time = await _validate_student_slot(db, host, session_obj, lock, body.start_time, body.end_time)
     _conflict_check(db, host, body.start_time)
 
-    booking = _new_booking(student, host, session_obj, body.start_time, body.end_time,
+    booking = _new_booking(student, host, session_obj, body.start_time, end_time,
                            category="student_paid", status="pending_payment", payment_status="pending")
     db.add(booking)
     try:

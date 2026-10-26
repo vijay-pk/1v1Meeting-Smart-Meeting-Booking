@@ -920,6 +920,18 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not load meeting types.');
     return res.json();
   },
+  /**
+   * Per-day counts, the earliest available date and that date's slots, in one call. Unlike
+   * getAvailableSlots this THROWS on any failure (HTTP error, network, timeout), so the page can
+   * show an error with Retry instead of mistaking an outage for "no availability".
+   */
+  studentAvailability: async (sessionId: string, date?: string, days = 30) => {
+    const q = new URLSearchParams({ session_id: sessionId, days: String(days) });
+    if (date) q.set('date', date);
+    const res = await request(`/student/availability?${q.toString()}`, { headers: getAuthHeaders() });
+    if (!res.ok) throw await failure(res, 'Could not load availability.');
+    return res.json();
+  },
   studentBookFree: async (data: { session_id: string; start_time: string; end_time: string; lock_id: string }) => {
     const res = await request(`/student/bookings/free`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

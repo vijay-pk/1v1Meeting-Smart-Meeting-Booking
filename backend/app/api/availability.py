@@ -415,6 +415,16 @@ async def get_available_slots(
     buffer_after = timedelta(minutes=session_obj.buffer_after_minutes)
     step = timedelta(minutes=15)  # 15-minute slot increments
 
+    # Candidate start times. A meeting of 30+ minutes keeps the long-standing :00/:30 grid
+    # exactly (walked in 15-minute steps, so its output is unchanged). A shorter meeting starts
+    # on its OWN duration grid -- 20 minutes gives :00, :20, :40 -- instead of being forced onto
+    # :00/:30, which would waste a third of the window. It is walked minute by minute so any
+    # window start works; the collision check below still only runs on aligned starts.
+    legacy_grid = session_obj.duration_minutes >= 30
+    start_grid = max(1, session_obj.duration_minutes)
+    if not legacy_grid:
+        step = timedelta(minutes=1)
+
     # 5. Fetch Confirmed Bookings on this date
     day_start_iso = f"{date_str}T00:00:00Z"
     day_end_iso = f"{date_str}T23:59:59Z"
@@ -574,7 +584,12 @@ async def get_available_slots(
         current_slot = window_start
         while current_slot + duration <= window_end:
             slot_finish = current_slot + duration
-            if current_slot.minute not in (0, 30):
+            aligned = (
+                current_slot.minute in (0, 30)
+                if legacy_grid
+                else (current_slot.hour * 60 + current_slot.minute) % start_grid == 0
+            )
+            if not aligned:
                 current_slot += step
                 continue
             if current_slot >= min_notice and not is_colliding(current_slot, slot_finish):
