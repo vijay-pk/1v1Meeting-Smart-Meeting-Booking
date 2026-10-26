@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, seed_initial_data
 from app.core.database import SessionLocal
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, normalize_email
 from app.models.models import (
     AdminProfile, User, UserSecurityState, Session as SessionModel, Booking,
     StudentAllowance, AllowanceAdjustment, StudentCredentialEmail, StudentPolicyAcceptance,
@@ -311,3 +311,86 @@ def test_student_session_excluded_from_public_profile(tracked):
     titles = [s["title"] for s in r.json().get("sessions", [])]
     assert "Public One" in titles
     assert "Student Free" not in titles
+
+
+def test_deleting_student_frees_email_for_reuse(tracked):
+    boss = _user(tracked, "super_admin", "del")
+    bh, _ = _headers(boss["email"])
+    email = f"reuse_{uuid.uuid4().hex[:6]}@testdomain.com"
+
+    first = client.post("/api/super-admin/students", headers=bh,
+                        json={"name": "First", "email": email, "allocated": 2}).json()
+    tracked.append(first["id"])
+
+    # Duplicate rejected while the first account exists.
+    dup = client.post("/api/super-admin/students", headers=bh,
+                     json={"name": "Dup", "email": email, "allocated": 1})
+    assert dup.status_code == 400
+
+    # Full delete releases the email identity.
+    d = client.delete(f"/api/super-admin/students/{first['id']}", headers=bh)
+    assert d.status_code == 200, d.text
+    assert d.json()["deleted"] is True
+
+    # The user row is actually gone.
+    db = SessionLocal()
+    try:
+        assert db.query(User).filter(User.id == first["id"]).first() is None
+    finally:
+        db.close()
+
+    # Re-create with the same email -> fresh identity, allowance and must-change state.
+    second = client.post("/api/super-admin/students", headers=bh,
+                        json={"name": "Second", "email": email, "allocated": 3})
+    assert second.status_code == 200, second.text
+    body = second.json()
+    tracked.append(body["id"])
+    assert body["id"] != first["id"]
+    assert body["allocated"] == 3 and body["remaining"] == 3
+    assert body["must_change_password"] is True
+
+
+def test_recreate_over_stale_soft_deleted_student(tracked):
+    """A student left as PERMANENTLY_DELETED by the old soft-delete must not block the email."""
+    boss = _user(tracked, "super_admin", "stale")
+    bh, _ = _headers(boss["email"])
+    email = f"stale_{uuid.uuid4().hex[:6]}@testdomain.com"
+
+    db = SessionLocal()
+    try:
+        u = User(name="Old", email=normalize_email(email), password_hash=get_password_hash("x"),
+                 role="student", status="PERMANENTLY_DELETED", must_change_password=False)
+        db.add(u); db.flush()
+        db.add(StudentAllowance(student_id=u.id, allocated=2))
+        db.commit()
+        old_id = u.id
+    finally:
+        db.close()
+    tracked.append(old_id)
+
+    # Hidden from the list (status filtered out).
+    lst = client.get("/api/super-admin/students", headers=bh).json()
+    assert all(s["email"] != normalize_email(email) for s in lst)
+
+    # Creating with the same email reconciles the stale row and succeeds with a fresh identity.
+    r = client.post("/api/super-admin/students", headers=bh,
+                    json={"name": "New", "email": email, "allocated": 3})
+    assert r.status_code == 200, r.text
+    body = r.json(); tracked.append(body["id"])
+    assert body["id"] != old_id and body["remaining"] == 3
+
+    db = SessionLocal()
+    try:
+        assert db.query(User).filter(User.id == old_id).first() is None
+    finally:
+        db.close()
+
+
+def test_admin_email_cannot_be_reused_for_student(tracked):
+    boss = _user(tracked, "super_admin", "ae")
+    admin = _user(tracked, "admin", "ae")
+    bh, _ = _headers(boss["email"])
+    r = client.post("/api/super-admin/students", headers=bh,
+                    json={"name": "X", "email": admin["email"], "allocated": 1})
+    assert r.status_code == 400
+    assert "another account" in r.json()["detail"].lower()

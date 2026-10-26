@@ -68,7 +68,11 @@ export const SuperAdminStudents: React.FC = () => {
 
   const load = () => {
     setLoading(true);
-    api.saStudentsList().then(setStudents).catch((e) => setError(e?.message || 'Could not load students.')).finally(() => setLoading(false));
+    setError(null);
+    api.saStudentsList()
+      .then((rows) => { setStudents(rows); setError(null); })
+      .catch((e) => setError(e?.message || 'Could not load students.'))
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
@@ -117,7 +121,7 @@ export const SuperAdminStudents: React.FC = () => {
   };
 
   const del = async (s: Student) => {
-    if (!window.confirm(`Delete ${s.name}? Their account is disabled and upcoming meetings cancelled. Past bookings, payments and allowance history are kept.`)) return;
+    if (!window.confirm(`Delete ${s.name}? Their account and personal data are permanently removed and their email can be reused. Upcoming meetings are cancelled; past bookings and payments are kept as anonymized records. This cannot be undone.`)) return;
     setBusyId(s.id);
     try { await api.saStudentDelete(s.id); setView(null); load(); }
     catch (e: any) { alert(e?.message || 'Could not delete.'); }

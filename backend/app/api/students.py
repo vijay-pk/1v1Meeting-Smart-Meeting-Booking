@@ -22,6 +22,7 @@ from app.schemas.schemas import (
 from app.services import student_allowance
 from app.services.student_accounts import (
     provision_student, record_credential_delivery, StudentCreationError, TEMP_PASSWORD,
+    delete_student_account,
 )
 from app.core.security import get_password_hash, normalize_email
 from app.services.email_service import send_student_credentials_email
@@ -327,29 +328,21 @@ async def generate_report(student_id: str, body: dict | None = None, current=Dep
 @router.delete("/students/{student_id}")
 def delete_student(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
     """
-    Soft-deletes a student: marks the account PERMANENTLY_DELETED (login refused, hidden from
-    the list) and cancels their upcoming confirmed bookings so the host's slots free up. All
-    historical rows -- past bookings, payments, allowance adjustments, completed attendance --
-    are preserved for audit and financial records, so this is reversible-safe and never erases
-    history.
+    Fully deletes a student so their email can be reused. Removes the user row and all
+    student-specific data (allowance + adjustments, policy acceptances, credential/report
+    audit, recording metadata, security state); keeps bookings and payments as anonymized
+    financial/history records detached from the student, and cancels upcoming ones. One
+    transaction: success is returned only after the email identity is actually released; any
+    failure rolls back so a half-deleted account is never left behind.
     """
     student = _get_student_or_404(db, student_id)
-    student.status = "PERMANENTLY_DELETED"
-    now_iso = datetime.now(timezone.utc).isoformat()
-    upcoming = (
-        db.query(Booking)
-        .filter(
-            Booking.student_id == student.id,
-            Booking.status.in_(["confirmed", "pending_payment"]),
-            Booking.start_time > now_iso,
-        )
-        .all()
-    )
-    for b in upcoming:
-        b.status = "cancelled"
-        b.termination_status = "cancelled"
-    db.commit()
-    return {"id": student.id, "status": "PERMANENTLY_DELETED", "cancelled_upcoming": len(upcoming)}
+    try:
+        result = delete_student_account(db, student)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Failed to delete student %s", student_id)
+        raise HTTPException(status_code=500, detail="Could not fully delete the student. No changes were made.")
+    return {"id": student_id, "deleted": True, "cancelled_upcoming": result["cancelled_upcoming"]}
 
 
 @router.post("/students/{student_id}/resend-credentials")
