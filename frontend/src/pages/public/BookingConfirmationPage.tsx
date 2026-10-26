@@ -81,7 +81,11 @@ export const BookingConfirmationPage: React.FC = () => {
               name: remote.client_name,
               email: remote.client_email,
             },
-            payment: { status: remote.payment_status },
+            payment: { status: remote.payment_status, amount: remote.amount, currency: remote.currency },
+            // Facts from the server, so the page states what happened instead of assuming it.
+            payment_status: remote.payment_status,
+            category: remote.category,
+            email_enabled: remote.email_enabled === true,
           } as any);
           setLoading(false);
           return;
@@ -304,12 +308,19 @@ export const BookingConfirmationPage: React.FC = () => {
   const amount = booking.payment?.amount || booking.meeting_type?.price || 0;
   const currency = booking.payment?.currency || booking.meeting_type?.currency || 'INR';
 
+  // What really happened to the money and the email, as reported by the server.
+  const paymentStatus: string | undefined = (booking as any).payment_status || booking.payment?.status;
+  const isFree = paymentStatus === 'free' || (booking as any).category === 'student_free';
+  const isTestPayment = paymentStatus === 'simulated'; // no money moved
+  // Only promise an email when this site can send one (unknown for older records).
+  const emailEnabled = (booking as any).email_enabled === true;
+
   const googleCalUrl =
     booking.google_calendar_url ||
     generateGoogleCalendarUrl({
       title: `1:1 Session: ${meetingName} - ${attendeeName} with ${hostName}`,
       description: `1-on-1 Consultation Session\nMeeting: ${meetingName}\nDuration: ${booking.meeting_type?.duration_minutes || 15} mins\nHost: ${hostName} (${hostEmail})\nAttendee: ${attendeeName} (${attendeeEmail})`,
-      location: booking.google_meet_url || 'https://meet.google.com',
+      location: booking.google_meet_url || '',
       startTime: booking.start_time,
       endTime: booking.end_time,
       clientName: attendeeName,
@@ -327,12 +338,18 @@ export const BookingConfirmationPage: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold">Your Meeting Is Confirmed!</h1>
           <p className="text-emerald-100 text-sm mt-1">
-            Your payment was successful, and your meeting has been confirmed.
+            {isFree
+              ? 'Your free session is booked.'
+              : isTestPayment
+                ? 'Your meeting has been confirmed.'
+                : 'Your payment was successful, and your meeting has been confirmed.'}
           </p>
-          <p className="text-emerald-100 text-xs mt-1">
-            We've sent a calendar invitation and confirmation details to{' '}
-            <span className="font-semibold text-white">{attendeeEmail || 'your email'}</span>.
-          </p>
+          {emailEnabled && attendeeEmail && (
+            <p className="text-emerald-100 text-xs mt-1">
+              A confirmation email is being sent to{' '}
+              <span className="font-semibold text-white">{attendeeEmail}</span>.
+            </p>
+          )}
         </div>
 
         <CardContent className="p-6 sm:p-8 space-y-6">
@@ -386,8 +403,18 @@ export const BookingConfirmationPage: React.FC = () => {
                 <div>
                   <p className="text-xs text-text-secondary">Payment</p>
                   <p className="text-sm font-semibold text-text-primary">
-                    {formatPrice(amount, currency)}{' '}
-                    <span className="text-xs font-normal text-emerald-600">({booking.payment_status})</span>
+                    {isFree ? (
+                      'Free session'
+                    ) : isTestPayment ? (
+                      'No charge (test payment)'
+                    ) : (
+                      <>
+                        {formatPrice(amount, currency)}{' '}
+                        <span className="text-xs font-normal text-emerald-600">
+                          ({paymentStatus === 'completed' ? 'paid' : paymentStatus})
+                        </span>
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -500,8 +527,8 @@ export const BookingConfirmationPage: React.FC = () => {
                 onClick={() =>
                   downloadIcsFile({
                     title: `${meetingName} - ${attendeeName} & ${hostName}`,
-                    description: `1:1 Consultation Session\nService: ${meetingName}\nTopic: ${booking.notes || 'Performance Strategy'}\nJoin Meet: ${booking.google_meet_url || 'https://meet.google.com'}`,
-                    location: booking.google_meet_url || 'https://meet.google.com',
+                    description: `1:1 Consultation Session\nService: ${meetingName}${booking.notes ? `\nTopic: ${booking.notes}` : ''}`,
+                    location: booking.google_meet_url || '',
                     startTime: booking.start_time,
                     endTime: booking.end_time,
                     clientName: attendeeName,
@@ -518,32 +545,33 @@ export const BookingConfirmationPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Email Notifications Dispatched Card (Proof for both Client and Admin) */}
+          {/* What happens next. Every line states what is true for THIS booking: this card used to
+              claim invitations and links were "Delivered" to the client and the host for every
+              booking, whether or not a meeting link existed or email was configured. */}
           <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between border-b pb-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Calendar Invites & Meeting Links Sent</span>
-              </div>
-              <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Delivered</Badge>
+            <div className="flex items-center gap-1.5 border-b pb-2 font-bold text-slate-900">
+              <Clock className="w-4 h-4 text-slate-500" />
+              <span>What happens next</span>
             </div>
-            
-            <div className="space-y-1.5 text-slate-600">
-              <div className="flex items-center justify-between flex-wrap gap-1">
-                <span>✉️ <strong>Client ({attendeeEmail}):</strong></span>
-                <span className="text-emerald-700 font-medium">Meeting Link + Calendar Invite Sent</span>
-              </div>
-              <div className="flex items-center justify-between flex-wrap gap-1">
-                <span>✉️ <strong>Assigned Host ({hostEmail}):</strong></span>
-                <span className="text-emerald-700 font-medium">New Booking Alert + Meet Link Sent</span>
-              </div>
-            </div>
-
-            {booking.assigned_admin_name && (
-              <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                ℹ️ Note: Primary mentor was booked at this time. This session was automatically matched to available senior strategist <strong>{booking.assigned_admin_name}</strong>.
-              </p>
-            )}
+            <ul className="space-y-1.5 text-slate-600">
+              <li>
+                <strong>Meeting link:</strong>{' '}
+                {isExpired
+                  ? 'This session has ended.'
+                  : booking.google_meet_url
+                    ? 'Ready. Use the Join Google Meet button above at your scheduled time.'
+                    : 'Not created yet. Your host will share the link before the session.'}
+              </li>
+              <li>
+                <strong>Calendar:</strong> Use “Add to Google Calendar” or “Download .ics File” above to put this session on your calendar.
+              </li>
+              <li>
+                <strong>Email:</strong>{' '}
+                {emailEnabled
+                  ? `A confirmation is being sent to ${attendeeEmail || 'your email'}. Check your spam folder if it doesn't arrive.`
+                  : 'Email confirmations are not available right now. Keep this page and your reference code below.'}
+              </li>
+            </ul>
           </div>
 
           {/* Booking Public ID / Reference */}

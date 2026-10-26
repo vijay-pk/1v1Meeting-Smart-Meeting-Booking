@@ -615,3 +615,45 @@ def test_a_saved_student_type_round_trips_its_hours_and_audience(tracked, monkey
     assert created.json()["id"] in [t["id"] for t in types["free"]]
     world["session_id"] = created.json()["id"]
     assert _starts(_availability(student, world, date=MONDAY)) not in ([], None)
+
+
+# --- the public booking facts the confirmation page states ---------------------------------
+
+def _public(public_id):
+    r = client.get(f"/api/bookings/public/{public_id}")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_a_free_student_booking_reports_that_nothing_was_paid(tracked, monkeypatch):
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "12:00")])
+    student = _student(tracked)
+    hold = _hold(world, MONDAY, "10:00", "10:20")
+    booked = _book_free(student, world, MONDAY, "10:00", "10:20", hold.json()["lock_id"])
+    assert booked.status_code == 200, booked.text
+    body = _public(booked.json()["public_id"])
+    assert body["category"] == "student_free"
+    assert body["payment_status"] == "free" and body["amount"] == 0  # no money moved
+    assert body["google_meet_link"] is None  # no calendar connected: the page must not claim a link
+    assert body["email_enabled"] is settings.EMAIL_ENABLED  # promise an email only if one can be sent
+
+
+def test_a_paid_booking_reports_the_amount_that_was_charged(tracked, monkeypatch):
+    world = _world(tracked, monkeypatch, rules=[(DOW["mon"], "10:00", "12:00")], audience="student_paid", price=50000)
+    db = SessionLocal()
+    try:
+        b = Booking(public_id=f"BK-{uuid.uuid4().hex[:6]}", admin_id=world["host_id"], category="client",
+                    meeting_type_id=world["session_id"], client_name="x", client_email="x@y.com",
+                    start_time=_iso(MONDAY, "11:00"), end_time=_iso(MONDAY, "11:20"), status="confirmed",
+                    payment_status="completed", cancellation_token=uuid.uuid4().hex)
+        db.add(b)
+        db.flush()
+        db.add(Payment(booking_id=b.id, admin_id=world["host_id"], provider="razorpay", order_id="order_x",
+                       amount=50000, currency="INR", status="captured"))
+        db.commit()
+        public_id = b.public_id
+    finally:
+        db.close()
+    body = _public(public_id)
+    assert body["category"] == "client" and body["payment_status"] == "completed"
+    assert body["amount"] == 50000 and body["currency"] == "INR"

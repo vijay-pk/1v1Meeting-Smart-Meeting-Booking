@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from sqlalchemy.exc import IntegrityError
+from app.core.config import settings
 from app.models.models import User, Session as SessionModel, Booking, SlotLock, GoogleConnection
 from app.schemas.schemas import SlotLockRequest, SlotLockResponse, BookingResponse, RescheduleRequest
 from app.api.deps import get_current_admin
@@ -255,6 +256,17 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         "timezone": booking.timezone,
         "status": booking.status,
         "payment_status": booking.payment_status,
+        # Facts the confirmation page states to the visitor. It used to assume them (that money
+        # was paid, that invitations were sent), which was untrue for a free student session.
+        "category": booking.category or "client",
+        "amount": booking.payment.amount if booking.payment else 0,
+        "currency": (
+            (booking.payment.currency if booking.payment else None)
+            or (booking.meeting_type.currency if booking.meeting_type else None)
+            or "INR"
+        ),
+        # Whether this site can send email at all; a confirmation is only promised when it can.
+        "email_enabled": settings.EMAIL_ENABLED,
         "google_meet_link": None if is_expired else booking.google_meet_link,
         "is_expired": is_expired,
         "is_grace_period": is_grace_period,

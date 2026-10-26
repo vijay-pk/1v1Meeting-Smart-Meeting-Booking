@@ -29,14 +29,18 @@ export function generateGoogleCalendarUrl(params: CalendarEventParams): string {
   const startUtc = formatGoogleCalendarDate(params.startTime);
   const endUtc = formatGoogleCalendarDate(params.endTime);
 
-  const fullDescription = `${params.description}\n\n📹 Join Google Meet: ${params.location}\n👤 Client: ${params.clientName} (${params.clientEmail})\n👨‍🏫 Host: ${params.adminName} (${params.adminEmail})`;
+  // The Meet line and location are added only when a meeting link actually exists. Callers used
+  // to pass a generic meet.google.com address when there was none, putting a link to nowhere in
+  // the visitor's calendar.
+  const meetLine = params.location ? `📹 Join Google Meet: ${params.location}\n` : '';
+  const fullDescription = `${params.description}\n\n${meetLine}👤 Client: ${params.clientName} (${params.clientEmail})\n👨‍🏫 Host: ${params.adminName} (${params.adminEmail})`;
 
   const url = new URL('https://calendar.google.com/calendar/render');
   url.searchParams.set('action', 'TEMPLATE');
   url.searchParams.set('text', params.title);
   url.searchParams.set('dates', `${startUtc}/${endUtc}`);
   url.searchParams.set('details', fullDescription);
-  url.searchParams.set('location', params.location);
+  if (params.location) url.searchParams.set('location', params.location);
   
   // Add both client and admin as attendees
   const attendees = [params.clientEmail, params.adminEmail].filter(Boolean).join(',');
@@ -68,8 +72,8 @@ export function downloadIcsFile(params: CalendarEventParams, filename?: string):
     `DTSTART:${startUtc}`,
     `DTEND:${endUtc}`,
     `SUMMARY:${params.title}`,
-    `DESCRIPTION:${params.description.replace(/\n/g, '\\n')}\\n\\nJoin Google Meet: ${params.location}`,
-    `LOCATION:${params.location}`,
+    `DESCRIPTION:${params.description.replace(/\n/g, '\\n')}${params.location ? `\\n\\nJoin Google Meet: ${params.location}` : ''}`,
+    ...(params.location ? [`LOCATION:${params.location}`] : []),
     `ORGANIZER;CN=${params.adminName}:mailto:${params.adminEmail}`,
     `ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=${params.adminName}:mailto:${params.adminEmail}`,
     `ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=${params.clientName}:mailto:${params.clientEmail}`,
