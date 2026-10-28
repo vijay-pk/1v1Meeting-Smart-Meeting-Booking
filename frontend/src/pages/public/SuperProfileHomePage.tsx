@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { LegalFooter } from '@/components/layout/LegalFooter';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
@@ -410,6 +411,7 @@ export const SuperProfileHomePage: React.FC = () => {
           </section>
         </main>
       </div>
+      <LegalFooter />
     </div>
   );
 };
