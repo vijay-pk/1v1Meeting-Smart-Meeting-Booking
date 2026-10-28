@@ -25,3 +25,24 @@ def within_change_window(start_time: str) -> bool:
     if deadline is None:
         return False
     return _utc_now() < deadline
+
+
+def change_info(booking, now=None) -> dict:
+    """
+    What a student may do with this booking RIGHT NOW, from the same stored facts the backend
+    enforces: cutoff = scheduled start - 24h, and only while the booking is confirmed and has not
+    started. The UI uses `can_change` and `change_deadline_at` (UTC, "Z") to show or hide Cancel
+    and Reschedule; the endpoints re-check on every request regardless.
+    """
+    from app.services.meeting_termination import iso_utc
+    now = now or _utc_now()
+    deadline = change_deadline_utc(booking.start_time)
+    start = booking_start_utc(booking.start_time)
+    allowed = (
+        booking.status == "confirmed"
+        and deadline is not None
+        and start is not None
+        and now < deadline
+        and now < start
+    )
+    return {"can_change": bool(allowed), "change_deadline_at": iso_utc(deadline)}

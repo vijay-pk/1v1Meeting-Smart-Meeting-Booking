@@ -58,11 +58,17 @@ def reconcile_database_schema(bind_engine):
                 ("termination_claimed_at", "TIMESTAMP"),
                 ("termination_generation", "INTEGER DEFAULT 0"),
                 ("termination_last_http_status", "INTEGER"),
+                ("completed_at", "TIMESTAMP"),
             ]
             with bind_engine.begin() as conn:
                 for col_name, col_type in new_cols:
                     if col_name not in booking_cols:
                         conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type}"))
+        if "meeting_recordings" in tables:
+            rec_cols = {c["name"] for c in inspector.get_columns("meeting_recordings")}
+            if "estimated_ready_at" not in rec_cols:
+                with bind_engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE meeting_recordings ADD COLUMN estimated_ready_at TIMESTAMP"))
     except Exception as exc:
         logger.error("Schema reconciliation check failed: %s", exc)
 
