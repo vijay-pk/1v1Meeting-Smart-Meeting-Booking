@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { LegalFooter } from '@/components/layout/LegalFooter';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/lib/constants';
@@ -81,11 +82,7 @@ export function AuthShell({
         </div>
       </main>
 
-      <footer className="safe-b mx-auto w-full max-w-6xl px-4 py-6 text-center text-xs text-text-tertiary sm:px-6">
-        <p>
-          © {new Date().getFullYear()} {APP_NAME}
-        </p>
-      </footer>
+      <LegalFooter />
     </div>
   );
 }

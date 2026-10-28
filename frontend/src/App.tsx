@@ -79,7 +79,8 @@ export const App: React.FC = () => {
         <Route path="/booking/status/:token" element={<BookingStatusPage />} />
         <Route path="/booking/cancel/:token" element={<CancelBookingPage />} />
         <Route path="/booking/reschedule/:token" element={<RescheduleBookingPage />} />
-        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
         <Route path="/terms" element={<TermsPage />} />
 
         {/* Dedicated Auth routes */}

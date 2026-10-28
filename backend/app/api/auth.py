@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # in the frontend router, so nothing here may become a vanity page.
 RESERVED_USERNAMES = {
     "admin", "super-admin", "login", "signup", "book", "api",
-    "dashboard", "settings", "schedule",
+    "dashboard", "settings", "schedule", "privacy", "privacy-policy", "terms", "student", "booking",
 }
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{2,29}$")
