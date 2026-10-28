@@ -17,6 +17,10 @@ const LAST_UPDATED = '28 October 2026';
 const SITE = 'https://meet.adwaysacademy.com';
 // Present in the backend configuration as the Reply-To address of every booking email.
 const CONTACT_EMAIL = 'creatives.adways@gmail.com';
+const OPERATOR_NAME = 'BLUENFORK VENTURES';
+const OPERATOR_GST = '32GRUPK7095C1ZC';
+const OPERATOR_ADDRESS =
+  'First Floor, 5/260-E, ABC Tower, Calicut Airport Road, Kondotty, Malappuram, Kerala, 673638, India';
 
 const Todo: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <mark className="rounded bg-amber-100 px-1 font-medium text-amber-900">[{children}]</mark>
@@ -68,12 +72,11 @@ const SECTIONS: Section[] = [
     body: (
       <>
         <p>
-          {APP_NAME} is operated under the Adways Academy name at {SITE}. Legal entity:{' '}
-          <Todo>OPERATOR LEGAL NAME AND TYPE - to be supplied by the owner</Todo>. Registered address:{' '}
-          <Todo>REGISTERED ADDRESS - to be supplied by the owner</Todo>.
+          {APP_NAME} is operated by {OPERATOR_NAME} (GST registration number {OPERATOR_GST}) and is available at {SITE}.
+          Registered address: {OPERATOR_ADDRESS}.
         </p>
         <p>
-          Privacy contact and grievance contact: <Todo>NAME / DESIGNATION OF PERSON RESPONSIBLE - to be supplied by the owner</Todo>,
+          Privacy contact and grievance contact: <Todo>name and designation of the person responsible - owner to supply</Todo>,
           reachable at <a className="text-primary-600 underline underline-offset-2" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
       </>
@@ -230,7 +233,11 @@ const SECTIONS: Section[] = [
         <p>
           We store the connected account's email address, calendar identifier and access and refresh tokens (the refresh
           token is encrypted). Event details sent to Google include the session title, the client's name and email address and
-          the booking notes. We use Google information only to provide these features. Google processes data under its own
+          the booking notes. We use Google information only to provide these features.
+          {APP_NAME}'s use and transfer to any other app of information received from Google APIs will adhere to the{' '}
+          <A href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</A>,
+          including the Limited Use requirements. We do not use Google user data for advertising, we do not sell it, and no
+          person reads it except as needed to provide the features above, for security, or where the law requires. Google processes data under its own
           policies: <A href="https://policies.google.com/privacy">policies.google.com/privacy</A>.
         </p>
         <p>
@@ -421,7 +428,7 @@ const SECTIONS: Section[] = [
       <>
         <p>
           Questions, requests and complaints about privacy: <a className="text-primary-600 underline underline-offset-2" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-          {' '}(<Todo>grievance officer name and postal address - owner to supply</Todo>). If we do not resolve your complaint you may
+          {' '}or by post to {OPERATOR_NAME}, {OPERATOR_ADDRESS} (attention: <Todo>name and designation of the grievance contact - owner to supply</Todo>). If we do not resolve your complaint you may
           have the right to approach the Data Protection Board of India or another authority, where the law provides.
         </p>
       </>
