@@ -466,7 +466,8 @@ def cancel_my_booking(booking_id: str, student: User = Depends(get_current_stude
         )
 
     booking.status = "cancelled"
-    booking.termination_status = "cancelled"
+    from app.services.meeting_termination import cancel_termination_job
+    cancel_termination_job(booking)
     # Release any active hold on the vacated slot so it becomes bookable again.
     db.query(SlotLock).filter(
         SlotLock.admin_id == booking.admin_id,
@@ -539,8 +540,12 @@ def my_bookings(student: User = Depends(get_current_student), db: Session = Depe
         .order_by(Booking.start_time.desc())
         .all()
     )
+    from app.services.meeting_termination import phase_fields, _utc_now
+    now = _utc_now()
     return [
         {
+            **phase_fields(b, now),
+            "termination_status": b.termination_status,
             "id": b.id,
             "public_id": b.public_id,
             "session_title": b.meeting_type.title if b.meeting_type else "Session",

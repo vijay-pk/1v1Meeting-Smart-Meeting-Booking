@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.models import Booking, User, GoogleConnection, Notification
 from app.services.google_calendar import create_calendar_event_with_meet
+from app.services.meeting_termination import schedule_termination_job
 from app.services.email_service import (
     send_booking_confirmation_email,
     send_admin_new_booking_notification,
@@ -73,20 +74,14 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
             if m:
                 space_name = f"spaces/{m.group(1)}"
         booking.google_meet_space_id = space_name
-        booking.termination_status = "pending" if meet_link else "not_applicable"
-        booking.termination_error = None
-        booking.terminated_at = None
-        booking.termination_retries = 0
     else:
         meet_link = None
         calendar_error = "not_connected"
         booking.google_meet_space_id = None
-        booking.termination_status = "not_applicable"
-        booking.termination_error = None
-        booking.terminated_at = None
-        booking.termination_retries = 0
 
     booking.google_meet_link = meet_link
+    # Durable termination job: deadline = scheduled end + grace, stored on the booking.
+    schedule_termination_job(booking)
 
     db.add(Notification(
         admin_id=admin.id,

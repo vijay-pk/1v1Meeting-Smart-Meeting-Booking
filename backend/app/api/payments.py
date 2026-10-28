@@ -453,6 +453,8 @@ async def verify_payment_and_confirm(req: VerifyPaymentRequest, db: Session = De
     )
     if double_booking:
         booking.status = "cancelled"
+        from app.services.meeting_termination import cancel_termination_job
+        cancel_termination_job(booking)
         db.commit()
         raise HTTPException(
             status_code=409,

@@ -256,6 +256,14 @@ class Booking(Base):
     terminated_at = Column(DateTime, nullable=True)
     termination_retries = Column(Integer, default=0, nullable=False)
     grace_notified_at = Column(DateTime, nullable=True)
+    # Durable termination job (migration 008). termination_due_at is the authoritative deadline
+    # (scheduled end + grace, naive UTC); generation is bumped on every schedule/cancel so a
+    # worker holding a stale claim cannot write its result over a rescheduled or cancelled job.
+    termination_due_at = Column(DateTime, nullable=True, index=True)
+    termination_next_attempt_at = Column(DateTime, nullable=True)
+    termination_claimed_at = Column(DateTime, nullable=True)
+    termination_generation = Column(Integer, default=0, nullable=False, server_default="0")
+    termination_last_http_status = Column(Integer, nullable=True)
     cancellation_token = Column(String(64), unique=True, nullable=False)
     # Nullable: added after the table existed in production, so create_all cannot add it
     # (migration 005 does). New bookings always populate it at create-order time; legacy rows
@@ -347,6 +355,23 @@ class PlatformSetting(Base):
     value = Column(JSON, nullable=False, default=dict)
     updated_by = Column(String(36), nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class MeetingTerminationAttempt(Base):
+    """
+    Audit row for one attempt to end a booking's Meet conference. Never read to make a
+    decision (bookings.termination_* is the state); it exists so "what did Google actually
+    say, and when" can be answered after the fact. No tokens or secrets are ever stored.
+    """
+    __tablename__ = "meeting_termination_attempts"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    booking_id = Column(String(36), ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False, index=True)
+    generation = Column(Integer, default=0, nullable=False)
+    outcome = Column(String(30), nullable=False)  # ended | no_active_conference | retry | failed | skipped
+    http_status = Column(Integer, nullable=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class MeetingReminder(Base):

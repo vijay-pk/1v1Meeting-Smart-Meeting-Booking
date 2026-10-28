@@ -213,6 +213,13 @@ export interface Booking {
   grace_remaining_seconds?: number;
   grace_termination_time?: string;
   grace_notified_at?: string | null;
+  meeting_phase?: 'scheduled' | 'in_progress' | 'termination_pending' | 'ended' | 'termination_failed' | 'cancelled';
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
+  termination_at?: string | null;
+  grace_minutes?: number;
+  server_now?: string;
+  termination_detail?: string | null;
   notifications_sent?: {
     client_email: string;
     admin_email: string;

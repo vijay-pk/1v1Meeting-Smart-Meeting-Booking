@@ -165,22 +165,6 @@ def put_policy(body: dict, current=Depends(get_current_super_admin), db: Session
     return set_student_policy(db, version=version, text=text, updated_by=current.id)
 
 
-@router.get("/grace-period")
-def get_grace(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
-    from app.services.platform_settings import get_grace_minutes, GRACE_CHOICES
-    return {"minutes": get_grace_minutes(db), "choices": list(GRACE_CHOICES)}
-
-
-@router.put("/grace-period")
-def put_grace(body: dict, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
-    from app.services.platform_settings import set_grace_minutes
-    try:
-        minutes = set_grace_minutes(db, minutes=int(body.get("minutes")), updated_by=current.id)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Unsupported grace period.")
-    return {"minutes": minutes}
-
-
 @router.get("/students")
 def list_students(current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
     students = (

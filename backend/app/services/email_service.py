@@ -337,9 +337,10 @@ async def send_grace_period_warning_email(
     termination_time_str: str,
 ) -> bool:
     """
-    Notifies host and client that the scheduled booking time has ended and the 2-minute wrap-up grace period has begun.
+    Notifies host and client that the scheduled booking time has ended and the wrap-up grace period has begun.
     """
     from html import escape
+    from app.services.meeting_termination import GRACE_PERIOD_MINUTES
 
     safe_client = escape(client_name or "Client")
     safe_admin = escape(admin_name or "Host")
@@ -352,7 +353,7 @@ async def send_grace_period_warning_email(
         f"<p>Your scheduled <strong>{safe_title}</strong> with {safe_admin} has reached its booked end time.</p>"
         f'<div style="margin:18px 0;padding:16px;background:#FFF3CD;border:1px solid #FFEEBA;border-radius:8px;color:#856404;">'
         f'<p style="font-size:16px;font-weight:bold;margin:0 0 8px 0;">Your booked meeting time has ended</p>'
-        f'<p style="margin:0;">Your scheduled session has ended. You have 2 minutes to wrap up your conversation. '
+        f'<p style="margin:0;">Your scheduled session has ended. You have {GRACE_PERIOD_MINUTES} minutes to wrap up your conversation. '
         f'This Google Meet will end automatically at <strong>{safe_time}</strong>.</p>'
         f"</div>"
     )
