@@ -1,49 +1,105 @@
 """
-Tests for Google Meet 2-Minute Grace Period and Automatic Termination.
+Automatic Google Meet termination at scheduled end + 3 minutes.
 
-Verifies that:
-1. At the scheduled booking end time (e.g. 10:30), an end-of-booking wrap-up notification
-   is recorded and delivered, giving participants 2 minutes to wrap up.
-2. The conference is NOT terminated at 10:30 (remains active during 10:30-10:32).
-3. The termination job strictly executes at 10:32 (scheduled_end_time + 2 minutes).
-4. Late joins (10:15, 10:29, or after 10:30) never extend the scheduled end time or grace period.
-5. Rescheduled bookings invalidate old jobs and follow the new persisted schedule.
-6. Cancelled bookings do not send notifications or execute stale terminations.
-7. Overdue jobs recovered after backend downtime execute promptly without resetting the grace period.
-8. Multi-admin isolation is strictly enforced (only the host's credentials are used).
-9. Duplicate scheduler executions do not send duplicate notifications or duplicate terminations.
-10. Transient API errors retry safely with bounded backoff.
-11. Revoked credentials fail safely and alert the host.
-12. Timezone conversion formats the localized termination time correctly.
+Google is never contacted: the Meet REST API is replaced by an httpx.MockTransport (`FakeMeet`)
+that behaves like spaces.get / spaces.endActiveConference, so these tests exercise the real
+HTTP code path (URLs, auth header, status classification), not a stub of our own function.
+
+Covers: the exact deadline (20-minute meeting at 3:00 PM ends at 3:23 PM), the conference
+staying open through the grace period, overdue jobs after a restart, no end call when nothing is
+active, cancel / reschedule, transient failures with backoff, permission errors, correct-space
+only, concurrent sweeps, every booking category, and recordings left alone.
 """
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.security import encrypt_secret, get_password_hash
+from app.core.security import decrypt_secret, encrypt_secret, get_password_hash
 from app.main import app, seed_initial_data
 from app.models.models import (
-    AdminProfile, Booking, GoogleConnection, Notification, Session as SessionModel, User,
+    AdminProfile, Booking, GoogleConnection, MeetingRecording, MeetingTerminationAttempt,
+    Notification, Session as SessionModel, User,
 )
 from app.services import meeting_termination
 from app.services.meeting_termination import (
+    GRACE_PERIOD_MINUTES,
+    RETRY_BACKOFF_SECONDS,
     booking_end_utc,
-    booking_start_utc,
     booking_termination_utc,
+    cancel_termination_job,
     format_localized_termination_time,
+    meeting_phase,
     parse_meet_space_name,
+    run_due_terminations,
+    schedule_termination_job,
 )
 
 seed_initial_data()
 client = TestClient(app)
 BUSINESS_TZ = ZoneInfo(settings.BUSINESS_TIMEZONE)
 PASSWORD = "TestPassw0rd!123"
+
+
+# ---------------------------------------------------------------------------------------
+# Fakes and fixtures
+# ---------------------------------------------------------------------------------------
+
+class FakeMeet:
+    """A tiny stand-in for meet.googleapis.com/v2 behind httpx.MockTransport."""
+
+    def __init__(self):
+        self.spaces = {}      # id -> {"active": bool}
+        self.log = []         # (method, space_id, authorization)
+        self.fail = {}        # "GET"/"POST" -> list of statuses (or "timeout") consumed in order
+
+    def add(self, code, active=True):
+        self.spaces[code] = {"active": active}
+
+    def calls(self, method=None):
+        return [c for c in self.log if method is None or c[0] == method]
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path  # /v2/spaces/{id} or /v2/spaces/{id}:endActiveConference
+        assert path.startswith("/v2/spaces/"), path
+        tail = path[len("/v2/spaces/"):]
+        space_id, _, action = tail.partition(":")
+        self.log.append((request.method, space_id, request.headers.get("authorization")))
+
+        queued = self.fail.get(request.method) or []
+        if queued:
+            nxt = queued.pop(0)
+            if nxt == "timeout":
+                raise httpx.ConnectTimeout("timed out")
+            return httpx.Response(nxt, json={"error": {"message": f"injected {nxt}"}})
+
+        space = self.spaces.get(space_id)
+        if space is None:
+            return httpx.Response(404, json={"error": {"message": "not found"}})
+        if request.method == "GET":
+            body = {"name": f"spaces/{space_id}", "meetingCode": space_id,
+                    "meetingUri": f"https://meet.google.com/{space_id}"}
+            if space["active"]:
+                body["activeConference"] = {"conferenceRecord": "conferenceRecords/x"}
+            return httpx.Response(200, json=body)
+        assert action == "endActiveConference"
+        if not space["active"]:
+            return httpx.Response(400, json={"error": {"status": "FAILED_PRECONDITION", "message": "no active conference"}})
+        space["active"] = False
+        return httpx.Response(200, json={})
+
+
+@pytest.fixture
+def meet(monkeypatch):
+    fake = FakeMeet()
+    monkeypatch.setattr(meeting_termination, "_http_transport", httpx.MockTransport(fake.handler))
+    return fake
 
 
 @pytest.fixture
@@ -55,11 +111,8 @@ def db():
 
 @pytest.fixture(autouse=True)
 def mock_google_refresh(monkeypatch):
-    from app.core.security import decrypt_secret
-
     async def fake_refresh(enc_token):
-        decrypted = decrypt_secret(enc_token)
-        return f"access-token-for-{decrypted}"
+        return f"access-token-for-{decrypt_secret(enc_token)}"
 
     monkeypatch.setattr(meeting_termination, "refresh_google_token", fake_refresh)
 
@@ -72,6 +125,11 @@ def tracked():
     try:
         for user_id in ids:
             booking_ids = [b.id for b in session.query(Booking).filter(Booking.admin_id == user_id)]
+            if booking_ids:
+                session.query(MeetingTerminationAttempt).filter(
+                    MeetingTerminationAttempt.booking_id.in_(booking_ids)).delete(synchronize_session=False)
+                session.query(MeetingRecording).filter(
+                    MeetingRecording.booking_id.in_(booking_ids)).delete(synchronize_session=False)
             session.query(GoogleConnection).filter(GoogleConnection.admin_id == user_id).delete(synchronize_session=False)
             session.query(Notification).filter(Notification.admin_id == user_id).delete(synchronize_session=False)
             if booking_ids:
@@ -84,23 +142,18 @@ def tracked():
         session.close()
 
 
-def _user_with_google(db, tracked, tag="term"):
+def _user_with_google(db, tracked, tag="term", role="admin"):
     uid = uuid.uuid4().hex[:8]
     user = User(
-        name=f"Host {tag}",
-        email=f"host_{tag}_{uid}@testdomain.com",
-        password_hash=get_password_hash(PASSWORD),
-        role="admin",
-        status="ACTIVE",
+        name=f"Host {tag}", email=f"host_{tag}_{uid}@testdomain.com",
+        password_hash=get_password_hash(PASSWORD), role=role, status="ACTIVE",
     )
     db.add(user)
     db.flush()
     db.add(AdminProfile(user_id=user.id, username=f"host{tag}{uid}"))
     db.add(GoogleConnection(
-        admin_id=user.id,
-        google_email=f"google_{uid}@gmail.com",
-        encrypted_refresh_token=encrypt_secret(f"mock-refresh-{uid}"),
-        connection_status="connected",
+        admin_id=user.id, google_email=f"google_{uid}@gmail.com",
+        encrypted_refresh_token=encrypt_secret(f"mock-refresh-{uid}"), connection_status="connected",
     ))
     db.commit()
     tracked.append(user.id)
@@ -108,54 +161,57 @@ def _user_with_google(db, tracked, tag="term"):
 
 
 def _wall(dt_utc: datetime) -> str:
-    """UTC instant -> stored booking format (wall clock in business tz with cosmetic Z)."""
+    """UTC instant -> stored booking format (business-timezone wall clock with cosmetic Z)."""
     return dt_utc.replace(tzinfo=timezone.utc).astimezone(BUSINESS_TZ).strftime("%Y-%m-%dT%H:%M:00Z")
 
 
-def _booking(db, host, start_utc: datetime, duration_minutes=30, status="confirmed", meet_code="abc-defg-hij"):
+def _booking(db, host, start_utc, duration_minutes=30, status="confirmed", meet_code="abc-defg-hij",
+             category="client"):
     end_utc = start_utc + timedelta(minutes=duration_minutes)
     session = SessionModel(admin_id=host.id, title="1v1 Session", duration_minutes=duration_minutes, price=50000)
     db.add(session)
     db.flush()
     b = Booking(
         public_id=f"BK-TRM-{uuid.uuid4().hex[:8].upper()}",
-        admin_id=host.id,
-        meeting_type_id=session.id,
-        client_name="Test Client",
-        client_email="client@example.com",
-        start_time=_wall(start_utc),
-        end_time=_wall(end_utc),
-        status=status,
+        admin_id=host.id, meeting_type_id=session.id,
+        client_name="Test Client", client_email="client@example.com",
+        start_time=_wall(start_utc), end_time=_wall(end_utc), status=status,
         payment_status="completed" if status == "confirmed" else "pending",
         google_meet_link=f"https://meet.google.com/{meet_code}",
         google_meet_space_id=f"spaces/{meet_code}",
-        termination_status="pending",
-        cancellation_token=uuid.uuid4().hex,
+        cancellation_token=uuid.uuid4().hex, category=category,
     )
     db.add(b)
+    db.flush()
+    schedule_termination_job(b)
     db.commit()
     return b
 
 
-def test_timezone_conversion_and_localized_termination_time():
-    """Stored wall-clock with 'Z' correctly resolves to naive UTC and formats localized termination."""
-    t0 = datetime(2030, 6, 15, 10, 30, 0)
-    stored = _wall(t0)
-    resolved = booking_end_utc(stored)
-    assert resolved is not None
-    assert resolved.year == t0.year and resolved.month == t0.month and resolved.day == t0.day
-    assert resolved.hour == t0.hour and resolved.minute == t0.minute
+def _run(db, now):
+    return asyncio.run(run_due_terminations(db, now=now))
 
-    # Termination UTC is end + 2 minutes
-    term_utc = booking_termination_utc(stored)
-    assert term_utc == resolved + timedelta(minutes=2)
 
-    # Localized time formatting check:
-    # A booking scheduled until 10:30 AM local time has termination at 10:32 AM.
-    stored_1030 = "2030-06-15T10:30:00Z"
-    loc_time = format_localized_termination_time(stored_1030, "Asia/Kolkata")
-    assert loc_time == "10:32 AM"
+T0 = datetime(2030, 5, 10, 10, 0, 0)  # naive UTC
 
+
+# ---------------------------------------------------------------------------------------
+# Deadline arithmetic
+# ---------------------------------------------------------------------------------------
+
+def test_grace_is_three_minutes():
+    assert GRACE_PERIOD_MINUTES == 3
+
+
+def test_twenty_minute_meeting_at_3pm_terminates_at_323pm():
+    """3:00 PM business time + 20 minutes = 3:20 PM end; + 3 minutes = 3:23 PM."""
+    start = "2030-06-15T15:00:00Z"
+    end = "2030-06-15T15:20:00Z"
+    assert format_localized_termination_time(end, "Asia/Kolkata") == "3:23 PM"
+    assert booking_termination_utc(end) == booking_end_utc(end) + timedelta(minutes=3)
+    # 15:23 IST is 09:53 UTC: stored/computed in UTC, shown in the business timezone.
+    assert booking_termination_utc(end) == datetime(2030, 6, 15, 9, 53, 0)
+    assert start < end
 
 
 def test_parse_meet_space_name():
@@ -166,341 +222,487 @@ def test_parse_meet_space_name():
     assert parse_meet_space_name(None) is None
 
 
-def test_exact_timing_rules_notification_and_grace_period(db, tracked, monkeypatch):
-    """
-    Booking: 10:00 - 10:30 UTC.
-    1. 10:28: Not ended, no notification sent.
-    2. 10:30: Notification sent ('Your booked meeting time has ended'),
-              conference NOT terminated, 2-minute grace period active.
-    3. 10:31: Within grace period, conference NOT terminated.
-    4. 10:32: Conference automatically terminates for everyone.
-    """
+def test_schedule_stores_deadline_on_the_booking(db, tracked):
+    host = _user_with_google(db, tracked, "sched")
+    b = _booking(db, host, T0, duration_minutes=20)
+    assert b.termination_status == "pending"
+    assert b.termination_due_at == T0 + timedelta(minutes=20 + GRACE_PERIOD_MINUTES)
+
+
+# ---------------------------------------------------------------------------------------
+# Timing: the meeting stays open through the whole grace period
+# ---------------------------------------------------------------------------------------
+
+def test_stays_active_through_grace_then_ends_at_end_plus_three(db, tracked, meet):
     host = _user_with_google(db, tracked, "timing")
-    t_start = datetime(2030, 5, 10, 10, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30)
+    booking = _booking(db, host, T0, duration_minutes=20)  # ends 10:20, terminates 10:23
+    meet.add("abc-defg-hij")
 
-    calls = []
-    async def mock_end(token, space_name):
-        calls.append((token, space_name))
-        return True, None, False
+    assert _run(db, T0 + timedelta(minutes=19))["notifications_sent"] == 0
 
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
+    res = _run(db, T0 + timedelta(minutes=20))        # scheduled end: wrap-up notice only
+    assert res["notifications_sent"] == 1 and res["terminated"] == 0
+    for minute in (21, 22):                           # inside the grace period: still open
+        assert _run(db, T0 + timedelta(minutes=minute))["terminated"] == 0
+    assert meet.calls() == [] and meet.spaces["abc-defg-hij"]["active"]
 
-    # 1. Check at 10:28 (2 minutes before scheduled end)
-    res_28 = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=28)))
-    assert res_28["notifications_sent"] == 0
-    assert res_28["terminated"] == 0
-    assert len(calls) == 0
-
-    # 2. Check at 10:30 (exact scheduled end time)
-    res_30 = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=30)))
-    assert res_30["notifications_sent"] == 1
-    assert res_30["terminated"] == 0  # CRITICAL: NOT terminated at 10:30!
-    assert len(calls) == 0
-
-    # Verify notification record was persisted in DB
-    db.refresh(booking)
-    assert booking.grace_notified_at is not None
     note = db.query(Notification).filter(
-        Notification.admin_id == host.id,
-        Notification.booking_id == booking.id,
-        Notification.type == "grace_period_warning",
-    ).first()
-    assert note is not None
-    assert note.title == "Your booked meeting time has ended"
-    assert "2 minutes to wrap up" in note.message
+        Notification.booking_id == booking.id, Notification.type == "grace_period_warning").one()
+    assert f"{GRACE_PERIOD_MINUTES} minutes to wrap up" in note.message
 
-    # 3. Check at 10:31 (1 minute into grace period)
-    res_31 = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=31)))
-    assert res_31["notifications_sent"] == 0  # No duplicate notification
-    assert res_31["terminated"] == 0  # Still in grace period!
-    assert len(calls) == 0
+    res = _run(db, T0 + timedelta(minutes=23))        # end + 3 minutes: ended
+    assert res["terminated"] == 1
+    assert [c[0] for c in meet.calls()] == ["GET", "POST"]
+    assert meet.spaces["abc-defg-hij"]["active"] is False
+    db.refresh(booking)
+    assert booking.termination_status == "completed" and booking.terminated_at is not None
+    assert booking.termination_last_http_status == 200
 
-    # 4. Check at 10:32 (scheduled_end_time + 2 minutes)
-    res_32 = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=32)))
-    assert res_32["terminated"] == 1  # Conference terminated automatically!
-    assert len(calls) == 1
-    assert calls[0][1] == "spaces/abc-defg-hij"
 
+def test_late_join_never_moves_the_deadline(db, tracked, meet):
+    """Nothing in the sweep reads who joined or when: only stored times decide."""
+    host = _user_with_google(db, tracked, "late")
+    _booking(db, host, T0, duration_minutes=30)
+    meet.add("abc-defg-hij")
+    assert _run(db, T0 + timedelta(minutes=29))["terminated"] == 0
+    assert _run(db, T0 + timedelta(minutes=32))["terminated"] == 0   # 30 + 3 = 33
+    assert _run(db, T0 + timedelta(minutes=33))["terminated"] == 1
+
+
+def test_uses_the_hosts_own_token_and_the_booking_space(db, tracked, meet):
+    host = _user_with_google(db, tracked, "tok")
+    _booking(db, host, T0, duration_minutes=30)
+    meet.add("abc-defg-hij")
+    _run(db, T0 + timedelta(minutes=33))
+    secret = decrypt_secret(
+        db.query(GoogleConnection).filter(GoogleConnection.admin_id == host.id).one().encrypted_refresh_token)
+    assert {c[2] for c in meet.calls()} == {f"Bearer access-token-for-{secret}"}
+
+
+# ---------------------------------------------------------------------------------------
+# Overdue / restart / idempotency
+# ---------------------------------------------------------------------------------------
+
+def test_overdue_job_runs_immediately_after_restart(db, tracked, meet):
+    host = _user_with_google(db, tracked, "overdue")
+    booking = _booking(db, host, datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2))
+    meet.add("abc-defg-hij")
+
+    # A brand-new session = a restarted process: all state is in the database.
+    fresh = SessionLocal()
+    try:
+        res = asyncio.run(run_due_terminations(fresh))
+    finally:
+        fresh.close()
+    assert res["terminated"] >= 1
     db.refresh(booking)
     assert booking.termination_status == "completed"
-    assert booking.terminated_at is not None
+
+    pub = client.get(f"/api/bookings/public/{booking.public_id}").json()
+    assert pub["is_expired"] is True and pub["google_meet_link"] is None
+    assert pub["meeting_phase"] == "ended"
 
 
-def test_late_joins_do_not_extend_grace_period_or_deadline(db, tracked, monkeypatch):
-    """
-    Booking: 10:00 - 10:30.
-    Client joining at 10:15 or 10:29 does not alter the deadline.
-    Client joining after 10:30 receives no additional meeting time.
-    """
-    host = _user_with_google(db, tracked, "late")
-    t_start = datetime(2030, 5, 10, 10, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30)
-
-    calls = []
-    async def mock_end(token, space_name):
-        calls.append(space_name)
-        return True, None, False
-
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
-
-    # Client joins at 10:15
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=15)))
-    assert res["terminated"] == 0
-    assert len(calls) == 0
-
-    # Client joins at 10:29
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=29)))
-    assert res["terminated"] == 0
-    assert len(calls) == 0
-
-    # At 10:30, grace period starts
-    asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=30)))
-
-    # Client joining at 10:31 does not push back termination beyond 10:32
-    res_late = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=32)))
-    assert res_late["terminated"] == 1
-    assert len(calls) == 1
+def test_second_sweep_does_nothing(db, tracked, meet):
+    host = _user_with_google(db, tracked, "idem")
+    _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    now = T0 + timedelta(minutes=33)
+    assert _run(db, now)["terminated"] == 1
+    assert _run(db, now)["terminated"] == 0
+    assert len(meet.calls("POST")) == 1
 
 
-def test_expired_booking_handled_without_granting_extra_time(db, tracked, monkeypatch):
-    """
-    If a booking has already passed its scheduled end time (e.g. 2 hours ago),
-    termination runs promptly on recovery without extending grace period.
-    Public API prevents accessing/joining it as an active meeting.
-    """
-    host = _user_with_google(db, tracked, "exp")
-    t_past_start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
-    booking = _booking(db, host, t_past_start, duration_minutes=30)
+def test_concurrent_sweeps_end_the_conference_once(db, tracked, meet):
+    host = _user_with_google(db, tracked, "conc")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    now = T0 + timedelta(minutes=33)
 
-    ended = []
-    async def mock_end(token, space_name):
-        ended.append(space_name)
-        return True, None, False
+    async def two_workers():
+        s1, s2 = SessionLocal(), SessionLocal()
+        try:
+            return await asyncio.gather(run_due_terminations(s1, now=now), run_due_terminations(s2, now=now))
+        finally:
+            s1.close()
+            s2.close()
 
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
-
-    # Scheduler runs now (booking ended ~1.5 hours ago)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=now))
-    assert res["terminated"] == 1
-    assert len(ended) == 1
-
-    # Public endpoint check
-    pub_res = client.get(f"/api/bookings/public/{booking.public_id}")
-    assert pub_res.status_code == 200
-    data = pub_res.json()
-    assert data["is_expired"] is True
-    assert data["google_meet_link"] is None
+    a, b = asyncio.run(two_workers())
+    assert a["terminated"] + b["terminated"] == 1
+    assert len(meet.calls("POST")) == 1
+    db.refresh(booking)
+    assert booking.termination_status == "completed"
+    assert db.query(MeetingTerminationAttempt).filter(MeetingTerminationAttempt.booking_id == booking.id).count() == 1
 
 
-def test_public_endpoint_during_grace_period(db, tracked):
-    """
-    Public booking endpoint during the 2-minute grace period returns
-    is_grace_period: True, is_expired: False, and leaves meet link accessible.
-    """
-    host = _user_with_google(db, tracked, "pubgrace")
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-    # Start 31 minutes ago, 30 min duration -> ended 1 min ago (right in 2-min grace period)
-    t_start = now_utc - timedelta(minutes=31)
-    booking = _booking(db, host, t_start, duration_minutes=30)
-
-    pub_res = client.get(f"/api/bookings/public/{booking.public_id}")
-    assert pub_res.status_code == 200
-    data = pub_res.json()
-    assert data["is_grace_period"] is True
-    assert data["is_expired"] is False
-    assert data["grace_remaining_seconds"] > 0
-    assert data["google_meet_link"] is not None
-
-
-def test_rescheduled_booking_invalidates_old_jobs(db, tracked, monkeypatch):
-    """
-    Booking was 10:00-10:30. It gets rescheduled to 11:00-11:30.
-    At 10:30 / 10:32, it must NOT notify or terminate.
-    At 11:30, it notifies; at 11:32, it terminates as scheduled.
-    """
-    host = _user_with_google(db, tracked, "resched")
-    t_old = datetime(2030, 7, 1, 10, 0, 0)
-    t_new = datetime(2030, 7, 1, 11, 0, 0)
-    booking = _booking(db, host, t_old, duration_minutes=30)
-
-    # Reschedule booking to future
-    booking.start_time = _wall(t_new)
-    booking.end_time = _wall(t_new + timedelta(minutes=30))
-    booking.termination_status = "pending"
-    booking.grace_notified_at = None
+def test_stale_claim_from_a_dead_worker_is_recovered(db, tracked, meet):
+    host = _user_with_google(db, tracked, "stale")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    now = T0 + timedelta(minutes=33)
+    booking.termination_status = "terminating"
+    booking.termination_claimed_at = now - timedelta(minutes=meeting_termination.STALE_CLAIM_MINUTES + 1)
     db.commit()
-
-    calls = []
-    async def mock_end(token, space_name):
-        calls.append(space_name)
-        return True, None, False
-
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
-
-    # Run at old termination time 10:32
-    res_old = asyncio.run(meeting_termination.run_due_terminations(db, now=t_old + timedelta(minutes=32)))
-    assert res_old["notifications_sent"] == 0
-    assert res_old["terminated"] == 0
-    assert len(calls) == 0
-
-    # Run at new end time 11:30 -> notification sent, conference not ended
-    res_new_notif = asyncio.run(meeting_termination.run_due_terminations(db, now=t_new + timedelta(minutes=30)))
-    assert res_new_notif["notifications_sent"] == 1
-    assert res_new_notif["terminated"] == 0
-
-    # Run at new termination time 11:32 -> conference ended
-    res_new_term = asyncio.run(meeting_termination.run_due_terminations(db, now=t_new + timedelta(minutes=32)))
-    assert res_new_term["terminated"] == 1
-    assert len(calls) == 1
+    assert _run(db, now)["terminated"] == 1
+    db.refresh(booking)
+    assert booking.termination_status == "completed"
 
 
-def test_cancelled_booking_is_not_terminated_by_stale_job(db, tracked, monkeypatch):
-    """A cancelled booking is marked cancelled and never notifies or invokes Google termination."""
+# ---------------------------------------------------------------------------------------
+# Only end a conference that is active
+# ---------------------------------------------------------------------------------------
+
+def test_no_active_conference_makes_no_end_call(db, tracked, meet):
+    host = _user_with_google(db, tracked, "idle")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij", active=False)
+    res = _run(db, T0 + timedelta(minutes=33))
+    assert res["already_ended"] == 1 and res["terminated"] == 0
+    assert meet.calls("POST") == []
+    db.refresh(booking)
+    assert booking.termination_status == "no_active_conference"
+    assert booking.terminated_at is None            # we did not end anything
+    assert meeting_phase(booking, T0 + timedelta(minutes=34)) == "ended"
+
+
+def test_conference_ending_between_check_and_end_is_not_a_failure(db, tracked, meet):
+    host = _user_with_google(db, tracked, "race")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    meet.fail["POST"] = [400]
+    res = _run(db, T0 + timedelta(minutes=33))
+    assert res["already_ended"] == 1
+    db.refresh(booking)
+    assert booking.termination_status == "no_active_conference"
+
+
+# ---------------------------------------------------------------------------------------
+# Cancel / reschedule
+# ---------------------------------------------------------------------------------------
+
+def test_cancelled_booking_is_never_terminated(db, tracked, meet):
     host = _user_with_google(db, tracked, "cancel")
-    t_start = datetime(2030, 8, 1, 14, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30, status="cancelled")
-
-    calls = []
-    async def mock_end(token, space_name):
-        calls.append(space_name)
-        return True, None, False
-
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
-
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=35)))
-    assert res["notifications_sent"] == 0
-    assert res["terminated"] == 0
-    assert len(calls) == 0
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    booking.status = "cancelled"
+    cancel_termination_job(booking)
+    db.commit()
+    res = _run(db, T0 + timedelta(minutes=40))
+    assert res["notifications_sent"] == 0 and res["terminated"] == 0
+    assert meet.log == []
     db.refresh(booking)
     assert booking.termination_status == "cancelled"
+    assert meeting_phase(booking, T0 + timedelta(minutes=40)) == "cancelled"
 
 
-def test_admin_isolation_uses_only_hosts_credentials(db, tracked, monkeypatch):
-    """
-    Two admins (Admin A and Admin B).
-    Admin A's booking must use only Admin A's refresh token and credentials,
-    never Admin B's or a shared token.
-    """
-    host_a = _user_with_google(db, tracked, "admin_a")
-    host_b = _user_with_google(db, tracked, "admin_b")
+def test_reschedule_moves_the_deadline_and_drops_the_old_one(db, tracked, meet):
+    host = _user_with_google(db, tracked, "resched")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    old_due = booking.termination_due_at
+    old_generation = booking.termination_generation
 
-    t_start = datetime(2030, 9, 1, 10, 0, 0)
-    b_a = _booking(db, host_a, t_start, duration_minutes=30, meet_code="space-host-a")
-    b_b = _booking(db, host_b, t_start, duration_minutes=30, meet_code="space-host-b")
+    new_start = T0 + timedelta(hours=1)
+    booking.start_time = _wall(new_start)
+    booking.end_time = _wall(new_start + timedelta(minutes=30))
+    schedule_termination_job(booking)
+    db.commit()
+    assert booking.termination_due_at == new_start + timedelta(minutes=30 + GRACE_PERIOD_MINUTES)
+    assert booking.termination_due_at != old_due
+    assert booking.termination_generation == old_generation + 1
 
-    used_tokens = {}
-    async def mock_end(token, space_name):
-        used_tokens[space_name] = token
-        return True, None, False
+    # At the OLD deadline nothing happens: no notice, no call.
+    res = _run(db, old_due)
+    assert res["notifications_sent"] == 0 and res["terminated"] == 0 and meet.log == []
 
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
-
-    # Run at scheduled_end_time + 2 minutes
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=t_start + timedelta(minutes=32)))
-    assert res["terminated"] == 2
-    assert "spaces/space-host-a" in used_tokens
-    assert "spaces/space-host-b" in used_tokens
-
-    # Verify credentials used: host_a's token was used for space-host-a
-    assert used_tokens["spaces/space-host-a"] != used_tokens["spaces/space-host-b"]
+    # At the NEW deadline it ends.
+    assert _run(db, new_start + timedelta(minutes=30))["notifications_sent"] == 1
+    assert _run(db, new_start + timedelta(minutes=33))["terminated"] == 1
 
 
-def test_temporary_google_api_failure_retried_safely(db, tracked, monkeypatch):
-    """
-    A 500 or 429 transient error marks status as retry with bounded count.
-    """
-    host = _user_with_google(db, tracked, "retry")
-    t_start = datetime(2030, 10, 1, 12, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30)
-
-    async def mock_fail(token, space_name):
-        return False, "Google Meet API 503 temporary error", True
-
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_fail)
-
-    now = t_start + timedelta(minutes=32)
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=now))
-    assert res["retried"] == 1
-
+def test_stored_deadline_that_was_never_updated_cannot_end_a_meeting_early(db, tracked, meet):
+    """Safety net: the sweep recomputes the deadline from end_time, not just from the stored copy."""
+    host = _user_with_google(db, tracked, "forgot")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    new_start = T0 + timedelta(hours=2)
+    booking.start_time = _wall(new_start)
+    booking.end_time = _wall(new_start + timedelta(minutes=30))     # no schedule_termination_job()
+    db.commit()
+    assert _run(db, T0 + timedelta(minutes=33))["terminated"] == 0
+    assert meet.log == []
     db.refresh(booking)
-    assert booking.termination_status == "retry"
-    assert booking.termination_retries == 1
-    assert "503" in (booking.termination_error or "")
+    assert booking.termination_due_at == new_start + timedelta(minutes=30 + GRACE_PERIOD_MINUTES)
 
 
-def test_revoked_token_produces_notification_and_failure(db, tracked, monkeypatch):
-    """
-    If host's Google token refresh fails, integration is marked disconnected,
-    an in-app notification is created, and status becomes failed without false success.
-    """
+def test_result_of_a_rescheduled_job_is_dropped(db, tracked, meet):
+    """A worker mid-call when the booking is rescheduled must not write over the new schedule."""
+    host = _user_with_google(db, tracked, "midflight")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    booking.termination_status = "terminating"
+    db.commit()
+
+    other = SessionLocal()
+    try:
+        fresh = other.query(Booking).filter(Booking.id == booking.id).one()
+        new_start = T0 + timedelta(hours=1)
+        fresh.start_time = _wall(new_start)
+        fresh.end_time = _wall(new_start + timedelta(minutes=30))
+        schedule_termination_job(fresh)
+        other.commit()
+    finally:
+        other.close()
+
+    result = asyncio.run(meeting_termination.terminate_booking_conference(db, booking))
+    assert result["status"] == "completed"           # the call itself happened...
+    db.expire_all()
+    current = db.query(Booking).filter(Booking.id == booking.id).one()
+    assert current.termination_status == "pending"   # ...but the new schedule is untouched
+    assert current.terminated_at is None
+
+
+# ---------------------------------------------------------------------------------------
+# Failures
+# ---------------------------------------------------------------------------------------
+
+def test_timeout_is_retried_with_backoff_then_succeeds(db, tracked, meet):
+    host = _user_with_google(db, tracked, "retry")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    meet.fail["GET"] = ["timeout"]
+    now = T0 + timedelta(minutes=33)
+
+    res = _run(db, now)
+    assert res["retried"] == 1
+    db.refresh(booking)
+    assert booking.termination_status == "retry" and booking.termination_retries == 1
+    assert booking.termination_next_attempt_at == now + timedelta(seconds=RETRY_BACKOFF_SECONDS[0])
+    assert booking.terminated_at is None
+
+    # Not before the backoff has elapsed...
+    assert _run(db, now + timedelta(seconds=5))["terminated"] == 0
+    assert meet.calls("POST") == []
+    # ...and then it completes, once.
+    res = _run(db, now + timedelta(seconds=RETRY_BACKOFF_SECONDS[0]))
+    assert res["terminated"] == 1
+    assert len(meet.calls("POST")) == 1
+    db.refresh(booking)
+    assert booking.termination_status == "completed"
+
+
+def test_backoff_grows_and_gives_up(db, tracked, meet):
+    host = _user_with_google(db, tracked, "giveup")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    meet.fail["GET"] = [503] * (len(RETRY_BACKOFF_SECONDS) + 2)
+    now = T0 + timedelta(minutes=33)
+    seen = []
+    for _ in range(len(RETRY_BACKOFF_SECONDS) + 1):
+        _run(db, now)
+        db.refresh(booking)
+        if booking.termination_status != "retry":
+            break
+        seen.append((booking.termination_next_attempt_at - now).total_seconds())
+        now = booking.termination_next_attempt_at
+    assert seen == [float(s) for s in RETRY_BACKOFF_SECONDS]
+    assert booking.termination_status == "failed"
+    assert "Gave up" in booking.termination_error
+    assert meet.calls("POST") == []
+
+
+@pytest.mark.parametrize("code", [403, 401])
+def test_permission_error_is_permanent_and_reported(db, tracked, meet, code):
+    host = _user_with_google(db, tracked, f"perm{code}")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    meet.fail["GET"] = [code]
+    res = _run(db, T0 + timedelta(minutes=33))
+    assert res["failed"] == 1 and res["terminated"] == 0
+    db.refresh(booking)
+    assert booking.termination_status == "failed"
+    assert booking.termination_last_http_status == code
+    assert "Reconnect Google" in booking.termination_error
+    assert booking.terminated_at is None            # never claim an end Google did not accept
+    assert db.query(Notification).filter(
+        Notification.admin_id == host.id, Notification.type == "termination_failed").count() == 1
+    assert meet.calls("POST") == []
+    # Permanent: a later sweep does not retry it.
+    _run(db, T0 + timedelta(hours=1))
+    assert len(meet.calls("GET")) == 1
+    assert meeting_phase(booking, T0 + timedelta(hours=1)) == "termination_failed"
+
+
+def test_rejected_end_call_is_not_reported_as_ended(db, tracked, meet):
+    host = _user_with_google(db, tracked, "rejectend")
+    booking = _booking(db, host, T0)
+    meet.add("abc-defg-hij")
+    meet.fail["POST"] = [403]
+    res = _run(db, T0 + timedelta(minutes=33))
+    assert res["failed"] == 1 and res["terminated"] == 0
+    db.refresh(booking)
+    assert booking.termination_status == "failed" and booking.terminated_at is None
+    assert meet.spaces["abc-defg-hij"]["active"] is True
+
+
+def test_revoked_refresh_token_fails_without_disconnecting_the_host(db, tracked, meet, monkeypatch):
     host = _user_with_google(db, tracked, "revoked")
-    t_start = datetime(2030, 11, 1, 15, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30)
+    booking = _booking(db, host, T0)
 
     async def failing_refresh(enc_token):
         raise ValueError("Token has been expired or revoked by user")
 
     monkeypatch.setattr(meeting_termination, "refresh_google_token", failing_refresh)
-
-    now = t_start + timedelta(minutes=32)
-    res = asyncio.run(meeting_termination.run_due_terminations(db, now=now))
+    res = _run(db, T0 + timedelta(minutes=33))
     assert res["failed"] == 1
-
     db.refresh(booking)
     assert booking.termination_status == "failed"
-    assert "expired or revoked" in (booking.termination_error or "")
+    assert "Reconnect Google" in booking.termination_error
+    # A failed refresh is reported, never acted on: only an explicit disconnect ends a connection.
+    conn = db.query(GoogleConnection).filter(GoogleConnection.admin_id == host.id).one()
+    assert conn.connection_status == "connected"
+    assert db.query(Notification).filter(
+        Notification.admin_id == host.id, Notification.type == "termination_failed").count() == 1
+    assert meet.log == []
 
-    conn = db.query(GoogleConnection).filter(GoogleConnection.admin_id == host.id).first()
-    assert conn.connection_status == "disconnected"
 
-    note = db.query(Notification).filter(Notification.admin_id == host.id, Notification.type == "termination_failed").first()
-    assert note is not None
+# ---------------------------------------------------------------------------------------
+# Correct conference only
+# ---------------------------------------------------------------------------------------
+
+def test_only_the_bookings_own_space_is_touched(db, tracked, meet):
+    host_a = _user_with_google(db, tracked, "iso_a")
+    host_b = _user_with_google(db, tracked, "iso_b")
+    other = _user_with_google(db, tracked, "iso_c")
+    _booking(db, host_a, T0, meet_code="space-host-a")
+    _booking(db, host_b, T0, meet_code="space-host-b")
+    # A different, still-running meeting that is not due yet and a stranger's space.
+    _booking(db, other, T0 + timedelta(hours=5), meet_code="space-future")
+    for code in ("space-host-a", "space-host-b", "space-future", "space-stranger"):
+        meet.add(code)
+
+    _run(db, T0 + timedelta(minutes=33))
+    ended = {c[1] for c in meet.calls("POST")}
+    assert ended == {"space-host-a", "space-host-b"}
+    assert meet.spaces["space-future"]["active"] and meet.spaces["space-stranger"]["active"]
+    tokens = {c[1]: c[2] for c in meet.calls("GET")}
+    assert tokens["space-host-a"] != tokens["space-host-b"]   # each host's own credentials
 
 
-def test_restart_recovery_and_idempotency(db, tracked, monkeypatch):
-    """
-    Pending jobs in the DB survive process restarts and multiple runs do not duplicate calls.
-    """
-    host = _user_with_google(db, tracked, "idemp")
-    t_start = datetime(2030, 12, 1, 16, 0, 0)
-    booking = _booking(db, host, t_start, duration_minutes=30)
+def test_space_that_is_not_this_bookings_meeting_is_refused(db, tracked, meet):
+    host = _user_with_google(db, tracked, "mismatch")
+    booking = _booking(db, host, T0, meet_code="abc-defg-hij")
+    meet.add("abc-defg-hij")
+    # The space resolves to a different meeting code than the booking's own link.
+    original = meet.handler
 
-    calls = 0
-    async def mock_end(token, space_name):
-        nonlocal calls
-        calls += 1
-        return True, None, False
+    def lying(request):
+        res = original(request)
+        if request.method == "GET" and res.status_code == 200:
+            return httpx.Response(200, json={**res.json(), "meetingCode": "zzz-zzzz-zzz"})
+        return res
 
-    monkeypatch.setattr(meeting_termination, "call_google_meet_end_conference", mock_end)
+    meeting_termination._http_transport = httpx.MockTransport(lying)
+    res = _run(db, T0 + timedelta(minutes=33))
+    assert res["failed"] == 1
+    assert meet.calls("POST") == []
+    db.refresh(booking)
+    assert booking.termination_status == "failed"
 
-    now = t_start + timedelta(minutes=32)
-    # First pass: executes termination
-    res1 = asyncio.run(meeting_termination.run_due_terminations(db, now=now))
-    assert res1["terminated"] == 1
-    assert calls == 1
 
-    # Second pass: already completed, does nothing
-    res2 = asyncio.run(meeting_termination.run_due_terminations(db, now=now))
-    assert res2["terminated"] == 0
-    assert calls == 1
+# ---------------------------------------------------------------------------------------
+# Every booking category follows the same rule
+# ---------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("role,category", [
+    ("admin", "client"),
+    ("super_admin", "client"),
+    ("super_admin", "student_free"),
+    ("super_admin", "student_paid"),
+])
+def test_every_category_terminates_at_end_plus_three(db, tracked, meet, role, category):
+    host = _user_with_google(db, tracked, f"cat{category}{role}", role=role)
+    booking = _booking(db, host, T0, duration_minutes=20, category=category)
+    meet.add("abc-defg-hij")
+    assert _run(db, T0 + timedelta(minutes=22))["terminated"] == 0
+    assert _run(db, T0 + timedelta(minutes=23))["terminated"] == 1
+    db.refresh(booking)
+    assert booking.termination_status == "completed"
+    if category.startswith("student"):
+        assert booking.attendance_status == "completed"      # counted once, never twice
+        _run(db, T0 + timedelta(minutes=40))
+        db.refresh(booking)
+        assert booking.attendance_status == "completed"
+    else:
+        assert booking.attendance_status is None
+
+
+def test_student_attendance_is_recorded_even_when_google_is_down(db, tracked, meet):
+    host = _user_with_google(db, tracked, "studdown", role="super_admin")
+    booking = _booking(db, host, T0, category="student_free")
+    meet.add("abc-defg-hij")
+    meet.fail["GET"] = [503]
+    _run(db, T0 + timedelta(minutes=33))
+    db.refresh(booking)
+    assert booking.termination_status == "retry"
+    assert booking.attendance_status == "completed"
+
+
+# ---------------------------------------------------------------------------------------
+# Recordings are untouched
+# ---------------------------------------------------------------------------------------
+
+def test_termination_leaves_recording_artifacts_alone(db, tracked, meet):
+    host = _user_with_google(db, tracked, "rec", role="super_admin")
+    booking = _booking(db, host, T0, category="student_free")
+    meet.add("abc-defg-hij")
+    db.add(MeetingRecording(booking_id=booking.id, space_name="spaces/abc-defg-hij",
+                            drive_file_id="drive-file-1", status="processing"))
+    db.commit()
+    _run(db, T0 + timedelta(minutes=33))
+    # Only spaces.get and :endActiveConference were used: nothing that deletes or alters a space,
+    # a conference record, a transcript or a recording.
+    assert {c[0] for c in meet.log} == {"GET", "POST"}
+    rec = db.query(MeetingRecording).filter(MeetingRecording.booking_id == booking.id).one()
+    assert rec.status == "processing" and rec.drive_file_id == "drive-file-1"
+
+
+# ---------------------------------------------------------------------------------------
+# Phase, API fields, cron
+# ---------------------------------------------------------------------------------------
+
+def test_meeting_phase_progression(db, tracked, meet):
+    host = _user_with_google(db, tracked, "phase")
+    booking = _booking(db, host, T0, duration_minutes=20)
+    assert meeting_phase(booking, T0 - timedelta(minutes=5)) == "scheduled"
+    assert meeting_phase(booking, T0 + timedelta(minutes=10)) == "in_progress"
+    assert meeting_phase(booking, T0 + timedelta(minutes=21)) == "termination_pending"
+    assert meeting_phase(booking, T0 + timedelta(minutes=30)) == "termination_pending"   # overdue, not yet ended
+    booking.termination_status = "completed"
+    assert meeting_phase(booking, T0 + timedelta(minutes=30)) == "ended"
+
+
+def test_public_booking_exposes_utc_deadlines_and_phase(db, tracked):
+    host = _user_with_google(db, tracked, "pubfields")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    booking = _booking(db, host, now - timedelta(minutes=21), duration_minutes=20)   # ended 1 min ago
+    data = client.get(f"/api/bookings/public/{booking.public_id}").json()
+    assert data["meeting_phase"] == "termination_pending"
+    assert data["grace_minutes"] == GRACE_PERIOD_MINUTES
+    assert data["is_grace_period"] is True and data["is_expired"] is False
+    assert data["google_meet_link"] is not None
+    end = datetime.fromisoformat(data["scheduled_end_at"].replace("Z", "+00:00"))
+    term = datetime.fromisoformat(data["termination_at"].replace("Z", "+00:00"))
+    assert term - end == timedelta(minutes=GRACE_PERIOD_MINUTES)
+    assert data["server_now"].endswith("Z")
+    assert 0 < data["grace_remaining_seconds"] <= GRACE_PERIOD_MINUTES * 60
 
 
 def test_internal_cron_endpoint(monkeypatch):
-    """POST /api/internal/termination/run is secured with X-Cron-Secret."""
     secret = "test-cron-secret-12345"
     monkeypatch.setattr(settings, "CRON_SECRET", secret)
-
-    # Missing header -> 403
-    r1 = client.post("/api/internal/termination/run")
-    assert r1.status_code == 403
-
-    # Wrong header -> 403
-    r2 = client.post("/api/internal/termination/run", headers={"x-cron-secret": "wrong"})
-    assert r2.status_code == 403
-
-    # Valid header -> 200
+    assert client.post("/api/internal/termination/run").status_code == 403
+    assert client.post("/api/internal/termination/run", headers={"x-cron-secret": "wrong"}).status_code == 403
     r3 = client.post("/api/internal/termination/run", headers={"x-cron-secret": secret})
     assert r3.status_code == 200
     assert "terminated" in r3.json()

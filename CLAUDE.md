@@ -369,6 +369,31 @@ theirs. `backend/test_persistence.py` (44 tests) is the guard.
   without upscaling, stored as WebP q82 in Supabase Storage. An already-small, metadata-free
   JPEG/WebP that would grow is kept as is. GIF/AVIF pass through. Needs Pillow.
 
+## Automatic Meet termination (scheduled end + 3 minutes)
+
+`services/meeting_termination.py`, tests in `test_meeting_termination.py` (34, Google replaced by an
+`httpx.MockTransport` via the `_http_transport` seam). Every Meet booking -- client, Admin, Super
+Admin, free and paid student -- is ended at `end_time + GRACE_PERIOD_MINUTES` (3), computed from the
+stored booking (business-timezone wall clock -> UTC), never from when anyone joined.
+
+- Job state lives on `bookings` (`termination_status/due_at/next_attempt_at/claimed_at/generation/
+  last_http_status`, migration `008`; `reconcile_database_schema` also adds them at startup).
+  `schedule_termination_job` (confirm + reschedule) and `cancel_termination_job` (every cancel/delete
+  path) own the state; both bump `termination_generation`, and a worker's result is written only if
+  the generation is unchanged, so a stale claim cannot overwrite a rescheduled/cancelled job.
+- Flow: `GET spaces/{id}` -> only if `activeConference` is present `POST spaces/{id}:endActiveConference`.
+  Nothing active = `no_active_conference` (shown as Ended, no end call). 429/5xx/timeout retry with
+  bounded exponential backoff (`RETRY_BACKOFF_SECONDS`), then `failed`; 401/403/404 are permanent and
+  reported, never claimed as ended. A failed refresh never flips `connection_status`.
+- Sweeps: in-process worker + `POST /api/internal/termination/run`; overdue jobs run on the next
+  sweep; stale `terminating` claims are recovered after `STALE_CLAIM_MINUTES`. `meeting_termination_attempts`
+  is an audit table (never read to decide anything).
+- Public booking / student bookings return `meeting_phase`, `scheduled_start_at/end_at`,
+  `termination_at` (UTC, `Z`), `grace_minutes`, `server_now`; the pages count down against `server_now`
+  and are informational only.
+- Needs the Google Meet REST API enabled in the Cloud project and the `meetings.space.created` scope
+  (only spaces this app created can be ended). Not verified against live Google from CI.
+
 ## Import from SuperProfile
 
 `Settings -> Profile Customization -> Import from SuperProfile`, backed by

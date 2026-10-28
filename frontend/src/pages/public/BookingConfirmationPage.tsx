@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+﻿import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,10 @@ export const BookingConfirmationPage: React.FC = () => {
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [nowTs, setNowTs] = useState<number>(Date.now());
+  // Server time minus browser time, measured when the booking loads. Every deadline below is
+  // compared against the server's clock, so a wrong device clock cannot show a wrong countdown.
+  // Informational only: the backend ends the meeting, not this page.
+  const [clockOffset, setClockOffset] = useState<number>(0);
 
   // Timer interval for real-time grace period countdown
   useEffect(() => {
@@ -70,6 +74,13 @@ export const BookingConfirmationPage: React.FC = () => {
             is_grace_period: remote.is_grace_period,
             grace_remaining_seconds: remote.grace_remaining_seconds,
             grace_termination_time: remote.grace_termination_time,
+            termination_status: remote.termination_status,
+            meeting_phase: remote.meeting_phase,
+            scheduled_start_at: remote.scheduled_start_at,
+            scheduled_end_at: remote.scheduled_end_at,
+            termination_at: remote.termination_at,
+            grace_minutes: remote.grace_minutes,
+            termination_detail: remote.termination_detail,
             assigned_admin_name: remote.admin_name,
             reschedule_token: remote.reschedule_token,
             cancellation_token: remote.cancellation_token,
@@ -87,6 +98,7 @@ export const BookingConfirmationPage: React.FC = () => {
             category: remote.category,
             email_enabled: remote.email_enabled === true,
           } as any);
+          if (remote.server_now) setClockOffset(Date.parse(remote.server_now) - Date.now());
           setLoading(false);
           return;
         }
@@ -135,51 +147,73 @@ export const BookingConfirmationPage: React.FC = () => {
     fetchBooking();
   }, [bookingId, reloadKey]);
 
-  // Derive grace period and expiration based on authoritative booking end_time + 2 minutes.
-  // These hooks MUST run on every render — before any early return below — or React sees a
-  // different number of hooks once `booking` loads ("Rendered more hooks than during the
-  // previous render") and unmounts the tree, which is what rendered this page blank after a
-  // successful payment. Each one guards against a null booking, so running early is safe.
-  const endTs = useMemo(() => {
-    if (!booking?.end_time) return 0;
-    return new Date(booking.end_time).getTime();
-  }, [booking?.end_time]);
+  // Deadlines come from the server as UTC instants: scheduled end, and termination = end +
+  // grace. The old code rebuilt them from end_time in the browser's timezone (wrong for anyone
+  // outside the host's zone) with a hardcoded grace. These hooks MUST run on every render,
+  // before any early return below, or React sees a different hook count once `booking` loads.
+  const graceMinutes = booking?.grace_minutes ?? 3;
+  const now = nowTs + clockOffset;
 
+  const startTs = useMemo(() => (booking?.scheduled_start_at ? Date.parse(booking.scheduled_start_at) : 0), [booking?.scheduled_start_at]);
+  const endTs = useMemo(() => (booking?.scheduled_end_at ? Date.parse(booking.scheduled_end_at) : 0), [booking?.scheduled_end_at]);
   const graceEndTs = useMemo(() => {
-    if (!endTs) return 0;
-    return endTs + 2 * 60 * 1000;
-  }, [endTs]);
+    if (booking?.termination_at) return Date.parse(booking.termination_at);
+    return endTs ? endTs + graceMinutes * 60 * 1000 : 0;
+  }, [booking?.termination_at, endTs, graceMinutes]);
+
+  const serverEnded = booking?.meeting_phase === 'ended' || booking?.meeting_phase === 'termination_failed' || booking?.meeting_phase === 'cancelled';
 
   const isInGracePeriod = useMemo(() => {
-    if (booking?.is_expired) return false;
+    if (booking?.is_expired || serverEnded) return false;
     if (!endTs || !graceEndTs) return Boolean(booking?.is_grace_period);
-    return nowTs >= endTs && nowTs < graceEndTs;
-  }, [booking?.is_expired, booking?.is_grace_period, endTs, graceEndTs, nowTs]);
+    return now >= endTs && now < graceEndTs;
+  }, [booking?.is_expired, booking?.is_grace_period, serverEnded, endTs, graceEndTs, now]);
 
   const isExpired = useMemo(() => {
     if (booking?.is_expired) return true;
-    if (graceEndTs && nowTs >= graceEndTs) return true;
+    if (graceEndTs && now >= graceEndTs) return true;
     return false;
-  }, [booking?.is_expired, graceEndTs, nowTs]);
+  }, [booking?.is_expired, graceEndTs, now]);
+
+  // Five states the visitor can see. A terminal state comes from the server; the others are
+  // derived from the server's own timestamps and the server-aligned clock.
+  const phase: 'scheduled' | 'in_progress' | 'termination_pending' | 'ended' | 'termination_failed' | 'cancelled' = (() => {
+    const p = booking?.meeting_phase;
+    if (p === 'ended' || p === 'termination_failed' || p === 'cancelled') return p;
+    if (!startTs || !endTs) return isExpired ? 'ended' : 'scheduled';
+    if (now < startTs) return 'scheduled';
+    if (now < endTs) return 'in_progress';
+    return 'termination_pending';
+  })();
+
+  // Past the deadline but not yet confirmed ended: ask the server again (informational refresh).
+  useEffect(() => {
+    if (!booking || phase !== 'termination_pending' || !graceEndTs || now < graceEndTs) return;
+    const t = setInterval(() => setReloadKey(k => k + 1), 10000);
+    return () => clearInterval(t);
+  }, [booking, phase, graceEndTs, now]);
+
+  const fmtCountdown = (ms: number) => {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(sec).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  };
 
   const secondsRemaining = useMemo(() => {
     if (!isInGracePeriod || !graceEndTs) return 0;
-    return Math.max(0, Math.floor((graceEndTs - nowTs) / 1000));
-  }, [isInGracePeriod, graceEndTs, nowTs]);
+    return Math.max(0, Math.floor((graceEndTs - now) / 1000));
+  }, [isInGracePeriod, graceEndTs, now]);
 
-  const formattedCountdown = useMemo(() => {
-    const mins = Math.floor(secondsRemaining / 60);
-    const secs = secondsRemaining % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }, [secondsRemaining]);
+  const formattedCountdown = fmtCountdown(secondsRemaining * 1000);
 
-  const terminationTimeDisplay = useMemo(() => {
-    if (booking?.grace_termination_time) return booking.grace_termination_time;
-    if (graceEndTs) {
-      return new Date(graceEndTs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    }
-    return 'in 2 minutes';
-  }, [booking?.grace_termination_time, graceEndTs]);
+  const timeIn = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+  const scheduledEndDisplay = endTs ? timeIn(endTs) : '';
+  const terminationTimeDisplay = booking?.grace_termination_time
+    || (graceEndTs ? timeIn(graceEndTs) : `${graceMinutes} minutes after the scheduled end`);
 
   if (loading) {
     return (
@@ -425,7 +459,29 @@ export const BookingConfirmationPage: React.FC = () => {
 
           {/* Google Calendar & Google Meet Actions */}
           <div className="space-y-3">
-            {/* 2-Minute Grace Period Warning Banner */}
+            {/* Auto-end notice + live status. Informational: the server ends the meeting. */}
+            {(phase === 'scheduled' || phase === 'in_progress') && endTs > 0 && booking.google_meet_url && (
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex items-start sm:items-center gap-3.5 text-slate-800">
+                <div className="w-10 h-10 rounded-xl bg-slate-700 text-white flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-bold text-sm">{phase === 'in_progress' ? 'In progress' : 'Scheduled'}</h4>
+                    {phase === 'in_progress' && (
+                      <Badge className="bg-slate-200 text-slate-800 border-slate-300 font-mono text-[11px] font-bold">
+                        {fmtCountdown(endTs - now)} left
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Your session is booked until {scheduledEndDisplay}. This Google Meet ends automatically {graceMinutes} minutes after the scheduled end, at {terminationTimeDisplay}, even if people are still talking.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Grace period: booked time over, Meet still open until the termination time */}
             {isInGracePeriod && (
               <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 flex items-start sm:items-center gap-3.5 text-amber-900 shadow-sm">
                 <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
@@ -433,13 +489,13 @@ export const BookingConfirmationPage: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="font-bold text-sm text-amber-950">Booked time ended</h4>
+                    <h4 className="font-bold text-sm text-amber-950">Termination pending: booked time ended</h4>
                     <Badge className="bg-amber-200 text-amber-900 border-amber-300 font-mono text-[11px] font-bold">
                       {formattedCountdown} remaining
                     </Badge>
                   </div>
                   <p className="text-xs text-amber-800 mt-0.5">
-                    Your scheduled session has ended. You have {formattedCountdown} minutes remaining. This Google Meet will end automatically at {terminationTimeDisplay}.
+                    Your scheduled session has ended. You have {graceMinutes} minutes to wrap up. This Google Meet will end automatically at {terminationTimeDisplay}.
                   </p>
                 </div>
               </div>
@@ -454,10 +510,16 @@ export const BookingConfirmationPage: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2 justify-center sm:justify-start">
                       <h4 className="font-bold text-slate-700 text-base">Google Meet Session Concluded</h4>
-                      <Badge className="bg-slate-200 text-slate-700 text-[10px]">Ended</Badge>
+                      <Badge className={phase === 'termination_failed' ? 'bg-red-100 text-red-800 text-[10px]' : 'bg-slate-200 text-slate-700 text-[10px]'}>
+                        {phase === 'termination_failed' ? 'Termination failed' : phase === 'termination_pending' ? 'Termination pending' : 'Ended'}
+                      </Badge>
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      This meeting was scheduled to end at {formatBookingTime(booking.end_time)} and is no longer active.
+                      {phase === 'termination_failed'
+                        ? `This meeting's booked time (until ${scheduledEndDisplay || formatBookingTime(booking.end_time)}) is over, but Google did not confirm the call was ended automatically. The host has been notified.`
+                        : phase === 'termination_pending'
+                          ? `This meeting's booked time (until ${scheduledEndDisplay || formatBookingTime(booking.end_time)}) is over and it is being ended now.`
+                          : `This meeting was scheduled to end at ${scheduledEndDisplay || formatBookingTime(booking.end_time)} and has ended.`}
                     </p>
                   </div>
                 </div>

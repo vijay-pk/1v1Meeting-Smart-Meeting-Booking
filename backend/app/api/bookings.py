@@ -13,6 +13,7 @@ from app.api.deps import get_current_admin
 from app.services.booking_slots import expire_abandoned_bookings, is_occupying
 from app.services.google_calendar import update_calendar_event_time
 from app.services.email_service import send_booking_rescheduled_email
+from app.services.meeting_termination import cancel_termination_job, schedule_termination_job, phase_fields
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ def cancel_my_booking(
         return {"id": booking.id, "status": booking.status}
 
     booking.status = "cancelled"
-    booking.termination_status = "cancelled"
+    cancel_termination_job(booking)
 
     # Free any active hold on this slot so the time is immediately bookable again.
     db.query(SlotLock).filter(
@@ -215,6 +216,7 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
 
     admin = booking.admin
     from app.services.meeting_termination import (
+        TERMINAL_ENDED,
         booking_end_utc,
         booking_termination_utc,
         format_localized_termination_time,
@@ -225,12 +227,12 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
     end_utc = booking_end_utc(booking.end_time)
     term_utc = booking_termination_utc(booking.end_time)
 
-    # Has the 2-minute grace period elapsed, or is termination already completed?
+    # Has the grace period elapsed, or is the conference already ended?
     is_expired = bool(
-        booking.termination_status == "completed" or (term_utc and term_utc <= now)
+        booking.termination_status in TERMINAL_ENDED or (term_utc and term_utc <= now)
     )
 
-    # Are we currently within the 2-minute wrap-up grace period?
+    # Are we currently within the wrap-up grace period?
     is_grace_period = bool(
         not is_expired
         and end_utc
@@ -273,6 +275,7 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         "grace_remaining_seconds": grace_remaining_seconds,
         "grace_termination_time": localized_term_time,
         "termination_status": booking.termination_status,
+        **phase_fields(booking, now),
         "grace_notified_at": (
             (booking.grace_notified_at if booking.grace_notified_at.tzinfo else booking.grace_notified_at.replace(tzinfo=timezone.utc)).isoformat()
             if booking.grace_notified_at else None
@@ -375,6 +378,10 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
     old_start = booking.start_time
     booking.start_time = new_start
     booking.end_time = new_end
+    # Move the termination deadline with the meeting: bumps the job generation, so any
+    # in-flight worker holding the old schedule cannot write over it, and the old deadline
+    # no longer exists.
+    schedule_termination_job(booking)
 
     try:
         db.flush()

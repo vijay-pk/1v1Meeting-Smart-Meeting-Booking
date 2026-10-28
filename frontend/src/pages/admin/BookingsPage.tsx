@@ -334,22 +334,27 @@ function BookingDetailModal({
                 </a>
                 {booking.termination_status === 'completed' && (
                   <p className="text-xs text-emerald-600 font-medium">
-                    ✓ Ended automatically at scheduled end time
+                    ✓ Ended: Google Meet was closed automatically 3 minutes after the scheduled end
+                  </p>
+                )}
+                {booking.termination_status === 'no_active_conference' && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    ✓ Ended: no one was in the call at the termination time, so nothing needed closing
                   </p>
                 )}
                 {booking.termination_status === 'failed' && (
                   <p className="text-xs text-red-600 font-medium">
-                    ⚠️ Termination failed — reconnect Google Calendar/Meet if required
+                    ⚠️ Termination failed{booking.termination_error ? `: ${booking.termination_error}` : ' — reconnect Google Calendar/Meet if required'}
                   </p>
                 )}
                 {booking.termination_status === 'pending' && (
                   <p className="text-xs text-text-tertiary">
-                    Scheduled to end automatically at {format(parseServerInstant(booking.end_time), 'h:mm a')}
+                    Scheduled: booked until {format(parseServerInstant(booking.end_time), 'h:mm a')}, then the Meet ends automatically after a 3-minute grace period
                   </p>
                 )}
-                {booking.termination_status === 'retry' && (
+                {(booking.termination_status === 'retry' || booking.termination_status === 'terminating') && (
                   <p className="text-xs text-amber-600 font-medium">
-                    Termination pending retry...
+                    Termination pending: Google has not confirmed yet, retrying automatically
                   </p>
                 )}
               </div>
@@ -445,10 +450,10 @@ function BookingDetailModal({
                   Grace period notice sent — {format(parseServerInstant(booking.grace_notified_at), 'MMM d, h:mm a')}
                 </div>
               )}
-              {booking.termination_status === 'completed' && (
+              {(booking.termination_status === 'completed' || booking.termination_status === 'no_active_conference') && (
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-slate-500" />
-                  Meeting ended automatically
+                  {booking.termination_status === 'completed' ? 'Meeting ended automatically' : 'Meeting ended (no active call at termination)'}
                 </div>
               )}
               {booking.status === 'confirmed' && (

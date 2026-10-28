@@ -158,6 +158,8 @@ def permanently_delete_admin(
             booking.meeting_type_id = None
             if booking.status in ("pending_payment", "confirmed"):
                 booking.status = "cancelled"
+                from app.services.meeting_termination import cancel_termination_job
+                cancel_termination_job(booking)
 
         payments_detached = (
             db.query(Payment)

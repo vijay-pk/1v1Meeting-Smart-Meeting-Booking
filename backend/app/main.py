@@ -53,6 +53,11 @@ def reconcile_database_schema(bind_engine):
                 ("terminated_at", "TIMESTAMP"),
                 ("termination_retries", "INTEGER DEFAULT 0"),
                 ("grace_notified_at", "TIMESTAMP"),
+                ("termination_due_at", "TIMESTAMP"),
+                ("termination_next_attempt_at", "TIMESTAMP"),
+                ("termination_claimed_at", "TIMESTAMP"),
+                ("termination_generation", "INTEGER DEFAULT 0"),
+                ("termination_last_http_status", "INTEGER"),
             ]
             with bind_engine.begin() as conn:
                 for col_name, col_type in new_cols:

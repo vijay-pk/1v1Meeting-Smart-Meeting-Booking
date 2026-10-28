@@ -115,7 +115,8 @@ def delete_student_account(db: Session, student: User) -> dict:
     for b in db.query(Booking).filter(Booking.student_id == sid).all():
         if b.status in ("confirmed", "pending_payment") and (b.start_time or "") > now_iso:
             b.status = "cancelled"
-            b.termination_status = "cancelled"
+            from app.services.meeting_termination import cancel_termination_job
+            cancel_termination_job(b)
             cancelled += 1
         b.student_id = None
         b.client_name = "Deleted student"
