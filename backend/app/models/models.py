@@ -264,6 +264,10 @@ class Booking(Base):
     termination_claimed_at = Column(DateTime, nullable=True)
     termination_generation = Column(Integer, default=0, nullable=False, server_default="0")
     termination_last_http_status = Column(Integer, nullable=True)
+    # Set (once) by the sweep when the SCHEDULED end passes. It records that the session time is
+    # over; it is not an attendance claim and does not touch status or the termination job, which
+    # keeps running until scheduled end + grace. Migration 009.
+    completed_at = Column(DateTime, nullable=True)
     cancellation_token = Column(String(64), unique=True, nullable=False)
     # Nullable: added after the table existed in production, so create_all cannot add it
     # (migration 005 does). New bookings always populate it at create-order time; legacy rows
@@ -564,6 +568,10 @@ class MeetingRecording(Base):
     status = Column(String(20), default="pending", nullable=False)
     title = Column(String(255), nullable=True)
     recorded_at = Column(DateTime, nullable=True)
+    # Server-authoritative ESTIMATE (naive UTC) of when the video should be ready: the meeting's
+    # scheduled end + RECORDING_ETA_MINUTES. Google gives no ETA, so this is an estimate, never a
+    # promise; it is stored so every device and every reload shows the same countdown. Migration 009.
+    estimated_ready_at = Column(DateTime, nullable=True)
     email_sent_at = Column(DateTime, nullable=True)
     detail = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

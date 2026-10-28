@@ -142,6 +142,7 @@ def schedule_termination_job(booking: Booking) -> None:
     booking.termination_last_http_status = None
     booking.terminated_at = None
     booking.grace_notified_at = None
+    booking.completed_at = None
     if booking.status != "confirmed" or not (booking.google_meet_link or booking.google_meet_space_id):
         booking.termination_status = "not_applicable"
         booking.termination_due_at = None
@@ -183,17 +184,37 @@ def meeting_phase(booking: Booking, now: Optional[datetime] = None) -> str:
     return "termination_pending"
 
 
+def lifecycle_status(booking: Booking, now: Optional[datetime] = None) -> str:
+    """
+    The booking's life as a person understands it, from stored facts and the scheduled end:
+    cancelled | completed | upcoming (or the raw status for pending_payment / expired).
+    `completed` means the SCHEDULED time is over. It says nothing about attendance and is
+    independent of the Meet termination job, which still runs until end + grace.
+    """
+    now = now or _utc_now()
+    if booking.status == "cancelled":
+        return "cancelled"
+    if booking.status == "confirmed":
+        end = booking_end_utc(booking.end_time)
+        if booking.completed_at is not None or (end is not None and now >= end):
+            return "completed"
+        return "upcoming"
+    return booking.status
+
+
 def phase_fields(booking: Booking, now: Optional[datetime] = None) -> dict:
     """The timing/phase block both the public booking page and the student list return."""
     now = now or _utc_now()
+    from app.services.student_rules import change_info
     return {
         "meeting_phase": meeting_phase(booking, now),
+        "lifecycle_status": lifecycle_status(booking, now),
         "scheduled_start_at": iso_utc(booking_start_utc(booking.start_time)),
         "scheduled_end_at": iso_utc(booking_end_utc(booking.end_time)),
         "termination_at": iso_utc(booking_termination_utc(booking.end_time)),
         "grace_minutes": GRACE_PERIOD_MINUTES,
         "server_now": iso_utc(now),
-        "termination_detail": booking.termination_error,
+        **change_info(booking, now),
     }
 
 
@@ -524,6 +545,24 @@ async def run_due_terminations(db: Session, now: Optional[datetime] = None) -> d
         Booking.termination_claimed_at < stale_before,
     ).update({Booking.termination_status: "retry", Booking.termination_claimed_at: None},
              synchronize_session=False)
+    db.commit()
+
+    # --- Phase 0: persist "the scheduled time is over" ---
+    # Only a marker (completed_at). status, attendance and the termination job are untouched, so
+    # the Meet is still ended at scheduled end + grace and a termination failure stays visible.
+    ended_candidates = (
+        db.query(Booking)
+        .filter(Booking.status == "confirmed", Booking.completed_at.is_(None))
+        .order_by(Booking.end_time.asc())
+        .limit(200)
+        .all()
+    )
+    for booking in ended_candidates:
+        end_utc = booking_end_utc(booking.end_time)
+        if end_utc is None or end_utc > now:
+            continue
+        db.query(Booking).filter(Booking.id == booking.id, Booking.completed_at.is_(None)).update(
+            {Booking.completed_at: end_utc}, synchronize_session=False)
     db.commit()
 
     # --- Phase 1: wrap-up notification at the scheduled end ---

@@ -8,10 +8,10 @@ import { formatBookingDate } from '@/lib/format';
 
 const STATUS_LABEL: Record<string, string> = {
   unsupported: 'Recording not configured',
-  pending: 'Pending',
+  pending: 'Waiting for recording',
   processing: 'Processing',
   available: 'Available',
-  unavailable: 'Failed',
+  unavailable: 'Unavailable',
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -30,12 +30,28 @@ export const StudentRecordingsPage: React.FC = () => {
   const [note, setNote] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);
   const [streams, setStreams] = useState<Record<string, string>>({});
+  // 1s tick, aligned to the server clock. The estimate itself is stored on the server (scheduled
+  // end + estimate), so reloading or opening another device never restarts it.
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const loadedAt = React.useRef(Date.now());
+  const clockOffset = (() => {
+    const first = (data?.recordings || []).find((r: any) => r.server_now);
+    return first ? Date.parse(first.server_now) - loadedAt.current : 0;
+  })();
+  const nowMs = tick + clockOffset;
+  const fmt = (ms: number) => {
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  };
 
   const load = useCallback((quiet = false) => {
     quiet ? setRefreshing(true) : setLoading(true);
     setError(null);
     api.studentRecordings()
-      .then(setData)
+      .then((d) => { loadedAt.current = Date.now(); setData(d); })
       .catch((e) => setError(e?.message || 'Could not load recordings.'))
       .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
@@ -47,6 +63,15 @@ export const StudentRecordingsPage: React.FC = () => {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [load]);
+
+  // While anything is still being prepared, re-check on our own every 30s. This only refreshes the
+  // display: the server keeps checking Google whether or not this page is open.
+  const waiting = (data?.recordings || []).some((r: any) => !r.simulated && (r.status === 'pending' || r.status === 'processing'));
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => load(true), 30000);
+    return () => clearInterval(t);
+  }, [waiting, load]);
 
   const play = async (id: string) => {
     setPlaying(id);
@@ -119,7 +144,32 @@ export const StudentRecordingsPage: React.FC = () => {
                 </Badge>
               </div>
             </div>
-            {r.status === 'unavailable' && r.detail && <p className="text-xs text-red-600">{r.detail}</p>}
+            {r.status === 'unavailable' && (
+              <p className="text-xs text-red-600">
+                {r.detail || 'Google did not produce a recording for this session.'} If you expected one, contact your host or support with this meeting's date.
+              </p>
+            )}
+            {/* Being prepared: an ESTIMATE from the server, never a promise and never a status change. */}
+            {!r.simulated && r.meeting_ended && (r.status === 'pending' || r.status === 'processing') && (() => {
+              const est = r.estimated_ready_at ? Date.parse(r.estimated_ready_at) : 0;
+              const past = est > 0 && nowMs >= est;
+              return (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs text-blue-900 space-y-1">
+                  <p className="font-semibold">
+                    {r.status === 'processing' ? 'Recording status: Processing' : 'Recording status: Waiting for recording'}
+                  </p>
+                  {est > 0 && !past && (
+                    <p>Estimated availability in <span className="font-mono font-bold">{fmt(est - nowMs)}</span> <span className="text-blue-700">(estimate, not a guarantee)</span></p>
+                  )}
+                  {past && <p className="font-semibold">Still processing</p>}
+                  <p className="text-blue-800">
+                    {past
+                      ? "The recording is taking longer than estimated. Google may need additional time to finish preparing the video. We'll keep checking automatically."
+                      : "Your meeting recording is being processed by Google. We'll check automatically and make it available when the video is ready. The time above is an estimate."}
+                  </p>
+                </div>
+              );
+            })()}
             {/* Why a real recording is not ready yet (e.g. a missing Google permission). */}
             {!r.simulated && (r.status === 'pending' || r.status === 'processing') && r.detail && (
               <p className="text-xs text-text-secondary">{r.detail}</p>
@@ -139,13 +189,13 @@ export const StudentRecordingsPage: React.FC = () => {
                         onError={() => {
                           // The signed link is short-lived; drop it so Play can issue a fresh one.
                           setStreams((s) => { const { [r.booking_id]: _drop, ...rest } = s; return rest; });
-                          setNote((n) => ({ ...n, [r.booking_id]: 'The recording could not be played. Press Play to try again.' }));
+                          setNote((n) => ({ ...n, [r.booking_id]: 'The recording could not be played. Press Watch Recording to try again.' }));
                         }}
                       />
                     )
                     : (
                       <Button size="sm" className="gap-1 bg-primary-600 text-white hover:bg-primary-700" disabled={playing === r.booking_id} onClick={() => play(r.booking_id)}>
-                        {playing === r.booking_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />} Play
+                        {playing === r.booking_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />} Watch Recording
                       </Button>
                     )
                 )

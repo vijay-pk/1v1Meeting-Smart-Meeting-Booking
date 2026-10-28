@@ -638,6 +638,27 @@ export const api = {
     return res.json();
   },
 
+  /** Resolve a cancellation link through the backend (same rules as the dashboard). */
+  getCancelBooking: async (token: string) => {
+    const res = await request(`/bookings/cancel/${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const e: any = new Error(err.detail || 'This cancellation link is invalid or has expired.');
+      e.notFound = res.status === 404;
+      throw e;
+    }
+    return res.json();
+  },
+
+  cancelBookingByToken: async (token: string) => {
+    const res = await request(`/bookings/cancel/${encodeURIComponent(token)}`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not cancel this booking.');
+    }
+    return res.json();
+  },
+
   /** Move a booking to a new slot. Backend re-checks the slot and moves the calendar event. */
   rescheduleBooking: async (token: string, data: { start_time: string; end_time: string }) => {
     const res = await request(`/bookings/reschedule/${encodeURIComponent(token)}`, {

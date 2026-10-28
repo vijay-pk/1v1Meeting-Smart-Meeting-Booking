@@ -80,7 +80,6 @@ export const BookingConfirmationPage: React.FC = () => {
             scheduled_end_at: remote.scheduled_end_at,
             termination_at: remote.termination_at,
             grace_minutes: remote.grace_minutes,
-            termination_detail: remote.termination_detail,
             assigned_admin_name: remote.admin_name,
             reschedule_token: remote.reschedule_token,
             cancellation_token: remote.cancellation_token,

@@ -208,6 +208,19 @@ def cancel_my_booking(
     return {"id": booking.id, "status": booking.status}
 
 
+def _hide_action_tokens(booking: Booking, is_expired: bool, now) -> bool:
+    """Cancel/Reschedule links are not offered for a finished, cancelled or (student) locked booking."""
+    if is_expired or booking.status in ("cancelled", "completed"):
+        return True
+    from app.services.meeting_termination import lifecycle_status
+    if lifecycle_status(booking, now) == "completed":
+        return True
+    if booking.category in ("student_free", "student_paid"):
+        from app.services.student_rules import change_info
+        return not change_info(booking, now)["can_change"]
+    return False
+
+
 @router.get("/public/{public_id}")
 def get_public_booking(public_id: str, db: Session = Depends(get_db)):
     booking = db.query(Booking).filter(Booking.public_id == public_id).first()
@@ -283,8 +296,8 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         # The booking's owner reached this by its public id (the link they were given), so the
         # action tokens belong to them -- exposing them here is what makes the Reschedule and
         # Cancel buttons on the confirmation screen work. Not shown once the meeting is over.
-        "reschedule_token": None if is_expired or booking.status in ("cancelled", "completed") else booking.reschedule_token,
-        "cancellation_token": None if is_expired or booking.status in ("cancelled", "completed") else booking.cancellation_token,
+        "reschedule_token": None if _hide_action_tokens(booking, is_expired, now) else booking.reschedule_token,
+        "cancellation_token": None if _hide_action_tokens(booking, is_expired, now) else booking.cancellation_token,
     }
 
 
@@ -306,6 +319,25 @@ def _reschedule_booking_payload(booking: Booking) -> dict:
     }
 
 
+def _refuse_if_over_or_locked(booking: Booking, verb: str) -> None:
+    """
+    Shared by the token reschedule/cancel endpoints: a session whose scheduled end has passed
+    can no longer be changed by anyone holding a link, and a student booking is locked inside the
+    24-hour window. The current authoritative time is read here, on every request.
+    """
+    from app.services.meeting_termination import booking_end_utc, _utc_now
+    end = booking_end_utc(booking.end_time)
+    if end is not None and _utc_now() >= end:
+        raise HTTPException(status_code=409, detail=f"This session has already taken place, so it can no longer be changed.")
+    if booking.category in ("student_free", "student_paid"):
+        from app.services.student_rules import within_change_window
+        if not within_change_window(booking.start_time):
+            raise HTTPException(
+                status_code=403,
+                detail=f"{verb} closes 24 hours before the session. Please contact the host.",
+            )
+
+
 @router.get("/reschedule/{token}")
 def get_booking_for_reschedule(token: str, db: Session = Depends(get_db)):
     """
@@ -318,6 +350,7 @@ def get_booking_for_reschedule(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="This reschedule link is invalid or has expired.")
     if booking.status not in ("confirmed", "pending_payment"):
         raise HTTPException(status_code=409, detail="This booking can no longer be rescheduled.")
+    _refuse_if_over_or_locked(booking, "Rescheduling")
     return _reschedule_booking_payload(booking)
 
 
@@ -342,13 +375,7 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
     # Student self-service changes stop 24h before the session. Enforced on the backend so an
     # old email link or a direct API call cannot slip past the deadline. Client bookings are
     # unaffected (no window) -- the rule applies only to student-category bookings.
-    if booking.category in ("student_free", "student_paid"):
-        from app.services.student_rules import within_change_window
-        if not within_change_window(booking.start_time):
-            raise HTTPException(
-                status_code=403,
-                detail="Rescheduling closes 24 hours before the session. Please contact the host.",
-            )
+    _refuse_if_over_or_locked(booking, "Rescheduling")
 
     new_start = req.start_time.strip()
     new_end = req.end_time.strip()
@@ -382,6 +409,12 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
     # in-flight worker holding the old schedule cannot write over it, and the old deadline
     # no longer exists.
     schedule_termination_job(booking)
+    # The recording follows the same Meet space, but its estimate was measured from the old end.
+    from app.models.models import MeetingRecording
+    db.query(MeetingRecording).filter(
+        MeetingRecording.booking_id == booking.id,
+        MeetingRecording.status.in_(["pending", "processing"]),
+    ).update({MeetingRecording.estimated_ready_at: None}, synchronize_session=False)
 
     try:
         db.flush()
@@ -476,3 +509,48 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
         "google_meet_link": booking.google_meet_link,
         "calendar_moved": calendar_moved,
     }
+
+
+def _booking_by_cancel_token(db: Session, token: str) -> Booking:
+    booking = db.query(Booking).filter(Booking.cancellation_token == token).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found or this link has expired.")
+    return booking
+
+
+@router.get("/cancel/{token}")
+def get_booking_for_cancel(token: str, db: Session = Depends(get_db)):
+    """Resolves a cancellation link. The token is the secret; the same rules as POST apply."""
+    booking = _booking_by_cancel_token(db, token)
+    if booking.status == "cancelled":
+        return {**_reschedule_booking_payload(booking), "already_cancelled": True}
+    if booking.status not in ("confirmed", "pending_payment"):
+        raise HTTPException(status_code=409, detail="This booking can no longer be cancelled.")
+    _refuse_if_over_or_locked(booking, "Cancellation")
+    return _reschedule_booking_payload(booking)
+
+
+@router.post("/cancel/{token}")
+def cancel_booking_by_token(token: str, db: Session = Depends(get_db)):
+    """
+    Cancels through the emailed/confirmation-page link. This used to be a direct browser write to
+    the database, which skipped every rule: a student could cancel inside the 24-hour window, the
+    slot was never released and the Meet termination job was left running. It now goes through
+    the same checks as the dashboard.
+    """
+    booking = _booking_by_cancel_token(db, token)
+    if booking.status == "cancelled":
+        return {"id": booking.id, "status": "cancelled"}
+    if booking.status not in ("confirmed", "pending_payment"):
+        raise HTTPException(status_code=409, detail="This booking can no longer be cancelled.")
+    _refuse_if_over_or_locked(booking, "Cancellation")
+
+    booking.status = "cancelled"
+    cancel_termination_job(booking)
+    db.query(SlotLock).filter(
+        SlotLock.admin_id == booking.admin_id,
+        SlotLock.start_time == booking.start_time,
+        SlotLock.status == "active",
+    ).update({SlotLock.status: "released"}, synchronize_session=False)
+    db.commit()
+    return {"id": booking.id, "status": "cancelled"}

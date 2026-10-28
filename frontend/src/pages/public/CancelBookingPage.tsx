@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, CheckCircle2, Loader2, Calendar, Clock, AlertTriangle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 import { formatBookingDate, formatBookingTime } from '@/lib/format';
 import type { Booking } from '@/types';
 
@@ -32,22 +32,13 @@ export const CancelBookingPage: React.FC = () => {
       }
 
       try {
-        const { data, error: fetchErr } = await supabase
-          .from('bookings')
-          .select('*, meeting_type:meeting_types(*), admin:profiles(*), customer:customers(*)')
-          .eq('cancellation_token', token)
-          .maybeSingle();
-
-        if (fetchErr) throw fetchErr;
-
-        if (!data) {
-          setError('Booking not found or token has expired.');
-        } else {
-          setBooking(data as unknown as Booking);
-          if (data.status === 'cancelled') {
-            setCancelled(true);
-          }
-        }
+        const data = await api.getCancelBooking(token);
+        setBooking({
+          ...data,
+          customer_timezone: data.timezone,
+          meeting_type: { name: data.session_title },
+        } as unknown as Booking);
+        if (data.already_cancelled || data.status === 'cancelled') setCancelled(true);
       } catch (err: any) {
         console.error('Error fetching booking for cancellation:', err);
         setError(err.message || 'Unable to load booking details.');
@@ -65,18 +56,7 @@ export const CancelBookingPage: React.FC = () => {
     setError(null);
 
     try {
-      const { error: updateErr } = await supabase
-        .from('bookings')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancellation_reason: reason || 'Cancelled by customer',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', booking.id);
-
-      if (updateErr) throw updateErr;
-
+      await api.cancelBookingByToken(token);
       setCancelled(true);
     } catch (err: any) {
       console.error('Cancellation failed:', err);

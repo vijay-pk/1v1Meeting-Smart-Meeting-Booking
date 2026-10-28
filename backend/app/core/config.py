@@ -156,6 +156,9 @@ class Settings(BaseSettings):
     RECORDING_DRIVE_SCOPE: str = os.getenv("RECORDING_DRIVE_SCOPE", "https://www.googleapis.com/auth/drive.meet.readonly")
     # How often the in-process worker asks Google about pending recordings.
     RECORDING_POLL_SECONDS: int = int(os.getenv("RECORDING_POLL_SECONDS", "120"))
+    # Google gives no ETA for a recording, so the student page shows scheduled end + this many
+    # minutes as a clearly labelled ESTIMATE. Tunable without a deploy of code.
+    RECORDING_ETA_MINUTES: int = int(os.getenv("RECORDING_ETA_MINUTES", "30"))
 
     # Meeting termination enforcement.
     # The in-process worker checks for due terminations every TERMINATION_POLL_SECONDS while the

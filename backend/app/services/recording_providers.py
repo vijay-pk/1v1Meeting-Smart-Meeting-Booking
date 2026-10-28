@@ -262,6 +262,9 @@ async def process_due_recordings(db: Session) -> dict:
         if end is None or end > now:
             continue
         summary["scanned"] += 1
+        from app.services.meeting_recording import ensure_eta
+        if booking:
+            ensure_eta(db, row, booking)
         before = (row.status, row.drive_file_id)
         try:
             await process_recording(db, row, GoogleMeetProvider())
@@ -275,6 +278,24 @@ async def process_due_recordings(db: Session) -> dict:
             db.rollback()
             summary["failed"] += 1
             logger.exception("Processing recording %s failed", row.id)
+
+    # A recording that became available but whose email failed was never retried: the loop above
+    # only looks at waiting rows. notify_if_ready claims email_sent_at atomically, so this is safe
+    # to repeat and can never send twice.
+    unsent = (
+        db.query(MeetingRecording)
+        .filter(MeetingRecording.status == "available", MeetingRecording.email_sent_at.is_(None))
+        .limit(50)
+        .all()
+    )
+    for row in unsent:
+        if is_simulated(row):
+            continue
+        try:
+            await notify_if_ready(db, row)
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.exception("Recording-ready email retry for %s failed", row.id)
     return summary
 
 

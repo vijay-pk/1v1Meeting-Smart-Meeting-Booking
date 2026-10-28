@@ -219,7 +219,6 @@ export interface Booking {
   termination_at?: string | null;
   grace_minutes?: number;
   server_now?: string;
-  termination_detail?: string | null;
   notifications_sent?: {
     client_email: string;
     admin_email: string;
