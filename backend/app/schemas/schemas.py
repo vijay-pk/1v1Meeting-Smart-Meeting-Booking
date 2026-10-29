@@ -100,15 +100,6 @@ class StudentPaidOrderRequest(BaseModel):
     lock_id: str
 
 # Profile schemas
-class ThemeSettings(BaseModel):
-    theme: Optional[str] = "amber"
-    bg_gradient: Optional[str] = "from-[#873600] via-[#A04000] to-[#6E2C00]"
-    button_color: Optional[str] = "#D32F2F"
-    button_text_color: Optional[str] = "#FFFFFF"
-    card_style: Optional[str] = "rounded"
-    show_video: Optional[bool] = True
-    show_stats: Optional[bool] = True
-
 class AdminProfileUpdate(BaseModel):
     name: Optional[str] = None
     username: Optional[str] = None

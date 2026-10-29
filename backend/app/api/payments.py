@@ -1,8 +1,7 @@
-import uuid
 import hmac
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,11 +11,11 @@ from app.core.database import get_db
 from app.core.security import encrypt_secret, SecretDecryptionError
 from app.models.models import (
     User, Session as SessionModel, Booking, Payment,
-    RazorpayConnection, SlotLock, GoogleConnection, Notification
+    RazorpayConnection, SlotLock
 )
 from app.schemas.schemas import (
     RazorpaySetupRequest, CreateOrderRequest, CreateOrderResponse,
-    VerifyPaymentRequest, BookingResponse
+    VerifyPaymentRequest
 )
 from app.api.deps import get_current_admin
 from app.services.razorpay_service import (
@@ -24,11 +23,6 @@ from app.services.razorpay_service import (
     create_razorpay_order, verify_razorpay_signature,
     RazorpayConfigurationError, RazorpayOrderError,
     SIMULATED_PROVIDER, REAL_PROVIDER,
-)
-from app.services.google_calendar import create_calendar_event_with_meet
-from app.services.email_service import (
-    send_booking_confirmation_email,
-    send_admin_new_booking_notification,
 )
 from app.services.booking_confirm import confirm_booking_side_effects
 
