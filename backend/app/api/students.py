@@ -6,8 +6,10 @@ own portal lives in api/student_portal.py.
 """
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,6 +17,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_super_admin
 from app.models.models import (
     User, Booking, StudentAllowance, AllowanceAdjustment, StudentCredentialEmail,
+    UserSecurityState,
 )
 from app.schemas.schemas import (
     StudentCreate, StudentUpdate, AllowanceAdjustRequest, StudentStatusUpdate,
@@ -22,9 +25,9 @@ from app.schemas.schemas import (
 from app.services import student_allowance
 from app.services.student_accounts import (
     provision_student, record_credential_delivery, StudentCreationError, TEMP_PASSWORD,
-    delete_student_account,
+    delete_student_account, issue_temp_password, temp_password_is_current,
 )
-from app.core.security import get_password_hash, normalize_email
+from app.core.security import normalize_email
 from app.services.email_service import send_student_credentials_email
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,32 @@ router = APIRouter()
 
 def _login_url() -> str:
     return f"{settings.APP_URL.rstrip('/')}/admin/login"
+
+
+async def _deliver_credentials(db: Session, student: User) -> bool:
+    """
+    Emails the temporary credentials and records the attempt. Returns True only if Resend
+    accepted the message.
+
+    The email states TEMP_PASSWORD, so before sending, the account's stored hash is verified
+    against that exact value (temp_password_is_current). If it does not match -- the account
+    does not actually have that password -- nothing is sent and the failure is recorded, so the
+    emailed password can never differ from the one that signs the student in.
+    """
+    password = TEMP_PASSWORD   # one value: it is what gets verified below AND what gets emailed
+    if not temp_password_is_current(student, password):
+        record_credential_delivery(db, student.id, sent=False, error="temporary password is not set on this account")
+        return False
+    sent = False
+    try:
+        sent = await send_student_credentials_email(
+            to_email=student.email, student_name=student.name,
+            temp_password=password, login_url=_login_url(),
+        )
+    except Exception:  # noqa: BLE001 -- the account exists; report the failed send, never raise
+        logger.exception("Credential email failed for student %s", student.id)
+    record_credential_delivery(db, student.id, sent=sent, error=None if sent else "send failed")
+    return sent
 
 
 def _credential_status(db: Session, student_id: str) -> dict:
@@ -194,16 +223,9 @@ async def create_student(body: StudentCreate, current=Depends(get_current_super_
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Email the credentials after commit; never fatal to account creation. Record delivery.
-    sent = False
-    try:
-        sent = await send_student_credentials_email(
-            to_email=student.email, student_name=student.name,
-            temp_password=TEMP_PASSWORD, login_url=_login_url(),
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("Credential email failed for student %s", student.id)
-    record_credential_delivery(db, student.id, sent=sent, error=None if sent else "send failed")
+    # Email the credentials only now that the account is committed; a failed send never undoes
+    # the account (retry is "Send credentials", which creates nothing new). Delivery is recorded.
+    sent = await _deliver_credentials(db, student)
 
     row = _student_row(db, student, detail=True)
     row["credential_email_sent"] = sent
@@ -363,21 +385,54 @@ def delete_student(student_id: str, current=Depends(get_current_super_admin), db
     return {"id": student_id, "deleted": True, "cancelled_upcoming": result["cancelled_upcoming"]}
 
 
+class ResendCredentialsRequest(BaseModel):
+    # Explicit authorization to replace the student's current password with the temporary one.
+    reset_password: bool = False
+
+
 @router.post("/students/{student_id}/resend-credentials")
-async def resend_credentials(student_id: str, current=Depends(get_current_super_admin), db: Session = Depends(get_db)):
+async def resend_credentials(
+    student_id: str,
+    body: Optional[ResendCredentialsRequest] = Body(default=None),
+    current=Depends(get_current_super_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Emails the temporary credentials again.
+
+    * Student still on the temporary password: just re-send. The password and sessions are not
+      touched, so a retry after a failed send is safe and idempotent.
+    * Anyone else (they chose their own password, or still hold a legacy temporary password):
+      the password is NOT touched and nothing is sent unless the caller passes
+      {"reset_password": true}. Then the password is replaced through issue_temp_password, every
+      older session is revoked, the change is committed, and only then is the email sent.
+    """
     student = _get_student_or_404(db, student_id)
-    # Reset to the temporary password (the stored hash can't be read back) and force a change
-    # again, so the resent credentials are actually usable.
-    student.password_hash = get_password_hash(TEMP_PASSWORD)
-    student.must_change_password = True
-    db.commit()
-    sent = False
-    try:
-        sent = await send_student_credentials_email(
-            to_email=student.email, student_name=student.name,
-            temp_password=TEMP_PASSWORD, login_url=_login_url(),
+    if student.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "student_disabled", "message": "Enable this student before sending credentials."},
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Resend credential email failed for student %s", student.id)
-    record_credential_delivery(db, student.id, sent=sent, error=None if sent else "send failed")
-    return {"sent": sent, "credential_email": _credential_status(db, student.id)}
+
+    password_reset = False
+    if not temp_password_is_current(student):
+        if not (body and body.reset_password):
+            reason = "legacy_temporary_password" if student.must_change_password else "student_set_own_password"
+            raise HTTPException(status_code=409, detail={"code": "reset_confirmation_required", "reason": reason})
+
+        issue_temp_password(student)
+        # End every session issued before this moment (same mechanism as a password change).
+        now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
+        state = db.query(UserSecurityState).filter(UserSecurityState.user_id == student.id).first()
+        if state is None:
+            db.add(UserSecurityState(user_id=student.id, tokens_valid_after=now))
+        else:
+            state.tokens_valid_after = now
+        # Audit by id only -- never the password.
+        logger.info("Super Admin %s reset student %s to the temporary password", current.id, student.id)
+        db.commit()
+        db.refresh(student)
+        password_reset = True
+
+    sent = await _deliver_credentials(db, student)
+    return {"sent": sent, "password_reset": password_reset, "credential_email": _credential_status(db, student.id)}
