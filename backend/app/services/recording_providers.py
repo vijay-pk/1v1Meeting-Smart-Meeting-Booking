@@ -149,15 +149,6 @@ class GoogleMeetProvider:
         )
 
 
-def get_provider(row: MeetingRecording, target: Optional[str] = None) -> Optional[RecordingProvider]:
-    """Pick the provider for a row; None when nothing can handle it."""
-    if is_simulated(row):
-        return SimulatedProvider(target or row.status) if simulation_allowed() else None
-    if settings.RECORDING_RETRIEVAL_ENABLED:
-        return GoogleMeetProvider()
-    return None
-
-
 async def notify_if_ready(db: Session, row: MeetingRecording) -> dict:
     """
     Sends the 'recording ready' email at most once, and only for a REAL available recording.

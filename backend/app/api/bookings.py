@@ -1,14 +1,13 @@
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
-from app.models.models import User, Session as SessionModel, Booking, SlotLock, GoogleConnection
-from app.schemas.schemas import SlotLockRequest, SlotLockResponse, BookingResponse, RescheduleRequest
+from app.models.models import User, Booking, SlotLock, GoogleConnection
+from app.schemas.schemas import SlotLockRequest, SlotLockResponse, RescheduleRequest
 from app.api.deps import get_current_admin
 from app.services.booking_slots import expire_abandoned_bookings, is_occupying
 from app.services.google_calendar import update_calendar_event_time

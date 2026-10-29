@@ -4,7 +4,6 @@ import { useAuthStore } from '@/stores/authStore';
 
 // Layouts
 import { AdminLayout } from '@/components/layout/AdminLayout';
-import { PublicLayout } from '@/components/layout/PublicLayout';
 
 // Admin Pages
 import { DashboardPage } from '@/pages/admin/DashboardPage';
@@ -22,7 +21,6 @@ import { SuperAdminLoginPage } from '@/pages/auth/SuperAdminLoginPage';
 import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 
 // Auth Pages
-import { LoginPage } from '@/pages/auth/LoginPage';
 import { SignupPage } from '@/pages/auth/SignupPage';
 import { GoogleCallbackPage } from '@/pages/auth/GoogleCallbackPage';
 
