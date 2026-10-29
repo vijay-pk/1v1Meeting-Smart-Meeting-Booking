@@ -126,8 +126,9 @@ def test_super_admin_creates_student_with_allowance(tracked):
     assert body["allocated"] == 5
     assert body["remaining"] == 5
     assert body["must_change_password"] is True
-    # password never leaked in the response
-    assert "password" not in str(body).lower() or "must_change_password" in str(body)
+    # The temporary password is never returned. (This used to read `"password" not in ... or
+    # "must_change_password" in ...`, which is always true because the body always has that key.)
+    assert TEMP_PASSWORD not in str(body) and "password_hash" not in str(body)
 
 
 # --- must-change-password gate ----------------------------------------------------------

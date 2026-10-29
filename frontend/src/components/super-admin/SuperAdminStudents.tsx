@@ -108,7 +108,21 @@ export const SuperAdminStudents: React.FC = () => {
 
   const resend = async (id: string) => {
     setBusyId(id);
-    try { const r = await api.saStudentResendCredentials(id); alert(r?.sent ? 'Credentials email sent.' : 'Email not sent (check email configuration).'); load(); }
+    try {
+      let r = await api.saStudentResendCredentials(id);
+      if (r?.confirmationRequired) {
+        // The backend changed nothing. Only an explicit yes may replace the student's password.
+        const why = r.reason === 'student_set_own_password'
+          ? 'This student has already chosen their own password. Sending credentials will REPLACE it with the temporary password, sign them out everywhere, and email them the new temporary password.'
+          : 'This student still has an older temporary password. Sending credentials will replace it with the current temporary password, sign them out everywhere, and email it to them.';
+        if (!window.confirm(`${why}\n\nContinue?`)) return;
+        r = await api.saStudentResendCredentials(id, true);
+      }
+      if (r?.sent) alert('Credentials email sent.');
+      else if (r?.password_reset) alert('The password was reset, but the email could not be sent. Use "Send credentials" again to retry.');
+      else alert('Email not sent (check email configuration). Use "Send credentials" again to retry.');
+      load();
+    }
     catch (e: any) { alert(e?.message || 'Could not resend.'); }
     finally { setBusyId(null); }
   };

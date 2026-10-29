@@ -1070,8 +1070,26 @@ export const api = {
     if (!res.ok) throw await failure(res, 'Could not load the meetings.');
     return res.json();
   },
-  saStudentResendCredentials: async (id: string) => {
-    const res = await request(`/super-admin/students/${id}/resend-credentials`, { method: 'POST', headers: getAuthHeaders() });
+  /**
+   * Re-sends the temporary credentials. If the student already chose their own password (or holds
+   * a legacy temporary one) the backend refuses with 409 and changes nothing; this returns
+   * { confirmationRequired: true, reason } so the caller can ask the admin and call again with
+   * reset = true, which explicitly authorizes replacing the password.
+   */
+  saStudentResendCredentials: async (id: string, reset = false) => {
+    const res = await request(`/super-admin/students/${id}/resend-credentials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ reset_password: reset }),
+    });
+    if (res.status === 409) {
+      const err = await res.json().catch(() => ({}));
+      const d = err?.detail;
+      if (d && typeof d === 'object' && d.code === 'reset_confirmation_required') {
+        return { confirmationRequired: true, reason: d.reason as string } as any;
+      }
+      throw new Error((d && typeof d === 'object' ? d.message : d) || 'Could not resend credentials.');
+    }
     if (!res.ok) throw await failure(res, 'Could not resend credentials.');
     return res.json();
   },

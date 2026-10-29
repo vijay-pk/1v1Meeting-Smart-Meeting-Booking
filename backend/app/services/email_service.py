@@ -225,8 +225,10 @@ async def send_student_credentials_email(
         f'<a href="{login_url}" style="background:#D32F2F;color:#fff;padding:12px 22px;'
         f'border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">'
         f"Sign in</a></p>"
-        f'<p style="color:#555;font-size:13px;">For your security, change this temporary '
-        f"password as soon as you sign in.</p>"
+        f'<p style="color:#555;font-size:13px;">Login page: {escape(login_url)}</p>'
+        f'<p style="color:#555;font-size:13px;"><strong>Sign in and change this temporary '
+        f"password immediately.</strong> You will be asked to choose your own password before "
+        f"you can use your account.</p>"
     )
     return await _send(to_email, "Your BookMyMeet student account", html)
 

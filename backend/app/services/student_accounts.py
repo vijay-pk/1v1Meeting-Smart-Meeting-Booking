@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.core.security import get_password_hash, normalize_email
+from app.core.security import get_password_hash, normalize_email, verify_password
 from app.models.models import (
     User,
     StudentAllowance,
@@ -23,13 +23,45 @@ from app.services.admin_deletion import is_email_blocked
 
 logger = logging.getLogger(__name__)
 
-# Shared, predictable first-login password. Safe only because must_change_password forces a
-# replacement before the account can do anything (deps.get_current_student).
-TEMP_PASSWORD = "Admin@123"
+# THE temporary password for newly created students -- the only place it is defined. Both the
+# stored hash (issue_temp_password) and the credentials email read this same constant, and the
+# router re-checks the stored hash against it before every send (temp_password_is_current), so
+# the password a student is emailed is provably the one set on their account.
+# It is a shared, predictable value, which is acceptable only because must_change_password forces
+# a replacement before the account can reach anything (deps.get_current_student).
+# Changing it does NOT rehash existing students: they keep whatever password they already have.
+TEMP_PASSWORD = "Adways@123"
 
 
 class StudentCreationError(Exception):
     """Raised for a duplicate email or a blocked identity -- maps to 400 in the router."""
+
+
+def issue_temp_password(user: User) -> str:
+    """
+    Puts the student on the temporary password: stores its bcrypt hash and sets
+    must_change_password. The one way a temporary password is ever set. Returns the plaintext
+    only so the caller can email it; it is never stored, logged or returned by an API.
+    """
+    user.password_hash = get_password_hash(TEMP_PASSWORD)
+    user.must_change_password = True
+    return TEMP_PASSWORD
+
+
+def temp_password_is_current(user: User, password: str | None = None) -> bool:
+    """
+    True only if this account is a student still on the first-login flag whose stored hash
+    verifies against `password` (default: TEMP_PASSWORD) right now. The gate before emailing
+    credentials: if it is False the account does not have the password the email would claim.
+    Callers that email a password pass that exact string, so what is verified and what is
+    sent are the same value.
+    """
+    candidate = TEMP_PASSWORD if password is None else password
+    return (
+        user.role == "student"
+        and bool(user.must_change_password)
+        and verify_password(candidate, user.password_hash)
+    )
 
 
 def provision_student(db: Session, *, name: str, email: str, allocated: int, created_by: str) -> User:
@@ -66,11 +98,11 @@ def provision_student(db: Session, *, name: str, email: str, allocated: int, cre
     student = User(
         name=(name or "").strip() or clean_email.split("@")[0],
         email=clean_email,
-        password_hash=get_password_hash(TEMP_PASSWORD),
+        password_hash="",  # replaced by issue_temp_password just below, before anything is stored
         role="student",
         status="ACTIVE",
-        must_change_password=True,
     )
+    issue_temp_password(student)
     db.add(student)
     db.flush()  # assign student.id
 
