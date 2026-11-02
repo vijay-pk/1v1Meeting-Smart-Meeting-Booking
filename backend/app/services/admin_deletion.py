@@ -217,6 +217,10 @@ def permanently_delete_admin(
         db.query(AdminOnboarding).filter(AdminOnboarding.admin_id == admin_id).delete(
             synchronize_session=False
         )
+        # Custom booking-page sections and testimonials (their images are MediaAssets, removed below).
+        from app.models.models import ProfileSection, ProfileSectionItem
+        db.query(ProfileSectionItem).filter(ProfileSectionItem.admin_id == admin_id).delete(synchronize_session=False)
+        db.query(ProfileSection).filter(ProfileSection.admin_id == admin_id).delete(synchronize_session=False)
         # Their uploaded media goes with the account. The rows are deleted explicitly rather
         # than left to the foreign key, because SQLite only enforces ON DELETE CASCADE when
         # the pragma is on. The stored objects are collected first and removed from Supabase

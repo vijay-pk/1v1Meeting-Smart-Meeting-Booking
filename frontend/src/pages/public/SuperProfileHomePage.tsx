@@ -12,6 +12,7 @@ import { BookingHeader } from '@/components/booking/BookingHeader';
 import { HostProfilePanel } from '@/components/booking/HostProfilePanel';
 import { SessionCard } from '@/components/booking/SessionCard';
 import { BenefitsStrip } from '@/components/booking/BenefitsStrip';
+import { PublicSections } from '@/components/booking/PublicSections';
 
 // The backend default for welcome_message; shown as the subtitle only when the host wrote their own.
 const DEFAULT_WELCOME = 'Welcome to my booking portal';
@@ -278,6 +279,9 @@ export const SuperProfileHomePage: React.FC = () => {
         </div>
 
         <BenefitsStrip googleConnected={Boolean(remoteProfile?.google_connected)} />
+
+        {/* The host's custom sections, in the order they saved them. Renders nothing when there are none. */}
+        <PublicSections sections={remoteProfile?.sections} />
       </main>
 
       <div style={{ color: 'var(--bm-on-bg-muted)' }}>

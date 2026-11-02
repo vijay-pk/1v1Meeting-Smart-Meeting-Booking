@@ -1,4 +1,5 @@
 import { authGet, authSet, authClearSession } from './authStorage';
+import type { ProfileSection } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -879,6 +880,29 @@ export const api = {
     // Throw rather than return []: an unanswered request is not "no bookings".
     if (!res.ok) throw await failure(res, 'Could not load platform bookings.');
     return res.json();
+  },
+
+  // Custom booking-page sections (saved on the server; the public page receives the published ones)
+  getMySections: async (): Promise<ProfileSection[]> => {
+    const res = await request('/sections', { headers: getAuthHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(typeof err.detail === 'string' ? err.detail : 'Could not load your sections.');
+    }
+    return (await res.json()).sections;
+  },
+
+  saveMySections: async (sections: ProfileSection[]): Promise<ProfileSection[]> => {
+    const res = await request('/sections', {
+      method: 'PUT',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sections }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(typeof err.detail === 'string' ? err.detail : 'Could not save your sections.');
+    }
+    return (await res.json()).sections;
   },
 
   // Media Upload (Photos & Videos from Device)

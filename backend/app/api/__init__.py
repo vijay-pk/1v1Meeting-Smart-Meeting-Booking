@@ -3,7 +3,7 @@ from app.api import (
     auth, admin_profiles, sessions, availability,
     bookings, payments, google_calendar, super_admin, notifications, upload,
     super_admin_settings, internal, students, student_portal, recording_simulation,
-    student_recordings,
+    student_recordings, sections,
 )
 
 api_router = APIRouter()
@@ -27,6 +27,7 @@ api_router.include_router(recording_simulation.router, prefix="/super-admin", ta
 api_router.include_router(internal.router, prefix="/internal", tags=["Internal"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload"])
+api_router.include_router(sections.router, prefix="/sections", tags=["Custom Sections"])
 # Public: a host's profile photo has to load for a client on any device.
 api_router.include_router(upload.media_router, prefix="/media", tags=["Media Upload"])
 

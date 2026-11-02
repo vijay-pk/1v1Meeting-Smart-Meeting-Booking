@@ -507,6 +507,59 @@ class MediaAsset(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+
+class ProfileSection(Base):
+    """
+    A custom section on an admin's public booking page ("Custom Sections & Resource Uploads").
+
+    These used to live only in the browser (zustand/localStorage): the Settings payload never sent
+    them, the backend had no table for them, and the public page never rendered them, so a "saved"
+    section vanished on reload and never reached visitors. They are rows now, owned by one admin.
+
+    kind: "info" (title, badge, description, image, video link, resource button) or "testimonials"
+    (the same header, plus any number of ProfileSectionItem cards). Video is a YouTube/Vimeo LINK
+    only; images are MediaAsset references (`image_asset_id`), never bytes.
+    """
+    __tablename__ = "profile_sections"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(20), default="info", nullable=False)
+    title = Column(String(120), nullable=False)
+    badge = Column(String(40), nullable=True)
+    description = Column(Text, nullable=True)
+    button_text = Column(String(40), nullable=True)
+    button_url = Column(String(500), nullable=True)
+    image_asset_id = Column(String(36), nullable=True)
+    image_alt = Column(String(200), nullable=True)
+    video_url = Column(String(300), nullable=True)
+    display_order = Column(Integer, default=0, nullable=False)
+    is_published = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ProfileSectionItem(Base):
+    """One testimonial/review card inside a "testimonials" ProfileSection."""
+    __tablename__ = "profile_section_items"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    section_id = Column(String(36), ForeignKey("profile_sections.id", ondelete="CASCADE"), nullable=False, index=True)
+    admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_name = Column(String(80), nullable=True)
+    designation = Column(String(120), nullable=True)
+    text = Column(Text, nullable=True)
+    # Free text the ADMIN chose (e.g. "Success Story"). Nothing is ever added automatically, so the
+    # page never claims a review is verified unless the admin wrote that themselves.
+    badge = Column(String(40), nullable=True)
+    image_asset_id = Column(String(36), nullable=True)
+    image_alt = Column(String(200), nullable=True)
+    video_url = Column(String(300), nullable=True)
+    display_order = Column(Integer, default=0, nullable=False)
+    is_published = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 # ---------------------------------------------------------------------------
 # Student meeting system (migration 006). New TABLES ship via create_all; the
 # new COLUMNS on users/sessions/bookings above ship via 006_student_system.sql.
