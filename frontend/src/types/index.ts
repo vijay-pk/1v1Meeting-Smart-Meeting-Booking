@@ -99,6 +99,38 @@ export interface AdminThemeSettings {
   show_stats?: boolean;
 }
 
+/** A testimonial/review card inside a "testimonials" section (saved on the server). */
+export interface ProfileSectionItem {
+  id?: string;
+  customer_name?: string | null;
+  designation?: string | null;
+  text?: string | null;
+  badge?: string | null;
+  image_asset_id?: string | null;
+  image_url?: string | null;
+  image_alt?: string | null;
+  video_url?: string | null;
+  is_published?: boolean;
+}
+
+/** A custom section on the public booking page (saved on the server). */
+export interface ProfileSection {
+  id?: string;
+  kind: 'info' | 'testimonials';
+  title: string;
+  badge?: string | null;
+  description?: string | null;
+  button_text?: string | null;
+  button_url?: string | null;
+  image_asset_id?: string | null;
+  image_url?: string | null;
+  image_alt?: string | null;
+  video_url?: string | null;
+  is_published?: boolean;
+  items?: ProfileSectionItem[];
+}
+
+/** Legacy browser-only shape (before sections were stored on the server). */
 export interface CustomSectionItem {
   id: string;
   title: string;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { THEME_PRESETS, resolveTheme } from '@/lib/themes';
+import { THEME_PRESETS, resolveTheme, themeVars } from '@/lib/themes';
+import { CustomSectionsEditor, withKeys, toPayload, type EditorSection } from '@/components/admin/CustomSectionsEditor';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -468,7 +469,13 @@ function ProfileCustomizer({
   const [bgGradient, setBgGradient] = useState(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
   const [themeId, setThemeId] = useState<string>(resolveTheme(admin.theme_settings).id);
 
-  const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
+  // Custom booking-page sections. They live on the server (GET/PUT /api/sections). They used to be
+  // kept only in this browser's store, which is why a "saved" section disappeared on reload and never
+  // reached the public page. `sectionsLoaded` guards Save: never write a list we failed to read.
+  const [sections, setSections] = useState<EditorSection[]>([]);
+  const [sectionsLoaded, setSectionsLoaded] = useState(false);
+  const [sectionsError, setSectionsError] = useState('');
+  const [legacyImported, setLegacyImported] = useState(false);
 
   // Media Upload & Selection States (Profile Photo only keeps device upload)
   const [photoTab, setPhotoTab] = useState<'device' | 'url'>('device');
@@ -549,30 +556,31 @@ function ProfileCustomizer({
     }
     setButtonColor(admin.theme_settings?.button_color || '#D32F2F');
     setBgGradient(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
-    setCustomSections(admin.custom_sections || []);
   }, [admin.id, admin.username, admin.photo_url, admin.intro_video]);
 
-  const handleAddSection = () => {
-    const newSec = {
-      id: `sec-${Date.now()}`,
-      title: '',
-      description: '',
-      button_text: '',
-      button_url: '',
-      badge: '',
-    };
-    setCustomSections((prev) => [...prev, newSec]);
-  };
-
-  const handleUpdateSection = (id: string, field: string, value: string) => {
-    setCustomSections((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
-    );
-  };
-
-  const handleRemoveSection = (id: string) => {
-    setCustomSections((prev) => prev.filter((s) => s.id !== id));
-  };
+  useEffect(() => {
+    let alive = true;
+    setSectionsLoaded(false);
+    setSectionsError('');
+    api.getMySections()
+      .then((server) => {
+        if (!alive) return;
+        if (server.length === 0 && (admin.custom_sections || []).some((l: any) => l?.title)) {
+          // Sections written before they were stored on the server only exist in this browser.
+          // Offer them in the editor (unsaved) so Save publishes them instead of losing them.
+          setSections(withKeys((admin.custom_sections || []).filter((l: any) => l?.title).map((l: any) => ({
+            kind: 'info' as const, title: l.title, badge: l.badge || '', description: l.description || '',
+            button_text: l.button_text || '', button_url: l.button_url || '', is_published: true,
+          }))));
+          setLegacyImported(true);
+        } else {
+          setSections(withKeys(server));
+        }
+        setSectionsLoaded(true);
+      })
+      .catch((e: any) => { if (alive) setSectionsError(e?.message || 'Could not load your sections.'); });
+    return () => { alive = false; };
+  }, [admin.id]);
 
   const [saveError, setSaveError] = useState('');
 
@@ -620,7 +628,6 @@ function ProfileCustomizer({
         bg_gradient: bgGradient,
         theme: themeId,
       },
-      custom_sections: customSections,
     };
 
     // The server first. The local store and localStorage are caches, and updating them
@@ -665,6 +672,19 @@ function ProfileCustomizer({
 
     if (profile?.id === admin.id || !profile?.id) {
       updateProfile({ username: cleanUsername, full_name: name });
+    }
+
+    // Custom sections: validated and saved by the server, then re-read so ids and image URLs are real.
+    if (sectionsLoaded) {
+      try {
+        const savedSections = await api.saveMySections(toPayload(sections));
+        setSections(withKeys(savedSections));
+        setLegacyImported(false);
+      } catch (e: any) {
+        setSaving(false);
+        setSaveError(`Your profile was saved, but your custom sections were not: ${e?.message || 'please try again.'}`);
+        return;
+      }
     }
 
     setSaving(false);
@@ -1186,86 +1206,42 @@ function ProfileCustomizer({
         </div>
       </div>
 
-      {/* 4. Custom Uploaded Sections & Resource Blocks */}
+      {/* 4. Custom sections: resources, media and testimonials shown on the public page */}
       <div className="space-y-4 pt-4 border-t border-border">
-        {/* Stacks below sm: the heading, its badge and the button fought over a 272px column. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex flex-wrap items-center gap-1.5">
-              <span>4. Custom Sections & Resource Uploads</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
-                {customSections.length} Sections
-              </span>
-            </h3>
-            <p className="text-[11px] text-text-tertiary mt-0.5">
-              Upload custom highlighted cards on your public page (e.g. Free Guides, Portfolio).
-            </p>
-          </div>
-          <Button
-            type="button"
-            onClick={handleAddSection}
-            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 h-9 rounded-xl cursor-pointer flex w-full items-center justify-center gap-1 sm:h-8 sm:w-auto"
-          >
-            <Plus className="w-3 h-3" />
-            <span>+ Add Section</span>
-          </Button>
+        <div className="min-w-0">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-text-tertiary flex flex-wrap items-center gap-1.5">
+            <span>4. Custom Sections & Resource Uploads</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
+              {sections.length} Sections
+            </span>
+          </h3>
+          <p className="text-[11px] text-text-tertiary mt-0.5">
+            Resource cards, images, video links and customer reviews shown on your public booking page. Press Save Changes to publish.
+          </p>
         </div>
-
-        {customSections.length === 0 ? (
-          <div className="p-4 rounded-xl border border-dashed border-border text-center text-xs text-text-tertiary">
-            No custom sections uploaded yet. Click "+ Add Section" to feature custom links or guides on your public page.
+        {sectionsError && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{sectionsError} Your sections are untouched; Save will not change them until they load.</span>
           </div>
+        )}
+        {legacyImported && (
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+            These sections were only stored in this browser. Press <strong>Save Changes</strong> to publish them to your public page.
+          </div>
+        )}
+        {!sectionsLoaded && !sectionsError ? (
+          <p className="text-xs text-text-tertiary">Loading your sections…</p>
         ) : (
-          <div className="space-y-3">
-            {customSections.map((sec, idx) => (
-              <div key={sec.id || idx} className="p-3.5 rounded-xl border border-border bg-surface-secondary/70 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-text-secondary">Section #{idx + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSection(sec.id)}
-                    className="text-text-tertiary hover:text-red-500 text-xs transition cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <Input
-                    value={sec.title}
-                    onChange={(e) => handleUpdateSection(sec.id, 'title', e.target.value)}
-                    placeholder="Section Title"
-                    className="text-xs rounded-lg bg-surface h-8 font-semibold"
-                  />
-                  <Input
-                    value={sec.badge || ''}
-                    onChange={(e) => handleUpdateSection(sec.id, 'badge', e.target.value)}
-                    placeholder="Badge Tag (e.g. Free, Popular)"
-                    className="text-xs rounded-lg bg-surface h-8"
-                  />
-                </div>
-                <Input
-                  value={sec.description || ''}
-                  onChange={(e) => handleUpdateSection(sec.id, 'description', e.target.value)}
-                  placeholder="Short description or benefits for clients..."
-                  className="text-xs rounded-lg bg-surface h-8"
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <Input
-                    value={sec.button_text || ''}
-                    onChange={(e) => handleUpdateSection(sec.id, 'button_text', e.target.value)}
-                    placeholder="Button Label (e.g. Download PDF)"
-                    className="text-xs rounded-lg bg-surface h-8"
-                  />
-                  <Input
-                    value={sec.button_url || ''}
-                    onChange={(e) => handleUpdateSection(sec.id, 'button_url', e.target.value)}
-                    placeholder="Button Destination URL (https://...)"
-                    className="text-xs rounded-lg bg-surface h-8"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          <CustomSectionsEditor
+            sections={sections}
+            onChange={setSections}
+            disabled={!sectionsLoaded}
+            previewStyle={(() => {
+              const t = resolveTheme({ theme: themeId, bg_gradient: bgGradient });
+              return themeVars(t, t.native, { button_color: buttonColor }) as React.CSSProperties;
+            })()}
+          />
         )}
       </div>
 

@@ -256,6 +256,9 @@ class PublicAdminProfile(BaseModel):
     # True only while the host's own Google connection is connected. The booking page uses it to say
     # "Google Meet link" / "Calendar invitation" only when that is actually true for this host.
     google_connected: Optional[bool] = False
+    # Published custom sections (and published testimonial items), already ordered. Additive: older
+    # clients ignore it. Holds no ids of assets, no unpublished content, nothing from other admins.
+    sections: List[Dict[str, Any]] = []
 
 # Slot & Lock schemas
 class SlotLockRequest(BaseModel):

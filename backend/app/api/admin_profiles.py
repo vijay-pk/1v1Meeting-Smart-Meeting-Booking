@@ -8,6 +8,7 @@ from app.models.models import (
 from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, PublicSessionResponse
 from app.api.deps import get_current_admin
 from app.services.onboarding import get_onboarding_status
+from app.services import profile_sections
 
 router = APIRouter()
 
@@ -105,6 +106,7 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
         "razorpay_configured": rp_configured,
         "razorpay_key_id": rp_key_id,
         "google_connected": google_connected,
+        "sections": profile_sections.serialize(db, user.id, published_only=True),
     }
 
 @router.get("/me")
