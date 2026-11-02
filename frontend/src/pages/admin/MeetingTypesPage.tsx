@@ -22,6 +22,8 @@ import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/format';
+import { PriceTag } from '@/components/ui/PriceTag';
+import { pricingToDraft, draftToPricing, resolvePricing } from '@/lib/pricing';
 import { CURRENCIES } from '@/lib/constants';
 import {
   SessionHoursField,
@@ -73,6 +75,8 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Partial<MeetingType> | null>(null);
   const [hoursDraft, setHoursDraft] = useState<SessionHoursDraft>(() => draftFromWindows(null));
+  // Real Price / Offer Price inputs (whole rupees) for regular client meeting types.
+  const [priceDraft, setPriceDraft] = useState({ real: '', offer: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -136,12 +140,15 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
   const openCreate = () => {
     setEditingMeeting({ ...DEFAULT_MEETING, audience: isStudent ? 'student_free' : 'public' } as Partial<MeetingType>);
     setHoursDraft(draftFromWindows(null));
+    setPriceDraft({ real: '', offer: '' });
     setError('');
     setDialogOpen(true);
   };
 
   const openEdit = (meeting: MeetingType) => {
     setEditingMeeting({ ...meeting });
+    // An existing price is the Real Price with no offer; an existing offer shows both. Nothing changes until saved.
+    setPriceDraft(pricingToDraft(meeting.price, meeting.original_price));
     // Loaded from the saved rows, so editing never resets a window that exists.
     setHoursDraft(draftFromWindows(meeting.available_hours));
     setError('');
@@ -156,7 +163,17 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
     }
     // Free student sessions are priced at 0 by design; every other type needs a real price.
     const isFreeStudent = (editingMeeting as any).audience === 'student_free';
-    if (!isFreeStudent && (!editingMeeting.price || editingMeeting.price <= 0)) {
+    const isRegular = ((editingMeeting as any).audience || 'public') === 'public';
+    // Regular client types: Real Price (required) + optional Offer Price. Student types keep their single price.
+    let regularPricing: { price: number; original_price: number | null } | null = null;
+    if (isRegular) {
+      const r = draftToPricing(priceDraft.real, priceDraft.offer);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      regularPricing = { price: r.price, original_price: r.original_price };
+    } else if (!isFreeStudent && (!editingMeeting.price || editingMeeting.price <= 0)) {
       setError('Price must be greater than 0');
       return;
     }
@@ -176,8 +193,9 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
         description: editingMeeting.description || '',
         duration_minutes: editingMeeting.duration_minutes || 30,
         // Free student types carry no price; the server enforces 0 too.
-        price: isFreeStudent ? 0 : editingMeeting.price!,
-        original_price: editingMeeting.original_price || null,
+        price: regularPricing ? regularPricing.price : isFreeStudent ? 0 : editingMeeting.price!,
+        // Student types never carry a Real Price; regular types send the validated pair (null = no offer).
+        original_price: regularPricing ? regularPricing.original_price : null,
         currency: editingMeeting.currency || 'INR',
         is_active: editingMeeting.is_active ?? true,
         min_advance_hours: editingMeeting.min_advance_hours ?? 1,
@@ -341,7 +359,9 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
                           <DollarSign className="w-3.5 h-3.5" />
                           {(meeting as any).audience === 'student_free'
                             ? 'Free'
-                            : formatPrice(meeting.price, meeting.currency as Currency)}
+                            : ((meeting as any).audience || 'public') === 'public'
+                              ? <PriceTag size="sm" price={meeting.price} originalPrice={meeting.original_price} currency={meeting.currency} />
+                              : formatPrice(meeting.price, meeting.currency as Currency)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Video className="w-3.5 h-3.5" />
@@ -503,7 +523,58 @@ export function MeetingTypesPage({ variant = 'public' }: { variant?: 'public' | 
               )}
             </div>
 
-            {(editingMeeting as any)?.audience !== 'student_free' && (
+            {((editingMeeting as any)?.audience || 'public') === 'public' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="mt-real-price">
+                    Real Price ({CURRENCIES[editingMeeting?.currency || 'INR']?.symbol})
+                  </Label>
+                  <Input
+                    id="mt-real-price"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="1999"
+                    value={priceDraft.real}
+                    onChange={(e) => setPriceDraft((d) => ({ ...d, real: e.target.value.replace(/[^0-9]/g, '') }))}
+                  />
+                  <p className="text-xs text-text-tertiary">The original or standard price.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mt-offer-price">
+                    Offer Price ({CURRENCIES[editingMeeting?.currency || 'INR']?.symbol}) <span className="text-text-tertiary font-normal">optional</span>
+                  </Label>
+                  <Input
+                    id="mt-offer-price"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="999"
+                    value={priceDraft.offer}
+                    onChange={(e) => setPriceDraft((d) => ({ ...d, offer: e.target.value.replace(/[^0-9]/g, '') }))}
+                  />
+                  <p className="text-xs text-text-tertiary">The discounted amount customers pay. Leave empty for no offer.</p>
+                </div>
+              </div>
+              {(() => {
+                const r = draftToPricing(priceDraft.real, priceDraft.offer);
+                if (!r.ok) {
+                  return priceDraft.real || priceDraft.offer
+                    ? <p className="text-xs text-red-600">{r.error}</p>
+                    : null;
+                }
+                const p = resolvePricing(r.price, r.original_price);
+                const cur = (editingMeeting?.currency as Currency) || 'INR';
+                return (
+                  <p className="text-xs text-text-secondary">
+                    Customer pays <span className="font-semibold text-text-primary">{formatPrice(p.payable, cur)}</span>
+                    {p.hasOffer && <> ({p.discountPercent}% off {formatPrice(p.real, cur)})</>}
+                  </p>
+                );
+              })()}
+            </div>
+            )}
+
+            {((editingMeeting as any)?.audience || 'public') !== 'public' && (editingMeeting as any)?.audience !== 'student_free' && (
             <div className="space-y-2">
               <Label htmlFor="mt-price">
                 Price ({CURRENCIES[editingMeeting?.currency || 'INR']?.symbol})

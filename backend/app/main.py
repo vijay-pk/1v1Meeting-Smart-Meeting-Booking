@@ -64,6 +64,11 @@ def reconcile_database_schema(bind_engine):
                 for col_name, col_type in new_cols:
                     if col_name not in booking_cols:
                         conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col_name} {col_type}"))
+        if "payments" in tables:
+            pay_cols = {c["name"] for c in inspector.get_columns("payments")}
+            if "original_amount" not in pay_cols:
+                with bind_engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE payments ADD COLUMN original_amount INTEGER"))
         if "meeting_recordings" in tables:
             rec_cols = {c["name"] for c in inspector.get_columns("meeting_recordings")}
             if "estimated_ready_at" not in rec_cols:

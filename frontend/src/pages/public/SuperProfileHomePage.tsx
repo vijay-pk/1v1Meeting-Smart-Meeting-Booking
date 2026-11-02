@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { PriceTag } from '@/components/ui/PriceTag';
 import { LegalFooter } from '@/components/layout/LegalFooter';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
@@ -256,14 +257,7 @@ export const SuperProfileHomePage: React.FC = () => {
         <div className="text-xs sm:text-sm text-slate-600 font-medium flex items-center gap-1.5 min-w-0">
           <span>{meeting.duration_minutes} min</span>
           <span className="text-slate-300">·</span>
-          <span className="font-semibold text-slate-900">
-            {formatPrice(meeting.price, meeting.currency)}
-          </span>
-          {meeting.original_price && meeting.original_price > meeting.price && (
-            <span className="text-slate-400 line-through">
-              {formatPrice(meeting.original_price, meeting.currency)}
-            </span>
-          )}
+          <PriceTag tone="slate" size="sm" price={meeting.price} originalPrice={meeting.original_price} currency={meeting.currency} />
         </div>
 
         <span

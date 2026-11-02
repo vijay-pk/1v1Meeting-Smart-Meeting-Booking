@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { PriceTag } from '@/components/ui/PriceTag';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { formatPrice } from '@/lib/format';
@@ -529,14 +530,7 @@ export const TimeAvailabilityPage: React.FC = () => {
 
                   {/* Price, currency indicator, and badges */}
                   <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 mt-3">
-                    {selectedMeeting.original_price && selectedMeeting.original_price > selectedMeeting.price && (
-                      <span className="text-sm sm:text-base text-slate-400 line-through">
-                        {formatPrice(selectedMeeting.original_price, selectedMeeting.currency)}
-                      </span>
-                    )}
-                    <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
-                      {formatPrice(selectedMeeting.price, selectedMeeting.currency)}
-                    </span>
+                    <PriceTag tone="slate" size="lg" showPayable price={selectedMeeting.price} originalPrice={selectedMeeting.original_price} currency={selectedMeeting.currency} />
 
                     {/* Pay in Currency indicator */}
                     <div className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-700 bg-slate-50 flex items-center gap-1">
