@@ -213,6 +213,19 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
     session_obj = db.query(SessionModel).filter(SessionModel.id == req.session_id).first()
     if not session_obj or not session_obj.is_active:
         raise HTTPException(status_code=404, detail="Session not found or inactive")
+    # This is the REGULAR client path. The session must be this admin's and a public type: a student
+    # type (priced and gated separately, with no Real/Offer pricing) is never sold through here, and
+    # a session id from another admin's page cannot be charged under this admin's Razorpay account.
+    if session_obj.admin_id != admin.id or (session_obj.audience or "public") != "public":
+        raise HTTPException(status_code=404, detail="Session not found or inactive")
+    # The amount charged is the saved meeting type's `price` (the Offer Price when one is set, else
+    # the Real Price). Nothing the browser sends can change it; it is read here, once, from the row.
+    if (session_obj.price or 0) <= 0:
+        raise HTTPException(status_code=400, detail="This session has no payable price.")
+    original_amount = (
+        session_obj.original_price
+        if session_obj.original_price and session_obj.original_price > session_obj.price else None
+    )
 
     # 1a. Consume the hold created by POST /bookings/hold-slot.
     #
@@ -352,6 +365,7 @@ async def create_booking_order(req: CreateOrderRequest, db: Session = Depends(ge
         provider=SIMULATED_PROVIDER if rp_order.get("simulated") else REAL_PROVIDER,
         order_id=rp_order["id"],
         amount=session_obj.price,
+        original_amount=original_amount,
         currency=session_obj.currency,
         status="created"
     )

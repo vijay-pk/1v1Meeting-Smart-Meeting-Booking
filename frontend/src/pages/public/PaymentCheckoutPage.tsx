@@ -593,7 +593,7 @@ export const PaymentCheckoutPage: React.FC = () => {
               )}
               {discountAmount > 0 && (
                 <div className="flex justify-between text-emerald-600 text-xs">
-                  <span>Discount</span>
+                  <span>Discount ({Math.round((discountAmount / (selectedMeeting.original_price || 1)) * 100)}% off)</span>
                   <span>- {formatPrice(discountAmount, selectedMeeting.currency)}</span>
                 </div>
               )}

@@ -302,6 +302,10 @@ class Payment(Base):
     order_id = Column(String(100), nullable=False, index=True)
     payment_id = Column(String(100), nullable=True, index=True)
     amount = Column(Integer, nullable=False)  # in paise
+    # Snapshot of the Real Price at order time when an Offer Price was in force (NULL = no offer).
+    # `amount` is always what the customer was actually charged, so later edits to the meeting
+    # type never change history. Migration 010.
+    original_amount = Column(Integer, nullable=True)
     currency = Column(String(10), default="INR", nullable=False)
     status = Column(String(30), default="created", nullable=False)  # "created", "captured", "failed"
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -91,7 +91,7 @@ export const BookingConfirmationPage: React.FC = () => {
               name: remote.client_name,
               email: remote.client_email,
             },
-            payment: { status: remote.payment_status, amount: remote.amount, currency: remote.currency },
+            payment: { status: remote.payment_status, amount: remote.amount, original_amount: remote.original_amount, currency: remote.currency },
             // Facts from the server, so the page states what happened instead of assuming it.
             payment_status: remote.payment_status,
             category: remote.category,
@@ -442,6 +442,9 @@ export const BookingConfirmationPage: React.FC = () => {
                       'No charge (test payment)'
                     ) : (
                       <>
+                        {(booking as any).payment?.original_amount > amount && (
+                          <span className="mr-1.5 text-xs font-normal text-slate-400 line-through">{formatPrice((booking as any).payment.original_amount, currency)}</span>
+                        )}
                         {formatPrice(amount, currency)}{' '}
                         <span className="text-xs font-normal text-emerald-600">
                           ({paymentStatus === 'completed' ? 'paid' : paymentStatus})

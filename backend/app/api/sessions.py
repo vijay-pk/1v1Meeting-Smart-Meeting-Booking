@@ -109,6 +109,35 @@ def get_my_sessions(current_admin: User = Depends(get_current_admin), db: Sessio
     )
     return sessions
 
+def _normalize_pricing(audience: str, price, original_price):
+    """
+    Real Price / Offer Price rules for REGULAR client meeting types. Stored in the existing columns:
+    `price` is what the customer pays (the Offer Price when there is one) and `original_price` is the
+    Real Price shown struck through. Student types never carry a Real Price.
+
+      - no offer           -> price = what is charged, original_price NULL
+      - offer (< real)     -> price = offer (> 0), original_price = real
+      - offer == real      -> no discount: original_price NULL
+      - negative anywhere, offer > real, or a zero/negative real price -> 400
+    """
+    price = 0 if price is None else price
+    if price < 0 or (original_price is not None and original_price < 0):
+        raise HTTPException(status_code=400, detail="Prices cannot be negative.")
+    if audience in ("student_free", "student_paid"):
+        return price, None
+    if original_price is None:
+        return price, None
+    if original_price == 0:
+        raise HTTPException(status_code=400, detail="Real price must be greater than zero when an offer is set.")
+    if price == 0:
+        raise HTTPException(status_code=400, detail="Offer price must be greater than zero.")
+    if price > original_price:
+        raise HTTPException(status_code=400, detail="Offer price cannot be higher than the real price.")
+    if price == original_price:
+        return price, None
+    return price, original_price
+
+
 @router.post("/", response_model=SessionResponse)
 def create_session(
     session_in: SessionCreate,
@@ -123,14 +152,15 @@ def create_session(
     # server regardless of any price the client sent -- the price field is removed from that
     # form, but the guarantee lives here, not in the UI.
     _enforce_student_type_permission(current_admin, audience)
-    price = 0 if audience == "student_free" else session_in.price
+    price, original_price = _normalize_pricing(
+        audience, 0 if audience == "student_free" else session_in.price, session_in.original_price)
     new_session = SessionModel(
         admin_id=current_admin.id,
         title=session_in.title,
         description=session_in.description,
         duration_minutes=session_in.duration_minutes,
         price=price,
-        original_price=session_in.original_price,
+        original_price=original_price,
         currency=session_in.currency,
         is_active=session_in.is_active,
         buffer_before_minutes=session_in.buffer_before_minutes,
@@ -170,6 +200,16 @@ def update_session(
     _enforce_student_type_permission(current_admin, session_obj.audience, resulting_audience)
     if resulting_audience == "student_free":
         update_data["price"] = 0
+    # Pricing is re-validated only when the caller touches it (or moves the type between regular and
+    # student), merged with the stored values, so toggling is_active can never alter a price.
+    if any(k in update_data for k in ("price", "original_price", "audience")):
+        new_price, new_original = _normalize_pricing(
+            resulting_audience,
+            update_data.get("price", session_obj.price),
+            update_data["original_price"] if "original_price" in update_data else session_obj.original_price,
+        )
+        update_data["price"] = new_price
+        update_data["original_price"] = new_original
     # Only touched when the caller sent it, so toggling is_active leaves the hours alone.
     hours_sent = "available_hours" in update_data
     update_data.pop("available_hours", None)

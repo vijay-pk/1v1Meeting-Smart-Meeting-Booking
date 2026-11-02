@@ -148,7 +148,9 @@ def get_admin_bookings(
             "payment_status": b.payment_status,
             "session_title": b.meeting_type.title if b.meeting_type else "Mentorship Call",
             "duration_minutes": b.meeting_type.duration_minutes if b.meeting_type else 30,
-            "price": b.meeting_type.price if b.meeting_type else 0,
+            # What was actually agreed/charged: the payment snapshot wins, so editing a meeting type's
+            # price later never rewrites an existing booking's amount.
+            "price": b.payment.amount if b.payment else (b.meeting_type.price if b.meeting_type else 0),
             "google_meet_link": b.google_meet_link,
             "google_meet_space_id": b.google_meet_space_id,
             "termination_status": b.termination_status,
@@ -274,6 +276,7 @@ def get_public_booking(public_id: str, db: Session = Depends(get_db)):
         # was paid, that invitations were sent), which was untrue for a free student session.
         "category": booking.category or "client",
         "amount": booking.payment.amount if booking.payment else 0,
+        "original_amount": booking.payment.original_amount if booking.payment else None,
         "currency": (
             (booking.payment.currency if booking.payment else None)
             or (booking.meeting_type.currency if booking.meeting_type else None)
