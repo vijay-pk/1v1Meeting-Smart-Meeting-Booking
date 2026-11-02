@@ -1,29 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PriceTag } from '@/components/ui/PriceTag';
 import { LegalFooter } from '@/components/layout/LegalFooter';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useBookingStore } from '@/stores/bookingStore';
 import { api } from '@/lib/api';
-import { formatPrice } from '@/lib/format';
 import { DEFAULT_AVATAR } from '@/lib/utils';
-import type { AdminUser, MeetingType } from '@/types';
-import {
-  ShieldCheck,
-  ArrowRight,
-  Clock,
-  Share2,
-  Copy,
-  Check,
-  AlertCircle,
-} from 'lucide-react';
+import type { AdminUser } from '@/types';
+import { Clock, AlertCircle } from 'lucide-react';
+import { resolveTheme, themeVars } from '@/lib/themes';
+import { usePublicMode } from '@/hooks/usePublicMode';
+import { BookingHeader } from '@/components/booking/BookingHeader';
+import { HostProfilePanel } from '@/components/booking/HostProfilePanel';
+import { SessionCard } from '@/components/booking/SessionCard';
+import { BenefitsStrip } from '@/components/booking/BenefitsStrip';
+
+// The backend default for welcome_message; shown as the subtitle only when the host wrote their own.
+const DEFAULT_WELCOME = 'Welcome to my booking portal';
 
 export const SuperProfileHomePage: React.FC = () => {
   const navigate = useNavigate();
   const { username } = useParams<{ username?: string }>();
   const { setPendingBooking } = useBookingStore();
 
-  const [copied, setCopied] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [remoteProfile, setRemoteProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   // "This page does not exist" and "we could not reach the server" are different facts and
@@ -131,23 +128,9 @@ export const SuperProfileHomePage: React.FC = () => {
     navigate(`/schedule/${meetingId}?adminId=${activeAdmin.id}&username=${activeAdmin.username}`);
   };
 
-  const handleCopyLink = () => {
-    const fullUrl = window.location.href;
-    navigator.clipboard.writeText(fullUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const shareUrls = useMemo(() => {
-    const currentUrl = encodeURIComponent(window.location.href);
-    const text = encodeURIComponent(`Book a 1:1 session with ${activeAdmin?.full_name || 'Mentor'}`);
-    return {
-      whatsapp: `https://api.whatsapp.com/send?text=${text}%20${currentUrl}`,
-      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${currentUrl}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${currentUrl}`,
-      twitter: `https://twitter.com/intent/tweet?text=${text}&url=${currentUrl}`,
-    };
-  }, [activeAdmin]);
+  // Theme and the visitor's light/dark choice. Hooks stay above every early return below.
+  const theme = useMemo(() => resolveTheme(remoteProfile?.theme_settings), [remoteProfile]);
+  const { mode, toggle } = usePublicMode(theme.native);
 
   // 3. Still asking the backend who this is -- do not flash "not found" first.
   if (loading) {
@@ -230,182 +213,76 @@ export const SuperProfileHomePage: React.FC = () => {
     );
   }
 
-  const themeBg = activeAdmin.theme_settings?.bg_gradient || 'from-[#873600] via-[#A04000] to-[#6E2C00]';
-  const buttonColor = activeAdmin.theme_settings?.button_color || '#D32F2F';
-  const buttonTextColor = activeAdmin.theme_settings?.button_text_color || '#FFFFFF';
 
-  const renderMeetingCard = (meeting: MeetingType) => (
-    <button
-      key={meeting.id}
-      type="button"
-      onClick={() => handleSelectMeeting(meeting.id)}
-      className="group text-left rounded-xl border border-slate-200 hover:border-slate-300 hover:shadow-xs transition p-4 bg-white flex flex-col gap-3 cursor-pointer w-full"
-    >
-      <div>
-        <h3 className="font-semibold text-slate-900 text-[15px] sm:text-base leading-snug">
-          {meeting.name}
-        </h3>
-        {meeting.description && (
-          <p className="text-xs sm:text-sm text-slate-500 leading-relaxed line-clamp-2 mt-1">
-            {meeting.description}
-          </p>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 mt-auto pt-1">
-        {/* Duration · price */}
-        <div className="text-xs sm:text-sm text-slate-600 font-medium flex items-center gap-1.5 min-w-0">
-          <span>{meeting.duration_minutes} min</span>
-          <span className="text-slate-300">·</span>
-          <PriceTag tone="slate" size="sm" price={meeting.price} originalPrice={meeting.original_price} currency={meeting.currency} />
-        </div>
-
-        <span
-          style={{ backgroundColor: buttonColor, color: buttonTextColor }}
-          className="shrink-0 font-semibold text-xs sm:text-sm px-4 min-h-[38px] rounded-full inline-flex items-center gap-1.5 group-hover:opacity-95 transition shadow-xs"
-        >
-          <span>Choose time</span>
-          <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-        </span>
-      </div>
-    </button>
+  const vars = themeVars(theme, mode, activeAdmin.theme_settings) as React.CSSProperties;
+  const showVideo = activeAdmin.theme_settings?.show_video !== false;
+  const welcome = (activeAdmin.welcome_message || '').trim();
+  const subtitle = welcome && welcome !== DEFAULT_WELCOME ? welcome : 'Book a personalized 1:1 session.';
+  const hasAbout = Boolean(
+    (showVideo && activeAdmin.intro_video) || activeAdmin.bio || activeAdmin.about_me_text || activeAdmin.full_name
   );
 
   return (
-    <div className={`min-h-screen bg-gradient-to-b ${themeBg} text-slate-800 antialiased font-sans overflow-x-hidden py-4 sm:py-6 pb-12`}>
-      <div className="mx-auto px-3.5 sm:px-6 relative z-10 space-y-4 sm:space-y-6 max-w-3xl">
-        {/* 1. TOP PROFILE HEADER: full width across the top */}
-        <header className="pb-1">
-          <div className="flex items-start justify-between gap-3 sm:gap-4">
-            <div className="flex items-start gap-3 sm:gap-4 min-w-0 flex-1">
-              <img
-                src={activeAdmin.photo_url || DEFAULT_AVATAR}
-                alt={activeAdmin.full_name}
-                className="w-13 h-13 sm:w-16 sm:h-16 rounded-full object-cover object-top border-2 border-white/70 bg-slate-800 shrink-0 shadow-sm"
-                onError={(e) => {
-                  const img = e.currentTarget;
-                  if (!img.src.endsWith(DEFAULT_AVATAR)) img.src = DEFAULT_AVATAR;
-                }}
-              />
+    <div className="bm-page" style={vars} data-theme-id={theme.id} data-mode={mode}>
+      <BookingHeader
+        hostName={activeAdmin.full_name}
+        username={activeAdmin.username}
+        mode={mode}
+        onToggleMode={toggle}
+        hasAbout={hasAbout}
+        hasSessions
+      />
 
-              <div className="min-w-0 flex-1 pt-0.5">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <h1 className="text-base sm:text-xl font-bold text-white tracking-tight truncate">
-                    {activeAdmin.full_name}
-                  </h1>
-                  <ShieldCheck className="w-4 h-4 text-blue-300 shrink-0" aria-label="Verified host" />
-                </div>
-                <p className="text-xs sm:text-sm text-white/85 mt-0.5 leading-snug line-clamp-2">
-                  {activeAdmin.heading_text || activeAdmin.title}
-                </p>
-              </div>
-            </div>
+      <main className="mx-auto max-w-6xl px-4 pb-10 pt-2 sm:px-6 sm:pt-4">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-8">
+          {/* Left on desktop, first on phones: video, then who the host is. */}
+          <div className="lg:sticky lg:top-4">
+            <HostProfilePanel
+              name={activeAdmin.full_name}
+              title={activeAdmin.heading_text && activeAdmin.heading_text !== 'Book a 1:1 Mentorship Session' ? activeAdmin.heading_text : activeAdmin.title}
+              photoUrl={activeAdmin.photo_url}
+              bio={remoteProfile?.bio || remoteProfile?.description}
+              about={activeAdmin.about_me_text}
+              introVideo={activeAdmin.intro_video}
+              showVideo={showVideo}
+            />
+          </div>
 
-            {/* Compact share action */}
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setShareOpen(!shareOpen)}
-                aria-label="Share profile"
-                aria-expanded={shareOpen}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/25 hover:bg-black/40 text-white border border-white/15 flex items-center justify-center transition cursor-pointer"
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-              </button>
+          <section id="sessions" aria-label="Sessions" className="scroll-mt-4">
+            <div className="bm-card p-5 sm:p-6">
+              <h2 className="text-xl font-bold leading-snug bm-text sm:text-2xl">
+                Choose your session and pick a convenient time.
+              </h2>
+              <p className="mt-1.5 text-sm bm-muted sm:text-base">{subtitle}</p>
 
-              {shareOpen && (
-                <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 text-slate-800 space-y-0.5">
-                  <a
-                    href={shareUrls.whatsapp}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                  >
-                    WhatsApp
-                  </a>
-                  <a
-                    href={shareUrls.linkedin}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                  >
-                    LinkedIn
-                  </a>
-                  <a
-                    href={shareUrls.facebook}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition"
-                  >
-                    Facebook
-                  </a>
-                  <button
-                    type="button"
-                    onClick={handleCopyLink}
-                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition cursor-pointer"
-                  >
-                    <span>{copied ? 'Copied' : 'Copy link'}</span>
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
+              {adminMeetings.length === 0 ? (
+                <p className="py-8 text-center text-sm bm-muted">No sessions are published yet.</p>
+              ) : (
+                <div className="mt-5 grid grid-cols-1 gap-3.5">
+                  {adminMeetings.map((meeting: any) => (
+                    <SessionCard
+                      key={meeting.id}
+                      title={meeting.name}
+                      description={meeting.description}
+                      durationMinutes={meeting.duration_minutes}
+                      price={meeting.price}
+                      originalPrice={meeting.original_price}
+                      currency={meeting.currency}
+                      onChoose={() => handleSelectMeeting(meeting.id)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        </header>
-
-        {/* 2. SESSION SELECTION CARD */}
-        <main className="space-y-4">
-          <section className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 border border-white/20 shadow-xl space-y-5">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                {activeAdmin.welcome_message || 'Choose your session and pick a convenient time.'}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">Google Meet included.</p>
-            </div>
-
-            {/* Uploaded Custom Sections & Links */}
-            {activeAdmin.custom_sections && activeAdmin.custom_sections.length > 0 && (
-              <div className="space-y-2">
-                {activeAdmin.custom_sections.map((sec) => (
-                  <div
-                    key={sec.id}
-                    className="p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-semibold text-slate-900">{sec.title}</h4>
-                      {sec.description && (
-                        <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                      )}
-                    </div>
-                    {sec.button_url && (
-                      <a
-                        href={sec.button_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="min-h-[40px] px-4 inline-flex items-center justify-center text-xs font-semibold rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-800 transition shrink-0"
-                      >
-                        {sec.button_text || 'Open'}
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Sessions list */}
-            {adminMeetings.length === 0 ? (
-              <p className="text-sm text-slate-500 py-6 text-center">
-                No sessions are published yet.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 gap-3.5">
-                {adminMeetings.map(renderMeetingCard)}
-              </div>
-            )}
           </section>
-        </main>
+        </div>
+
+        <BenefitsStrip googleConnected={Boolean(remoteProfile?.google_connected)} />
+      </main>
+
+      <div style={{ color: 'var(--bm-on-bg-muted)' }}>
+        <LegalFooter />
       </div>
-      <LegalFooter />
     </div>
   );
 };
