@@ -253,6 +253,9 @@ class PublicAdminProfile(BaseModel):
     sessions: List[PublicSessionResponse]
     razorpay_configured: Optional[bool] = False
     razorpay_key_id: Optional[str] = None
+    # True only while the host's own Google connection is connected. The booking page uses it to say
+    # "Google Meet link" / "Calendar invitation" only when that is actually true for this host.
+    google_connected: Optional[bool] = False
 
 # Slot & Lock schemas
 class SlotLockRequest(BaseModel):

@@ -83,6 +83,8 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
     rp_conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == user.id).first()
     rp_configured = bool(rp_conn and rp_conn.connection_status == "connected")
     rp_key_id = rp_conn.key_id if rp_configured else None
+    g_conn = db.query(GoogleConnection).filter(GoogleConnection.admin_id == user.id).first()
+    google_connected = bool(g_conn and g_conn.connection_status == "connected")
 
     return {
         "id": user.id,
@@ -101,7 +103,8 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
         "status": user.status,
         "sessions": sessions_list,
         "razorpay_configured": rp_configured,
-        "razorpay_key_id": rp_key_id
+        "razorpay_key_id": rp_key_id,
+        "google_connected": google_connected,
     }
 
 @router.get("/me")

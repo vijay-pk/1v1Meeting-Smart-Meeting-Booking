@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { THEME_PRESETS, resolveTheme } from '@/lib/themes';
 import { useBookingStore } from '@/stores/bookingStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -66,43 +67,6 @@ function settingsPath(tab: SettingsTab): string {
   return tab === 'profile' ? '/admin/settings' : `/admin/settings/${tab}`;
 }
 
-const THEME_PRESETS = [
-  {
-    id: 'amber',
-    name: 'Sunset Amber (SuperProfile)',
-    bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]',
-    button_color: '#D32F2F',
-    preview_bg: 'bg-gradient-to-r from-[#873600] to-[#D32F2F]'
-  },
-  {
-    id: 'indigo',
-    name: 'Deep Indigo (High Tech)',
-    bg_gradient: 'from-[#1e1b4b] via-[#312e81] to-[#0f172a]',
-    button_color: '#4f46e5',
-    preview_bg: 'bg-gradient-to-r from-[#1e1b4b] to-[#4f46e5]'
-  },
-  {
-    id: 'emerald',
-    name: 'Emerald Growth (Consulting)',
-    bg_gradient: 'from-[#064e3b] via-[#047857] to-[#022c22]',
-    button_color: '#059669',
-    preview_bg: 'bg-gradient-to-r from-[#064e3b] to-[#059669]'
-  },
-  {
-    id: 'slate',
-    name: 'Sleek Minimal Dark',
-    bg_gradient: 'from-slate-950 via-slate-900 to-slate-950',
-    button_color: '#ea580c',
-    preview_bg: 'bg-gradient-to-r from-slate-950 to-orange-600'
-  },
-  {
-    id: 'rose',
-    name: 'Crimson Executive',
-    bg_gradient: 'from-[#881337] via-[#9f1239] to-[#4c0519]',
-    button_color: '#e11d48',
-    preview_bg: 'bg-gradient-to-r from-[#881337] to-[#e11d48]'
-  }
-];
 
 export function SettingsPage() {
   // The section lives in the URL (/admin/settings/availability), so every section can be
@@ -502,6 +466,7 @@ function ProfileCustomizer({
   const [introVideo, setIntroVideo] = useState(admin.intro_video || '');
   const [buttonColor, setButtonColor] = useState(admin.theme_settings?.button_color || '#D32F2F');
   const [bgGradient, setBgGradient] = useState(admin.theme_settings?.bg_gradient || THEME_PRESETS[0].bg_gradient);
+  const [themeId, setThemeId] = useState<string>(resolveTheme(admin.theme_settings).id);
 
   const [customSections, setCustomSections] = useState<any[]>(admin.custom_sections || []);
 
@@ -653,6 +618,7 @@ function ProfileCustomizer({
         ...admin.theme_settings,
         button_color: buttonColor,
         bg_gradient: bgGradient,
+        theme: themeId,
       },
       custom_sections: customSections,
     };
@@ -670,7 +636,7 @@ function ProfileCustomizer({
         about_me_text: aboutMe,
         profile_photo: photoUrl,
         intro_video: introVideo,
-        theme_settings: { button_color: buttonColor, bg_gradient: bgGradient },
+        theme_settings: { button_color: buttonColor, bg_gradient: bgGradient, theme: themeId },
       });
     } catch (e: any) {
       setSaving(false);
@@ -1173,9 +1139,10 @@ function ProfileCustomizer({
                 onClick={() => {
                   setBgGradient(preset.bg_gradient);
                   setButtonColor(preset.button_color);
+                  setThemeId(preset.id);
                 }}
                 className={`p-3 rounded-xl border text-left flex items-center gap-3 transition cursor-pointer ${
-                  bgGradient === preset.bg_gradient
+                  themeId === preset.id
                     ? 'border-orange-600 bg-orange-50/50 ring-2 ring-orange-500/20'
                     : 'border-border hover:bg-surface-secondary'
                 }`}

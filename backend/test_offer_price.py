@@ -245,3 +245,26 @@ def test_a_student_session_cannot_be_bought_through_the_regular_checkout(super_a
         "start_time": "2030-09-07T10:00:00Z", "end_time": "2030-09-07T10:30:00Z",
         "client_name": "A", "client_email": "a@example.com", "lock_id": "x"})
     assert res.status_code == 404 and razorpay_orders == [] and adm
+
+
+# --- public booking page: the "Google Meet / Calendar" tiles are only shown when true -----------
+
+from test_persistence import _connect_google  # noqa: E402
+
+
+def test_public_profile_reports_google_connection_without_leaking_it(admin, db):
+    pub = client.get(f"/api/profiles/public/{admin['username']}").json()
+    assert pub["google_connected"] is False                       # nothing connected: tiles are left out
+    _connect_google(admin, email="private-host@gmail.com")
+    pub = client.get(f"/api/profiles/public/{admin['username']}").json()
+    assert pub["google_connected"] is True
+    text = str(pub)
+    assert "private-host@gmail.com" not in text and "ya29" not in text and "refresh" not in text.lower()
+
+
+def test_a_disconnected_google_connection_is_not_reported_as_connected(admin, db):
+    from app.models.models import GoogleConnection
+    _connect_google(admin)
+    db.query(GoogleConnection).filter(GoogleConnection.admin_id == admin["id"]).update({"connection_status": "disconnected"})
+    db.commit()
+    assert client.get(f"/api/profiles/public/{admin['username']}").json()["google_connected"] is False

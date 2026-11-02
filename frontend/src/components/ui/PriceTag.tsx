@@ -15,16 +15,17 @@ export const PriceTag: React.FC<{
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   /** 'slate' matches the public booking pages, which use fixed slate colours. */
-  tone?: 'app' | 'slate';
+  tone?: 'app' | 'slate' | 'themed';
   /** Adds an explicit "You pay" line under the prices when an offer applies. */
   showPayable?: boolean;
 }> = ({ price, originalPrice, currency = 'INR', className = '', size = 'md', tone = 'app', showPayable = false }) => {
   const cur = currency as Currency;
   const p = resolvePricing(price, originalPrice);
   const main = size === 'lg' ? 'text-xl sm:text-2xl font-extrabold' : size === 'sm' ? 'text-sm font-bold' : 'text-base font-bold';
-  const strong = tone === 'slate' ? 'text-slate-900' : 'text-text-primary';
-  const faint = tone === 'slate' ? 'text-slate-400' : 'text-text-tertiary';
-  const muted = tone === 'slate' ? 'text-slate-600' : 'text-text-secondary';
+  const strong = tone === 'themed' ? 'bm-text' : tone === 'slate' ? 'text-slate-900' : 'text-text-primary';
+  const faint = tone === 'themed' ? 'bm-muted opacity-70' : tone === 'slate' ? 'text-slate-400' : 'text-text-tertiary';
+  const muted = tone === 'themed' ? 'bm-muted' : tone === 'slate' ? 'text-slate-600' : 'text-text-secondary';
+  const badge = tone === 'themed' ? 'bm-badge' : 'bg-emerald-100 text-emerald-800';
   if (!p.hasOffer) {
     return <span className={`${main} ${strong} ${className}`}>{formatPrice(p.payable, cur)}</span>;
   }
@@ -36,7 +37,7 @@ export const PriceTag: React.FC<{
       <span className={`${main} ${strong}`} aria-label={`Offer price ${formatPrice(p.payable, cur)}`}>
         {formatPrice(p.payable, cur)}
       </span>
-      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${badge}`}>
         {p.discountPercent}% OFF
       </span>
       {showPayable && (

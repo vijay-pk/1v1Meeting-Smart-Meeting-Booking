@@ -352,3 +352,66 @@ body {
   .press:active { transform: none; }
   .skeleton { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------------------
+   Public booking page themes. Every colour comes from the --bm-* variables set on the page
+   wrapper by lib/themes.ts (never on <html>), so the admin dashboard's theme is unaffected.
+   --------------------------------------------------------------------------------------- */
+.bm-page {
+  background: var(--bm-bg);
+  color: var(--bm-text);
+  font-family: var(--bm-font, 'Inter', system-ui, sans-serif);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.bm-page :where(h1, h2, h3) { font-family: var(--bm-font, inherit); }
+.bm-onbg { color: var(--bm-on-bg); }
+.bm-onbg-muted { color: var(--bm-on-bg-muted); }
+.bm-text { color: var(--bm-text); }
+.bm-muted { color: var(--bm-muted); }
+.bm-card {
+  background: var(--bm-card);
+  border: 1px solid var(--bm-border);
+  box-shadow: var(--bm-shadow);
+  border-radius: 1.25rem;
+  -webkit-backdrop-filter: blur(var(--bm-blur, 0px));
+  backdrop-filter: blur(var(--bm-blur, 0px));
+}
+.bm-chip {
+  background: var(--bm-chip);
+  color: var(--bm-muted);
+  border: 1px solid var(--bm-border);
+}
+.bm-soft { background: var(--bm-soft); color: var(--bm-ink); }
+.bm-ink { color: var(--bm-ink); }
+.bm-btn {
+  background: var(--bm-accent);
+  color: var(--bm-accent-text);
+  transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+}
+.bm-btn:hover { filter: brightness(1.06); }
+.bm-btn:active { transform: scale(0.98); }
+.bm-ghost {
+  background: color-mix(in srgb, var(--bm-card) 70%, transparent);
+  color: var(--bm-on-bg);
+  border: 1px solid color-mix(in srgb, var(--bm-on-bg) 22%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.bm-ghost:hover { background: color-mix(in srgb, var(--bm-card) 90%, transparent); color: var(--bm-text); }
+.bm-session {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.bm-session:hover, .bm-session:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--bm-ink) 45%, var(--bm-border));
+}
+.bm-session:focus-visible { outline: 2px solid var(--bm-ink); outline-offset: 2px; }
+.bm-badge { background: var(--bm-soft); color: var(--bm-ink); }
+.bm-divider { border-color: var(--bm-border); }
+.bm-navlink { color: var(--bm-on-bg-muted); }
+.bm-navlink:hover { color: var(--bm-on-bg); }
+@media (prefers-reduced-motion: reduce) {
+  .bm-session:hover, .bm-session:focus-visible, .bm-btn:active { transform: none; }
+}
