@@ -253,6 +253,8 @@ def permanently_delete_admin(
     # and deliberately after the commit -- an orphaned object in a bucket is untidy, while a
     # deletion that fails here after the account is already gone would be a real problem.
     _delete_storage_objects(orphaned_objects)
+    from app.services import availability_cache
+    availability_cache.invalidate_admin(admin_id)
 
     summary = {
         "admin_id": admin_id,

@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.services import availability_cache
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -173,6 +174,7 @@ def create_session(
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
+    availability_cache.invalidate_admin(current_admin.id)
     return new_session
 
 @router.put("/{session_id}", response_model=SessionResponse)
@@ -221,6 +223,7 @@ def update_session(
 
     db.commit()
     db.refresh(session_obj)
+    availability_cache.invalidate_admin(current_admin.id)
     return session_obj
 
 @router.delete("/{session_id}")
@@ -239,4 +242,5 @@ def delete_session(
 
     db.delete(session_obj)
     db.commit()
+    availability_cache.invalidate_admin(current_admin.id)
     return {"message": "Session deleted successfully"}

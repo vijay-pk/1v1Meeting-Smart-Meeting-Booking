@@ -8,7 +8,7 @@ from app.models.models import (
 from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, PublicSessionResponse
 from app.api.deps import get_current_admin
 from app.services.onboarding import get_onboarding_status
-from app.services import profile_sections
+from app.services import profile_sections, availability_cache
 
 router = APIRouter()
 
@@ -222,6 +222,7 @@ def update_my_profile(
     db.commit()
     db.refresh(profile)
     db.refresh(current_admin)
+    availability_cache.invalidate_admin(current_admin.id)   # a renamed link must not resolve to a stale entry
 
     return {
         "message": "Profile updated successfully",

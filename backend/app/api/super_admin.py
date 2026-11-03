@@ -1,4 +1,5 @@
 from typing import List, Optional
+from app.services import availability_cache
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -112,6 +113,7 @@ def update_admin_status(
 
     admin.status = req.status
     db.commit()
+    availability_cache.invalidate_admin(admin.id)
 
     return {
         "message": f"Admin status updated to {req.status}",

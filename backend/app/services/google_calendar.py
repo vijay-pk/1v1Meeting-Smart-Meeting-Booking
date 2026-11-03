@@ -1,4 +1,6 @@
+import hashlib
 import re
+import time
 import uuid
 import os
 import json
@@ -24,8 +26,57 @@ class GoogleCalendarUnavailable(Exception):
     """
 
 
+# --- Speed: reuse what Google already told us -------------------------------------------------
+#
+# A slot request used to refresh the OAuth token and then query FreeBusy, both over brand-new HTTPS
+# connections, on EVERY click -- and the next click did it all again. Two small in-process caches
+# remove almost all of that. Neither ever stores an error, and a rejected token is dropped at once,
+# so a revoked connection still fails closed (GoogleCalendarUnavailable), never "free".
+#
+# Keys are SHA-256 digests of the refresh token, never the token itself.
+_TOKEN_SAFETY_SECONDS = 120          # refresh this long before Google says the token expires
+_token_cache: dict = {}              # digest -> (access_token, monotonic expiry)
+_busy_cache: dict = {}               # (digest, calendar_id, start_iso, end_iso) -> (busy list, monotonic expiry)
+_BUSY_CACHE_MAX = 512
+
+
+def _digest(refresh_token: str) -> str:
+    return hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+
+
+def clear_google_caches() -> None:
+    """Drops every cached token and busy answer (used by tests and after disconnects)."""
+    _token_cache.clear()
+    _busy_cache.clear()
+
+
+def forget_google_account(encrypted_refresh_token: str) -> None:
+    """
+    Forget everything cached for one connected account. Called whenever this server writes to that
+    calendar (a new booking's event, a moved event) so the next availability read sees it, and when
+    the connection is removed.
+    """
+    try:
+        digest = _digest(decrypt_secret(encrypted_refresh_token))
+    except Exception:  # noqa: BLE001 - an undecryptable token has nothing cached under it
+        return
+    _token_cache.pop(digest, None)
+    for key in [k for k in _busy_cache if k[0] == digest]:
+        _busy_cache.pop(key, None)
+
+
+def forget_google_busy(encrypted_refresh_token: str) -> None:
+    """Like forget_google_account but keeps the (still valid) access token: only the busy answers go."""
+    try:
+        digest = _digest(decrypt_secret(encrypted_refresh_token))
+    except Exception:  # noqa: BLE001
+        return
+    for key in [k for k in _busy_cache if k[0] == digest]:
+        _busy_cache.pop(key, None)
+
+
 async def refresh_google_token(encrypted_refresh_token: str) -> str:
-    """Refreshes access token using stored encrypted refresh token."""
+    """Refreshes access token using stored encrypted refresh token (reused until it nears expiry)."""
     refresh_token = decrypt_secret(encrypted_refresh_token)
     if not refresh_token:
         raise ValueError("Invalid refresh token")
@@ -33,6 +84,13 @@ async def refresh_google_token(encrypted_refresh_token: str) -> str:
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         logger.warning("Google Client ID or Secret not configured. Using simulated access token.")
         return "simulated-access-token"
+
+    digest = _digest(refresh_token)
+    use_cache = settings.GOOGLE_TOKEN_CACHE_ENABLED
+    if use_cache:
+        cached = _token_cache.get(digest)
+        if cached and cached[1] > time.monotonic():
+            return cached[0]
 
     async with httpx.AsyncClient() as client:
         res = await client.post(
@@ -47,9 +105,17 @@ async def refresh_google_token(encrypted_refresh_token: str) -> str:
         )
         data = res.json()
         if res.status_code != 200:
+            _token_cache.pop(digest, None)
             logger.error(f"Failed to refresh Google token: {data}")
             raise RuntimeError(data.get("error_description", "Failed to refresh token"))
+        if use_cache:
+            try:
+                lifetime = max(60, int(data.get("expires_in", 3600)))
+            except (TypeError, ValueError):
+                lifetime = 3600
+            _token_cache[digest] = (data["access_token"], time.monotonic() + max(30, lifetime - _TOKEN_SAFETY_SECONDS))
         return data["access_token"]
+
 
 async def get_google_busy_intervals(
     encrypted_refresh_token: str,
@@ -65,7 +131,34 @@ async def get_google_busy_intervals(
     tell the slot engine the admin is free all day.
 
     start_iso / end_iso must be real UTC instants, not wall clock stamped with "Z".
+
+    Successful answers are reused for GOOGLE_FREEBUSY_CACHE_SECONDS (0 = off). Errors are never cached.
     """
+    ttl = settings.GOOGLE_FREEBUSY_CACHE_SECONDS
+    cache_key = None
+    if ttl and ttl > 0:
+        try:
+            cache_key = (_digest(decrypt_secret(encrypted_refresh_token)), calendar_id or "primary", start_iso, end_iso)
+        except Exception:  # noqa: BLE001 - undecryptable: fall through, the refresh below fails closed
+            cache_key = None
+        if cache_key:
+            hit = _busy_cache.get(cache_key)
+            if hit and hit[1] > time.monotonic():
+                return [dict(b) for b in hit[0]]
+
+    async def _query(access_token: str):
+        async with httpx.AsyncClient() as client:
+            return await client.post(
+                "https://www.googleapis.com/calendar/v3/freeBusy",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={
+                    "timeMin": start_iso,
+                    "timeMax": end_iso,
+                    "items": [{"id": calendar_id or "primary"}]
+                },
+                timeout=10.0
+            )
+
     try:
         access_token = await refresh_google_token(encrypted_refresh_token)
     except Exception as e:
@@ -77,17 +170,13 @@ async def get_google_busy_intervals(
         raise GoogleCalendarUnavailable("Google OAuth is not configured on this server")
 
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                "https://www.googleapis.com/calendar/v3/freeBusy",
-                headers={"Authorization": f"Bearer {access_token}"},
-                json={
-                    "timeMin": start_iso,
-                    "timeMax": end_iso,
-                    "items": [{"id": calendar_id or "primary"}]
-                },
-                timeout=10.0
-            )
+        res = await _query(access_token)
+        if res.status_code == 401:
+            # A cached token Google no longer accepts (revoked, rotated): drop it and try once with a
+            # fresh one. If the refresh itself fails the connection is dead and this raises below.
+            forget_google_account(encrypted_refresh_token)
+            access_token = await refresh_google_token(encrypted_refresh_token)
+            res = await _query(access_token)
     except Exception as e:
         logger.error(f"Error fetching Google freeBusy: {e}")
         raise GoogleCalendarUnavailable(str(e)) from e
@@ -101,7 +190,14 @@ async def get_google_busy_intervals(
     if cal.get("errors"):
         logger.error(f"Google freeBusy calendar errors: {cal['errors']}")
         raise GoogleCalendarUnavailable(str(cal["errors"]))
-    return cal.get("busy", [])
+    busy = cal.get("busy", [])
+    if cache_key:
+        if len(_busy_cache) >= _BUSY_CACHE_MAX:
+            now = time.monotonic()
+            for k in [k for k, v in _busy_cache.items() if v[1] <= now] or list(_busy_cache)[: _BUSY_CACHE_MAX // 4]:
+                _busy_cache.pop(k, None)
+        _busy_cache[cache_key] = ([dict(b) for b in busy], time.monotonic() + ttl)
+    return busy
 
 def _wall_clock(iso: str) -> str:
     """'2026-03-04T15:00:00Z' -> '2026-03-04T15:00:00' (drops the misleading UTC marker)."""
