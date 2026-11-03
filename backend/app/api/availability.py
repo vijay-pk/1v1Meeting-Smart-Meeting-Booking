@@ -21,6 +21,7 @@ from app.schemas.schemas import (
 )
 from app.api.deps import get_current_admin
 from app.services.google_calendar import get_google_busy_intervals, GoogleCalendarUnavailable
+from app.services import availability_cache
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ def save_my_availability_rules(
         ))
 
     db.commit()
+    availability_cache.invalidate_admin(current_admin.id)
     return {"message": "Availability rules updated successfully"}
 
 @router.get("/exceptions", response_model=List[AvailabilityExceptionItem])
@@ -183,6 +185,7 @@ def add_my_availability_exception(
     db.add(row)
     db.commit()
     db.refresh(row)
+    availability_cache.invalidate_admin(current_admin.id)
 
     return AvailabilityExceptionItem(
         id=row.id,
@@ -214,7 +217,114 @@ def delete_my_availability_exception(
 
     db.delete(row)
     db.commit()
+    availability_cache.invalidate_admin(current_admin.id)
     return {"deleted": exception_id}
+
+
+# One FreeBusy question covers the whole bookable month, so the date strip (slot-counts) and every date
+# a visitor clicks share a single cached Google answer instead of asking once per day. The busy list is
+# only ever compared against the slots of the day being computed, so extra days in it are harmless.
+CANONICAL_WINDOW_DAYS = 32
+
+
+def _canonical_busy_window():
+    """(start, end) as real-UTC ISO strings: today (business time) 00:00 for CANONICAL_WINDOW_DAYS days."""
+    today = datetime.now(BUSINESS_TZ).date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
+    end = start + timedelta(days=CANONICAL_WINDOW_DAYS)
+    return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z"), today
+
+
+def _busy_to_wall(google_busy_raw: list):
+    """
+    Google's real-UTC busy intervals -> naive business wall clock (what the slot grid uses).
+    Returns (intervals, error). An interval that will not parse is an ERROR, never "free".
+    """
+    out = []
+    for gb in google_busy_raw:
+        try:
+            gb_start = datetime.fromisoformat(gb["start"].replace("Z", "+00:00"))
+            gb_end = datetime.fromisoformat(gb["end"].replace("Z", "+00:00"))
+            out.append({
+                "start": gb_start.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+                "end": gb_end.astimezone(BUSINESS_TZ).replace(tzinfo=None),
+            })
+        except Exception:
+            return [], True
+    return out, False
+
+
+async def _single_day_prefetch(db: Session, admin_id, username, session_id: str, date_str: str):
+    """
+    Fast path for /slots: the host's slow-changing configuration comes from the short-lived cache
+    (availability_cache) and only what must be live is queried -- the day's bookings and the active
+    holds. Google busy times are loaded lazily, and only if the engine gets far enough to need them
+    (a leave day or a closed day never calls Google), through the token/FreeBusy caches.
+
+    Returns None when the host/session is unknown or the date is malformed, so the original
+    uncached code runs and answers exactly as it always has (same 404s, same messages).
+    """
+    snap = availability_cache.get_snapshot(db, admin_id, username, session_id)
+    if snap is None:
+        return None
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    user = snap["user"]
+    now_utc = datetime.now(timezone.utc)
+
+    bookings, locks = [], []
+    if user.status == "ACTIVE":
+        bookings = [
+            b for b in (
+                db.query(Booking)
+                .filter(
+                    Booking.admin_id == user.id,
+                    Booking.status.in_(["confirmed", "pending_payment"]),
+                    Booking.start_time >= f"{date_str}T00:00:00Z",
+                    Booking.start_time <= f"{date_str}T23:59:59Z",
+                )
+                .all()
+            ) if is_occupying(b, now_utc)
+        ]
+        locks = (
+            db.query(SlotLock)
+            .filter(SlotLock.admin_id == user.id, SlotLock.status == "active", SlotLock.expires_at > now_utc)
+            .all()
+        )
+
+    g = snap["google"]
+
+    async def google_loader():
+        if not g:
+            return [], False
+        win_start, win_end, today = _canonical_busy_window()
+        if not (0 <= (target_date - today).days < CANONICAL_WINDOW_DAYS):
+            # Outside the bookable month (or in the past): ask for just that day.
+            day_start = datetime.combine(target_date, datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(timezone.utc)
+            win_start = day_start.isoformat().replace("+00:00", "Z")
+            win_end = (day_start + timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        try:
+            raw = await get_google_busy_intervals(
+                g.encrypted_refresh_token, win_start, win_end, g.calendar_id or "primary",
+            )
+        except GoogleCalendarUnavailable as exc:
+            logger.warning("Google Calendar unavailable for admin %s: %s", user.id, exc)
+            return [], True
+        return _busy_to_wall(raw)
+
+    return {
+        "user": user,
+        "session_obj": snap["session_obj"],
+        "rules_by_dow": snap["rules_by_dow"],
+        "exceptions_by_date": snap["exceptions_by_date"],
+        "bookings": bookings,
+        "locks": locks,
+        "google_busy": [],
+        "calendar_error": False,
+        "google_loader": google_loader,
+    }
 
 
 @router.get("/slots")
@@ -243,6 +353,19 @@ async def get_available_slots(
     # When slot-counts has pre-resolved the host and session for the whole window, reuse them
     # rather than re-querying on every day. _pf is None for the /slots path (one day).
     _pf = _SLOT_PREFETCH.get()
+
+    # Fast path (single day): reuse the cached host configuration, read bookings/holds live, and let
+    # the engine below pull Google busy times lazily. Falls through to the original code when the
+    # cache is off or the host/session is unknown.
+    if _pf is None and availability_cache.enabled() and (admin_id or username):
+        fast = await _single_day_prefetch(db, admin_id, username, session_id, date_str)
+        if fast is not None:
+            token = _SLOT_PREFETCH.set(fast)
+            try:
+                return await get_available_slots(
+                    admin_id=admin_id, username=username, session_id=session_id, date_str=date_str, db=db)
+            finally:
+                _SLOT_PREFETCH.reset(token)
 
     user = None
     if _pf is not None:
@@ -469,9 +592,14 @@ async def get_available_slots(
     # The window sent to Google must be real UTC: the admin's local day, converted.
     google_busy = []
     if _pf is not None:
-        # One FreeBusy call already covered the whole window in get_slot_counts. A failure
-        # there pauses booking for every day, exactly as a per-day failure does below.
-        if _pf["calendar_error"]:
+        # Either one FreeBusy call already covered the whole window (get_slot_counts), or the single-day
+        # fast path supplies a loader that runs only now, once the day is known to be bookable.
+        # A failure pauses booking for the day, exactly as the per-day path below does.
+        if _pf.get("google_loader") is not None:
+            _gb, _gerr = await _pf["google_loader"]()
+        else:
+            _gb, _gerr = _pf["google_busy"], _pf["calendar_error"]
+        if _gerr:
             return {
                 "timezone": settings.BUSINESS_TIMEZONE,
                 "available_slots": [],
@@ -480,7 +608,7 @@ async def get_available_slots(
                 "calendar_error": True,
                 "message": "Calendar sync unavailable — booking is temporarily paused for this host."
             }
-        google_busy = _pf["google_busy"]
+        google_busy = _gb
         g_conn = None
     else:
         g_conn = (
@@ -647,47 +775,66 @@ async def get_slot_counts(
 
     # Resolve the host and the session once (the per-day engine would otherwise do this `days`
     # times). Same lookups and the same 404s as get_available_slots.
-    user = None
-    if admin_id:
-        user = db.query(User).filter(User.id == admin_id).first()
-    elif username:
-        profile = db.query(AdminProfile).filter(AdminProfile.username == username.lower()).first()
-        if profile:
-            user = profile.user
-    if not user:
-        raise HTTPException(status_code=404, detail="Admin not found")
-    session_obj = (
-        db.query(SessionModel)
-        .filter(SessionModel.id == session_id, SessionModel.admin_id == user.id)
-        .first()
+    snap = (
+        availability_cache.get_snapshot(db, admin_id, username, session_id)
+        if availability_cache.enabled() and (admin_id or username) else None
     )
-    if not session_obj or not session_obj.is_active:
-        raise HTTPException(status_code=404, detail="Session not found or inactive")
+    if snap is not None:
+        # Host, session, rules, leave days and the Google link from the short-lived cache; bookings
+        # and holds below are still read live.
+        user, session_obj = snap["user"], snap["session_obj"]
+        if not session_obj.is_active:
+            raise HTTPException(status_code=404, detail="Session not found or inactive")
+        rules_by_dow = snap["rules_by_dow"]
+        exceptions_by_date = {
+            d: rows for d, rows in snap["exceptions_by_date"].items()
+            if date_strings[0] <= d <= date_strings[-1]
+        }
+        g_conn = snap["google"]
+    else:
+        user = None
+        if admin_id:
+            user = db.query(User).filter(User.id == admin_id).first()
+        elif username:
+            profile = db.query(AdminProfile).filter(AdminProfile.username == username.lower()).first()
+            if profile:
+                user = profile.user
+        if not user:
+            raise HTTPException(status_code=404, detail="Admin not found")
+        session_obj = (
+            db.query(SessionModel)
+            .filter(SessionModel.id == session_id, SessionModel.admin_id == user.id)
+            .first()
+        )
+        if not session_obj or not session_obj.is_active:
+            raise HTTPException(status_code=404, detail="Session not found or inactive")
 
     # Availability rules grouped by weekday (only seven exist), fetched once and kept sorted
     # by start time to match the per-day query's ordering.
-    rules_by_dow: dict = {}
-    for r in (
-        db.query(AvailabilityRule)
-        .filter(AvailabilityRule.admin_id == user.id, AvailabilityRule.is_active == True)
-        .order_by(AvailabilityRule.start_time.asc())
-        .all()
-    ):
-        rules_by_dow.setdefault(r.day_of_week, []).append(r)
+    if snap is None:
+        rules_by_dow: dict = {}
+        for r in (
+            db.query(AvailabilityRule)
+            .filter(AvailabilityRule.admin_id == user.id, AvailabilityRule.is_active == True)
+            .order_by(AvailabilityRule.start_time.asc())
+            .all()
+        ):
+            rules_by_dow.setdefault(r.day_of_week, []).append(r)
 
     # Leave/holiday exceptions inside the window, grouped by their date string (ISO dates sort
     # and compare lexically, so a string range is correct here).
-    exceptions_by_date: dict = {}
-    for ex in (
-        db.query(AvailabilityException)
-        .filter(
-            AvailabilityException.admin_id == user.id,
-            AvailabilityException.exception_date >= date_strings[0],
-            AvailabilityException.exception_date <= date_strings[-1],
-        )
-        .all()
-    ):
-        exceptions_by_date.setdefault(ex.exception_date, []).append(ex)
+    if snap is None:
+        exceptions_by_date: dict = {}
+        for ex in (
+            db.query(AvailabilityException)
+            .filter(
+                AvailabilityException.admin_id == user.id,
+                AvailabilityException.exception_date >= date_strings[0],
+                AvailabilityException.exception_date <= date_strings[-1],
+            )
+            .all()
+        ):
+            exceptions_by_date.setdefault(ex.exception_date, []).append(ex)
 
     now_utc = datetime.now(timezone.utc)
 
@@ -725,29 +872,21 @@ async def get_slot_counts(
     # the whole window, converted to business wall clock once, instead of one call per day.
     google_busy: list = []
     calendar_error = False
-    g_conn = (
-        db.query(GoogleConnection)
-        .filter(
-            GoogleConnection.admin_id == user.id,
-            GoogleConnection.connection_status == "connected",
+    if snap is None:
+        g_conn = (
+            db.query(GoogleConnection)
+            .filter(
+                GoogleConnection.admin_id == user.id,
+                GoogleConnection.connection_status == "connected",
+            )
+            .first()
         )
-        .first()
-    )
     if g_conn and g_conn.encrypted_refresh_token:
-        win_start_utc = (
-            datetime.combine(today, datetime.min.time(), tzinfo=BUSINESS_TZ)
-            .astimezone(timezone.utc)
-        )
-        win_end_utc = (
-            datetime.combine(today + timedelta(days=days), datetime.min.time(), tzinfo=BUSINESS_TZ)
-            .astimezone(timezone.utc)
-        )
+        # The same month-wide window /slots uses, so one cached Google answer serves both.
+        win_start, win_end, _ = _canonical_busy_window()
         try:
             google_busy_raw = await get_google_busy_intervals(
-                g_conn.encrypted_refresh_token,
-                win_start_utc.isoformat().replace("+00:00", "Z"),
-                win_end_utc.isoformat().replace("+00:00", "Z"),
-                g_conn.calendar_id or "primary",
+                g_conn.encrypted_refresh_token, win_start, win_end, g_conn.calendar_id or "primary",
             )
         except GoogleCalendarUnavailable as exc:
             logger.warning("Google Calendar unavailable for admin %s (slot-counts): %s", user.id, exc)

@@ -156,6 +156,15 @@ class Settings(BaseSettings):
     RECORDING_DRIVE_SCOPE: str = os.getenv("RECORDING_DRIVE_SCOPE", "https://www.googleapis.com/auth/drive.meet.readonly")
     # How often the in-process worker asks Google about pending recordings.
     RECORDING_POLL_SECONDS: int = int(os.getenv("RECORDING_POLL_SECONDS", "120"))
+    # Slot-availability speed. Each knob can be switched off (0 / false) without a code change.
+    #  - Google access tokens last ~1h; reuse one instead of refreshing on every request.
+    #  - FreeBusy answers are reused for this many seconds (a host's personal calendar changing inside
+    #    this window is the only staleness; our own bookings are always read live from the database).
+    #  - The host's slow-changing configuration (session, working hours, leave days, Google link) is
+    #    reused for this many seconds and cleared whenever it is edited.
+    GOOGLE_TOKEN_CACHE_ENABLED: bool = os.getenv("GOOGLE_TOKEN_CACHE_ENABLED", "true").lower() == "true"
+    GOOGLE_FREEBUSY_CACHE_SECONDS: int = int(os.getenv("GOOGLE_FREEBUSY_CACHE_SECONDS", "45"))
+    AVAILABILITY_CONFIG_CACHE_SECONDS: int = int(os.getenv("AVAILABILITY_CONFIG_CACHE_SECONDS", "20"))
     # Google gives no ETA for a recording, so the student page shows scheduled end + this many
     # minutes as a clearly labelled ESTIMATE. Tunable without a deploy of code.
     RECORDING_ETA_MINUTES: int = int(os.getenv("RECORDING_ETA_MINUTES", "30"))

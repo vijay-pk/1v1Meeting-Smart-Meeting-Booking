@@ -64,6 +64,9 @@ async def confirm_booking_side_effects(db: Session, booking: Booking, admin: Use
             call_kwargs["auto_record"] = True
         event_res = await create_calendar_event_with_meet(**call_kwargs)
         event_created_now = True
+        # A new event is now on the host's calendar: drop cached busy times so the next read sees it.
+        from app.services.google_calendar import forget_google_busy
+        forget_google_busy(g_conn.encrypted_refresh_token)
         recording_configured = bool(event_res.get("recording_configured"))
         booking.google_event_id = event_res.get("event_id")
         meet_link = event_res.get("meet_link")

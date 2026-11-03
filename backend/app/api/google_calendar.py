@@ -1,4 +1,5 @@
 import hashlib
+from app.services import availability_cache
 import hmac
 import logging
 import time
@@ -172,6 +173,7 @@ def connect_mock_google_calendar(
         conn.connection_status = "connected"
 
     db.commit()
+    availability_cache.invalidate_admin(current_admin.id)
     return {"message": "Google Calendar connected successfully", "google_email": conn.google_email}
 
 @router.post("/admin/disconnect")
@@ -206,6 +208,9 @@ async def disconnect_google_calendar(
     conn.access_token = None
     conn.token_expiry = None
     db.commit()
+    availability_cache.invalidate_admin(current_admin.id)
+    from app.services.google_calendar import forget_google_account
+    forget_google_account(conn.encrypted_refresh_token)
     return {"message": "Google Calendar disconnected"}
 
 def _get_frontend_url() -> str:
@@ -298,4 +303,5 @@ async def google_oauth_callback(
             conn.connection_status = "connected"
 
         db.commit()
+        availability_cache.invalidate_admin(conn.admin_id)
         return RedirectResponse(f"{frontend_base}/admin/settings?tab=calendar&connected=true")

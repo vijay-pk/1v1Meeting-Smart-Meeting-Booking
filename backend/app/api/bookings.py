@@ -458,6 +458,10 @@ async def reschedule_booking(token: str, req: RescheduleRequest, db: Session = D
                 calendar_moved = res.get("ok")
             except Exception:  # noqa: BLE001
                 logger.exception("Calendar move failed for rescheduled booking %s", booking.public_id)
+            finally:
+                # The host's calendar just changed: the next availability read must see it.
+                from app.services.google_calendar import forget_google_busy
+                forget_google_busy(g_conn.encrypted_refresh_token)
 
     # Re-schedule the host reminder onto the new time. ensure_reminder keys on start_time, so
     # the old reminder is left behind (it is skipped when its start_time no longer matches).
