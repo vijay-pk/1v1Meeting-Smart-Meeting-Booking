@@ -362,7 +362,9 @@ body {
   color: var(--bm-text);
   font-family: var(--bm-font, 'Inter', system-ui, sans-serif);
   min-height: 100dvh;
-  overflow-x: hidden;
+  /* clip, not hidden: hidden turns the page into a scroll container, which silently breaks the
+     sticky profile column (the left side went blank once the booking list scrolled past it). */
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
 }
 .bm-page :where(h1, h2, h3) { font-family: var(--bm-font, inherit); }

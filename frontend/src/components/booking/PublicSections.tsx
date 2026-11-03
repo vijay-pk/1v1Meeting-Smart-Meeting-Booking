@@ -49,10 +49,10 @@ const InfoSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
   // A media-only section (no title/badge/description/button) renders just the media, full width.
   const hasText = Boolean(s.title || s.badge || s.description || showButton);
   return (
-    // Capped width: long-form text stays at a readable line length on wide screens, centred under the booking area.
-    <section aria-label={s.title || undefined} className="bm-card mx-auto w-full max-w-4xl p-5 sm:p-7">
-      <div className={hasMedia && hasText ? 'grid gap-5 md:grid-cols-2 md:items-start' : ''}>
-        {hasText && <div className="min-w-0 space-y-3">
+    // Same left/right edges as every other block on the page; only the text measure is capped inside the card.
+    <section aria-label={s.title || undefined} className="bm-card w-full p-5 sm:p-7">
+      <div className={hasMedia && hasText ? 'grid gap-5 md:grid-cols-2 md:items-start lg:gap-8' : ''}>
+        {hasText && <div className="min-w-0 max-w-3xl space-y-3">
           {s.badge && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="bm-badge rounded-full px-2.5 py-0.5 text-[11px] font-bold">{s.badge}</span>
@@ -133,7 +133,12 @@ const TestimonialsSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
         </div>
       )}
       {items.length > 0 && (
-        <ul className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        // Columns follow the number of cards, so one or two reviews are never stranded in a corner of a
+        // three-column grid: 1 = a centred card of readable width, 2 = two halves, 3+ = three across.
+        <ul className={`grid grid-cols-1 gap-3.5 ${
+          items.length === 1 ? 'mx-auto max-w-2xl'
+            : items.length === 2 ? 'sm:grid-cols-2'
+            : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
           {items.map((it, i) => <TestimonialCard key={it.id || i} item={it} />)}
         </ul>
       )}
