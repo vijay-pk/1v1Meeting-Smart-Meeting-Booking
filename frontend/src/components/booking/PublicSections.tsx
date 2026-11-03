@@ -49,7 +49,8 @@ const InfoSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
   // A media-only section (no title/badge/description/button) renders just the media, full width.
   const hasText = Boolean(s.title || s.badge || s.description || showButton);
   return (
-    <section aria-label={s.title || undefined} className="bm-card p-5 sm:p-6">
+    // Capped width: long-form text stays at a readable line length on wide screens, centred under the booking area.
+    <section aria-label={s.title || undefined} className="bm-card mx-auto w-full max-w-4xl p-5 sm:p-7">
       <div className={hasMedia && hasText ? 'grid gap-5 md:grid-cols-2 md:items-start' : ''}>
         {hasText && <div className="min-w-0 space-y-3">
           {s.badge && (
@@ -58,7 +59,7 @@ const InfoSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
             </div>
           )}
           {s.title && <h2 className="break-words text-xl font-bold leading-snug bm-text sm:text-2xl">{s.title}</h2>}
-          {s.description && <p className="whitespace-pre-line break-words text-sm leading-relaxed bm-muted sm:text-[15px]">{s.description}</p>}
+          {s.description && <p className="whitespace-pre-line break-words text-sm leading-7 bm-muted sm:text-[15px]">{s.description}</p>}
           {showButton && (
             <a
               href={s.button_url as string}

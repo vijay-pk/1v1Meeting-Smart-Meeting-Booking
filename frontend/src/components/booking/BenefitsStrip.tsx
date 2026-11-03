@@ -29,15 +29,16 @@ export const BenefitsStrip: React.FC<{ googleConnected: boolean }> = ({ googleCo
   ];
   return (
     <section aria-label="What every booking includes" className="mt-8">
-      <ul className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length >= 4 ? 'lg:grid-cols-4' : items.length === 3 ? 'lg:grid-cols-3' : ''}`}>
+      {/* One row of equal cards on desktop, two columns on tablet and phone (icon above the text on small cards). */}
+      <ul className={`grid grid-cols-2 gap-2.5 sm:gap-3 ${items.length >= 4 ? 'lg:grid-cols-4' : items.length === 3 ? 'lg:grid-cols-3' : ''}`}>
         {items.map(({ icon: Icon, label, text }) => (
-          <li key={label} className="bm-card flex items-start gap-3 p-4">
+          <li key={label} className="bm-card flex h-full flex-col items-start gap-2.5 p-3.5 sm:p-4 md:flex-row md:gap-3">
             <span className="bm-soft flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
               <Icon className="h-[18px] w-[18px]" />
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold bm-text">{label}</p>
-              <p className="mt-0.5 text-xs leading-relaxed bm-muted">{text}</p>
+              <p className="break-words text-sm font-semibold bm-text">{label}</p>
+              <p className="mt-0.5 break-words text-xs leading-relaxed bm-muted">{text}</p>
             </div>
           </li>
         ))}

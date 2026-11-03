@@ -234,8 +234,8 @@ export const SuperProfileHomePage: React.FC = () => {
         hasSessions
       />
 
-      <main className="mx-auto max-w-6xl px-4 pb-10 pt-2 sm:px-6 sm:pt-4">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-8">
+      <main className="mx-auto max-w-[1280px] px-4 pb-10 pt-2 sm:px-6 sm:pt-4">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-start lg:gap-8 xl:gap-9">
           {/* Left on desktop, first on phones: video, then who the host is. */}
           <div className="lg:sticky lg:top-4">
             <HostProfilePanel
