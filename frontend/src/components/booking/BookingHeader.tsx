@@ -20,7 +20,7 @@ export const BookingHeader: React.FC<{
   const link = 'bm-navlink rounded-full px-3 py-2 text-sm font-medium transition-colors';
   return (
     <header className="relative z-30">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
           <img src="/logo.png" alt={APP_NAME} className="h-8 w-8 shrink-0 rounded-lg bg-white/90 object-contain p-0.5" />
           <span className="truncate text-sm font-semibold bm-onbg">{hostName}</span>

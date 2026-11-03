@@ -30,27 +30,30 @@ export const SessionCard: React.FC<{
       type="button"
       onClick={onChoose}
       aria-label={`Choose a time for ${title}`}
-      className="bm-card bm-session group flex w-full flex-col gap-3 p-4 text-left sm:p-5"
+      className="bm-card bm-session group flex w-full flex-col gap-3 p-4 text-left sm:p-5 md:flex-row md:items-center md:gap-5"
     >
-      <div className="flex items-start gap-3">
-        <span className="bm-soft flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="break-words text-base font-semibold leading-snug bm-text sm:text-lg">{title}</h3>
-          {description && <p className="mt-1 line-clamp-2 break-words text-sm bm-muted">{description}</p>}
+      {/* Left: what it is, how long, what it costs. Right (md and up): the call to action, centred on the card. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex items-start gap-3">
+          <span className="bm-soft flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="break-words text-base font-semibold leading-snug bm-text sm:text-lg">{title}</h3>
+            {description && <p className="mt-1 line-clamp-2 break-words text-sm bm-muted">{description}</p>}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm bm-muted md:pl-[52px]">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <Clock className="h-4 w-4" aria-hidden="true" />
+            {durationMinutes} min
+          </span>
+          <PriceTag tone="themed" size="md" price={price} originalPrice={originalPrice} currency={currency} />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm bm-muted">
-        <span className="inline-flex items-center gap-1.5 font-medium">
-          <Clock className="h-4 w-4" aria-hidden="true" />
-          {durationMinutes} min
-        </span>
-        <PriceTag tone="themed" size="md" price={price} originalPrice={originalPrice} currency={currency} />
-      </div>
-
-      <span className="bm-btn inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold sm:w-auto sm:self-start">
+      <span className="bm-btn inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold md:w-auto md:min-w-[150px]">
         Choose time
         <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
       </span>
