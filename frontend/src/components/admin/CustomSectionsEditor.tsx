@@ -165,8 +165,8 @@ export const CustomSectionsEditor: React.FC<{
 
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div className="space-y-1">
-                <span className={label}>Section title</span>
-                <Input value={sec.title} maxLength={120} onChange={(e) => patch(sec._key, { title: e.target.value })}
+                <span className={label}>Section title <span className="font-normal text-text-tertiary">(optional)</span></span>
+                <Input value={sec.title || ''} maxLength={120} onChange={(e) => patch(sec._key, { title: e.target.value })}
                   placeholder={sec.kind === 'testimonials' ? 'e.g. Student Testimonials' : 'e.g. Free Guides'} className={`${field} font-semibold`} />
               </div>
               <div className="space-y-1">

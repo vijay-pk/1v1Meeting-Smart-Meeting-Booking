@@ -256,7 +256,7 @@ def test_a_non_image_asset_cannot_be_attached(admin, db):
 # --- validation ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("bad", [
-    {"title": ""}, {"title": "   "}, {"title": "x" * 121},
+    {"title": "x" * 121},
     {"button_url": "javascript:alert(1)"}, {"button_url": "ftp://example.com/x"}, {"button_url": "not a url"},
     {"button_url": "https://ex.com/<script>"}, {"description": "x" * 2001}, {"badge": "x" * 41},
     {"kind": "carousel"}, {"video_url": "https://example.com/video.mp4"}, {"video_url": "https://evil.com/watch?v=dQw4w9WgXcQ"},
@@ -295,10 +295,80 @@ def test_a_button_label_without_a_link_shows_no_button_and_a_link_gets_a_default
     assert _pub_sections(admin)[0]["button_text"] == "Open resource"
 
 
-def test_only_testimonial_sections_have_items_and_empty_items_are_refused(admin):
+def test_only_testimonial_sections_have_items_and_blank_items_are_skipped(admin):
     assert _put(admin, [{**INFO, "items": [{"customer_name": "X", "text": "y"}]}]).status_code == 400
-    assert _put(admin, [{"kind": "testimonials", "title": "R", "items": [{}]}]).status_code == 400
     assert _put(admin, [{"kind": "testimonials", "title": "R", "items": [{"customer_name": "X" * 81, "text": "y"}]}]).status_code == 400
+    saved = _put(admin, [{"kind": "testimonials", "title": "R", "items": [{}, {"text": "kept"}]}])
+    assert saved.status_code == 200, saved.text
+    assert [i["text"] for i in saved.json()["sections"][0]["items"]] == ["kept"]
+
+
+# --- optional title ------------------------------------------------------------------------
+
+def test_a_section_needs_no_title_and_media_only_sections_save_and_show(admin):
+    (a1, u1), (a2, u2) = _upload(admin, "a.png"), _upload(admin, "b.png")
+    res = _put(admin, [
+        {"kind": "info", "image_asset_id": a1},                                         # image only, title omitted
+        {"kind": "info", "title": "", "image_asset_id": a2},                            # image only, title empty
+        {"kind": "info", "title": None, "video_url": "https://youtu.be/dQw4w9WgXcQ"},   # video only, title null
+        {"kind": "testimonials", "items": [{"customer_name": "Asha", "text": "Great"}]},  # reviews only
+    ])
+    assert res.status_code == 200, res.text
+    pub = _pub_sections(admin)
+    assert len(pub) == 4 and all(s["title"] is None for s in pub)
+    assert pub[0]["image_url"] == u1 and pub[1]["image_url"] == u2
+    assert pub[2]["video_url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert pub[3]["items"][0]["customer_name"] == "Asha"
+
+
+def test_a_title_is_still_kept_when_given_and_title_free_sections_edit_without_losing_media(admin):
+    asset, url = _upload(admin)
+    sid = _put(admin, [{"kind": "info", "image_asset_id": asset}]).json()["sections"][0]["id"]
+    assert _put(admin, [{"kind": "info", "id": sid, "image_asset_id": asset, "badge": "New"}]).status_code == 200
+    got = _get(admin)[0]
+    assert got["id"] == sid and got["image_url"] == url and got["badge"] == "New" and got["title"] is None
+    assert _put(admin, [{**INFO, "id": sid, "image_asset_id": asset}]).json()["sections"][0]["title"] == "Free resources"
+
+
+def test_a_completely_empty_section_is_skipped_and_never_blocks_the_rest(admin):
+    res = _put(admin, [{"kind": "info", "title": "  "}, {**INFO, "title": "Real"}, {"kind": "testimonials", "items": [{}]}])
+    assert res.status_code == 200, res.text
+    assert [s["title"] for s in res.json()["sections"]] == ["Real"]
+
+
+def test_unpublished_title_free_sections_stay_off_the_public_page(admin):
+    _put(admin, [{"kind": "info", "badge": "Hidden", "is_published": False}, {"kind": "info", "badge": "Shown"}])
+    assert [s["badge"] for s in _pub_sections(admin)] == ["Shown"]
+    assert len(_get(admin)) == 2
+
+
+def test_title_free_sections_are_isolated_between_admins(tracked):
+    a, b = _make_admin(tracked, "a"), _make_admin(tracked, "b")
+    _put(a, [{"kind": "info", "badge": "A-only"}])
+    _put(b, [{"kind": "info", "badge": "B-only"}])
+    assert [s["badge"] for s in _pub_sections(a)] == ["A-only"]
+    assert [s["badge"] for s in _pub_sections(b)] == ["B-only"]
+
+
+def test_a_database_built_with_the_old_not_null_title_is_upgraded_in_place(tmp_path):
+    """Existing databases keep every section and id; only the NOT NULL goes."""
+    from sqlalchemy import create_engine, text, inspect
+    from app.main import _make_section_title_nullable
+    eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with eng.begin() as c:
+        c.execute(text("CREATE TABLE users (id VARCHAR(36) PRIMARY KEY)"))
+        c.execute(text("CREATE TABLE profile_sections (id VARCHAR(36) PRIMARY KEY, admin_id VARCHAR(36) NOT NULL REFERENCES users(id), "
+                       "kind VARCHAR(20) NOT NULL, title VARCHAR(120) NOT NULL, badge VARCHAR(40), description TEXT, button_text VARCHAR(40), "
+                       "button_url VARCHAR(500), image_asset_id VARCHAR(36), image_alt VARCHAR(200), video_url VARCHAR(300), "
+                       "display_order INTEGER NOT NULL, is_published BOOLEAN NOT NULL, created_at DATETIME, updated_at DATETIME)"))
+        c.execute(text("INSERT INTO users VALUES ('u1')"))
+        c.execute(text("INSERT INTO profile_sections (id, admin_id, kind, title, display_order, is_published) VALUES ('s1','u1','info','Old title',0,1)"))
+    _make_section_title_nullable(eng)
+    col = next(c for c in inspect(eng).get_columns("profile_sections") if c["name"] == "title")
+    assert col["nullable"] is True
+    with eng.begin() as c:
+        assert c.execute(text("SELECT id, title FROM profile_sections")).fetchall() == [("s1", "Old title")]
+        c.execute(text("INSERT INTO profile_sections (id, admin_id, kind, title, display_order, is_published) VALUES ('s2','u1','info',NULL,1,1)"))
 
 
 def test_limits_on_sections_and_items(admin):
