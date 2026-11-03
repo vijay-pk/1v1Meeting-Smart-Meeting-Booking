@@ -181,7 +181,7 @@ def replace_sections(db: Session, admin_id: str, payload) -> list:
         kind = sec.kind if sec.kind in KINDS else None
         if kind is None:
             raise HTTPException(status_code=400, detail="Unknown section type.")
-        title = clean_text(sec.title, 120, "Section title", required=True)
+        title = clean_text(sec.title, 120, "Section title")      # optional
         link = clean_link(sec.button_url, "Button link")
         btn_text = clean_text(sec.button_text, 40, "Button label")
         items_in = list(sec.items or [])
@@ -203,16 +203,22 @@ def replace_sections(db: Session, admin_id: str, payload) -> list:
                 "video_url": normalize_video_url(it.video_url),
             }
             if not (fields["customer_name"] or fields["text"] or fields["image_asset_id"] or fields["video_url"]):
-                raise HTTPException(status_code=400, detail="A testimonial needs a name, text, an image or a video.")
+                continue                    # a blank card has nothing to show: skipped, never blocks the save
             items.append((it, fields))
-        prepared.append((sec, {
+        fields = {
             "kind": kind, "title": title, "badge": clean_text(sec.badge, 40, "Badge"),
             "description": clean_text(sec.description, 2000, "Description"),
             "button_url": link, "button_text": (btn_text or "Open resource") if link else None,
             "image_asset_id": _own_image_asset(db, admin_id, sec.image_asset_id),
             "image_alt": clean_text(sec.image_alt, 200, "Image description"),
             "video_url": normalize_video_url(sec.video_url),
-        }, items))
+        }
+        # A section with nothing at all to show is skipped, not rejected, so it can never block the
+        # rest of the save. Anything that already exists on the server is always kept as sent.
+        has_content = any(fields[k] for k in ("title", "badge", "description", "button_url", "image_asset_id", "video_url")) or items
+        if not has_content:
+            continue
+        prepared.append((sec, fields, items))
 
     # ---- write ------------------------------------------------------------------------------
     keep_sections, keep_items = set(), set()

@@ -117,7 +117,7 @@ export interface ProfileSectionItem {
 export interface ProfileSection {
   id?: string;
   kind: 'info' | 'testimonials';
-  title: string;
+  title?: string | null;
   badge?: string | null;
   description?: string | null;
   button_text?: string | null;

@@ -525,7 +525,7 @@ class ProfileSection(Base):
     id = Column(String(36), primary_key=True, default=gen_uuid)
     admin_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     kind = Column(String(20), default="info", nullable=False)
-    title = Column(String(120), nullable=False)
+    title = Column(String(120), nullable=True)          # optional: a media-only section has none
     badge = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
     button_text = Column(String(40), nullable=True)

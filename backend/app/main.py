@@ -12,6 +12,30 @@ from app.api import api_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def _make_section_title_nullable(bind_engine):
+    """Drops NOT NULL on profile_sections.title. Keeps every row and id (migration 011)."""
+    from sqlalchemy import text
+    with bind_engine.begin() as conn:
+        if bind_engine.dialect.name == "sqlite":
+            # SQLite cannot drop a constraint in place: copy into a table without it.
+            conn.execute(text("ALTER TABLE profile_sections RENAME TO profile_sections_old"))
+            conn.execute(text(
+                "CREATE TABLE profile_sections (id VARCHAR(36) PRIMARY KEY, admin_id VARCHAR(36) NOT NULL "
+                "REFERENCES users(id) ON DELETE CASCADE, kind VARCHAR(20) NOT NULL, title VARCHAR(120), "
+                "badge VARCHAR(40), description TEXT, button_text VARCHAR(40), button_url VARCHAR(500), "
+                "image_asset_id VARCHAR(36), image_alt VARCHAR(200), video_url VARCHAR(300), "
+                "display_order INTEGER NOT NULL, is_published BOOLEAN NOT NULL, created_at DATETIME, updated_at DATETIME)"))
+            conn.execute(text(
+                "INSERT INTO profile_sections SELECT id, admin_id, kind, title, badge, description, button_text, "
+                "button_url, image_asset_id, image_alt, video_url, display_order, is_published, created_at, updated_at "
+                "FROM profile_sections_old"))
+            conn.execute(text("DROP TABLE profile_sections_old"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_profile_sections_admin_id ON profile_sections (admin_id)"))
+        else:
+            conn.execute(text("ALTER TABLE profile_sections ALTER COLUMN title DROP NOT NULL"))
+    logger.info("profile_sections.title is now optional.")
+
+
 def reconcile_database_schema(bind_engine):
     """
     Detects and clears legacy pre-FastAPI table definitions from Supabase.
@@ -69,6 +93,11 @@ def reconcile_database_schema(bind_engine):
             if "original_amount" not in pay_cols:
                 with bind_engine.begin() as conn:
                     conn.execute(text("ALTER TABLE payments ADD COLUMN original_amount INTEGER"))
+        if "profile_sections" in tables:
+            # Section titles became optional; databases built when the column was NOT NULL keep it.
+            title_col = next((c for c in inspector.get_columns("profile_sections") if c["name"] == "title"), None)
+            if title_col is not None and not title_col.get("nullable", True):
+                _make_section_title_nullable(bind_engine)
         if "meeting_recordings" in tables:
             rec_cols = {c["name"] for c in inspector.get_columns("meeting_recordings")}
             if "estimated_ready_at" not in rec_cols:

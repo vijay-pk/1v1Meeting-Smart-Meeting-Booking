@@ -46,14 +46,18 @@ const Media: React.FC<{ imageUrl?: string | null; imageAlt?: string | null; vide
 const InfoSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
   const hasMedia = Boolean(s.image_url || s.video_url);
   const showButton = Boolean(s.button_url);
+  // A media-only section (no title/badge/description/button) renders just the media, full width.
+  const hasText = Boolean(s.title || s.badge || s.description || showButton);
   return (
-    <section aria-label={s.title} className="bm-card p-5 sm:p-6">
-      <div className={hasMedia ? 'grid gap-5 md:grid-cols-2 md:items-start' : ''}>
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {s.badge && <span className="bm-badge rounded-full px-2.5 py-0.5 text-[11px] font-bold">{s.badge}</span>}
-          </div>
-          <h2 className="break-words text-xl font-bold leading-snug bm-text sm:text-2xl">{s.title}</h2>
+    <section aria-label={s.title || undefined} className="bm-card p-5 sm:p-6">
+      <div className={hasMedia && hasText ? 'grid gap-5 md:grid-cols-2 md:items-start' : ''}>
+        {hasText && <div className="min-w-0 space-y-3">
+          {s.badge && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bm-badge rounded-full px-2.5 py-0.5 text-[11px] font-bold">{s.badge}</span>
+            </div>
+          )}
+          {s.title && <h2 className="break-words text-xl font-bold leading-snug bm-text sm:text-2xl">{s.title}</h2>}
           {s.description && <p className="whitespace-pre-line break-words text-sm leading-relaxed bm-muted sm:text-[15px]">{s.description}</p>}
           {showButton && (
             <a
@@ -66,7 +70,7 @@ const InfoSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
               <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </a>
           )}
-        </div>
+        </div>}
         {hasMedia && <Media imageUrl={s.image_url} imageAlt={s.image_alt} videoUrl={s.video_url} />}
       </div>
     </section>
@@ -119,12 +123,14 @@ const TestimonialCard: React.FC<{ item: ProfileSectionItem }> = ({ item }) => {
 const TestimonialsSection: React.FC<{ s: ProfileSection }> = ({ s }) => {
   const items = s.items || [];
   return (
-    <section aria-label={s.title} className="space-y-4">
-      <div className="space-y-2">
-        {s.badge && <span className="bm-badge inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold">{s.badge}</span>}
-        <h2 className="break-words text-xl font-bold leading-snug bm-onbg sm:text-2xl">{s.title}</h2>
-        {s.description && <p className="whitespace-pre-line break-words text-sm bm-onbg-muted sm:text-[15px]">{s.description}</p>}
-      </div>
+    <section aria-label={s.title || undefined} className="space-y-4">
+      {(s.badge || s.title || s.description) && (
+        <div className="space-y-2">
+          {s.badge && <span className="bm-badge inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold">{s.badge}</span>}
+          {s.title && <h2 className="break-words text-xl font-bold leading-snug bm-onbg sm:text-2xl">{s.title}</h2>}
+          {s.description && <p className="whitespace-pre-line break-words text-sm bm-onbg-muted sm:text-[15px]">{s.description}</p>}
+        </div>
+      )}
       {items.length > 0 && (
         <ul className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it, i) => <TestimonialCard key={it.id || i} item={it} />)}
