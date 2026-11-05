@@ -69,7 +69,7 @@ const darkBase = { onBg: '#f8fafc', onBgMuted: '#94a3b8', card: '#111827', borde
 export const THEMES: BookingTheme[] = [
   // ---- The five original presets, upgraded (same ids, gradients and button colours) ----------
   {
-    id: 'amber', name: 'Sunset Amber (SuperProfile)', native: 'light', accent: '#D32F2F', accentBg: 'linear-gradient(135deg,#D32F2F,#B71C1C)', accentText: '#ffffff',
+    id: 'amber', name: 'Sunset Amber', native: 'light', accent: '#D32F2F', accentBg: 'linear-gradient(135deg,#D32F2F,#B71C1C)', accentText: '#ffffff',
     light: { ...lightBase, bg: 'linear-gradient(165deg,#873600 0%,#A04000 48%,#6E2C00 100%)', onBg: '#ffffff', onBgMuted: 'rgba(255,255,255,.8)', soft: '#FDECEA', ink: '#B71C1C' },
     dark: { ...darkBase, bg: 'linear-gradient(165deg,#2a1204 0%,#3b1a06 55%,#1c0b02 100%)', card: '#1f1410', soft: 'rgba(229,57,53,.18)', ink: '#ff8a80' },
     bg_gradient: 'from-[#873600] via-[#A04000] to-[#6E2C00]', button_color: '#D32F2F', preview_bg: 'bg-gradient-to-r from-[#873600] to-[#D32F2F]',
