@@ -284,11 +284,13 @@ export const PublicSections: React.FC<{ sections?: ProfileSection[] | null }> = 
   return (
     <div className="mt-12 space-y-8 sm:mt-14 sm:space-y-10">
       {blocks.map((b, i) => {
+        if (b.type === 'section') {
+          const flip = b.section.kind !== 'testimonials' && textIndex++ % 2 === 1;
+          return <PublicSectionBlock key={b.section.id || i} section={b.section} flip={flip} />;
+        }
         if (b.type === 'gallery') return <Gallery key={i} items={b.sections} />;
         if (b.type === 'videos') return <VideoRow key={i} items={b.sections} />;
-        if (b.type === 'resources') return <ResourceGrid key={i} items={b.sections} />;
-        const flip = b.section.kind !== 'testimonials' && textIndex++ % 2 === 1;
-        return <PublicSectionBlock key={b.section.id || i} section={b.section} flip={flip} />;
+        return <ResourceGrid key={i} items={b.sections} />;
       })}
     </div>
   );
