@@ -441,11 +441,6 @@ export const TimeAvailabilityPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {/* SuperProfile branding notice */}
-            <span className="hidden sm:inline-flex text-xs text-white/75 font-medium items-center gap-1">
-              Built with <span className="text-orange-300">🧡</span> on SuperProfile
-            </span>
-
             {/* Share profile button */}
             <div className="relative">
               <button

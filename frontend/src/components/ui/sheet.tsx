@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
  * the public booking flow renders a DialogContent, and a new component cannot regress it.
  *
  * Used for the mobile presentations where a centred modal is awkward to reach one-handed —
- * the navigation "More" menu, the notification list, and the SuperProfile import on a phone.
+ * the navigation "More" menu, the notification list, and other dialogs on a phone.
  */
 
 const Sheet = DialogPrimitive.Root;
