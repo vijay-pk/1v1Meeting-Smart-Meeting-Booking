@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 // Admin Pages
 
 // Super Admin Pages
-import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 
 // Auth Pages
 
@@ -46,6 +45,8 @@ const StudentOverviewPage = lazy(() => import('@/pages/student/StudentOverviewPa
 const StudentBookPage = lazy(() => import('@/pages/student/StudentBookPage').then((m) => ({ default: m.StudentBookPage })));
 const StudentMeetingsPage = lazy(() => import('@/pages/student/StudentMeetingsPage').then((m) => ({ default: m.StudentMeetingsPage })));
 const StudentRecordingsPage = lazy(() => import('@/pages/student/StudentRecordingsPage').then((m) => ({ default: m.StudentRecordingsPage })));
+
+const AdminLoginPage = lazy(() => import('@/pages/auth/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })));
 
 function RouteFallback() {
   return <div className="min-h-screen" aria-busy="true" />;

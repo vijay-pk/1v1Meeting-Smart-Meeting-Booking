@@ -1,7 +1,7 @@
 from typing import List, Optional
 from app.services import availability_cache
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 from app.core.database import get_db
 from app.models.models import (
@@ -39,30 +39,36 @@ def list_admins(
             )
         )
 
-    users = query.order_by(User.created_at.desc()).all()
+    users = query.options(selectinload(User.profile)).order_by(User.created_at.desc()).all()
     results = []
+
+    # One query per kind for every admin at once -- the per-admin version cost five round trips each.
+    ids = [u.id for u in users]
+    g_by_admin = {c.admin_id: c for c in db.query(GoogleConnection).filter(GoogleConnection.admin_id.in_(ids)).all()} if ids else {}
+    r_by_admin = {c.admin_id: c for c in db.query(RazorpayConnection).filter(RazorpayConnection.admin_id.in_(ids)).all()} if ids else {}
+    bookings_by_admin = dict(
+        db.query(Booking.admin_id, func.count(Booking.id)).filter(Booking.admin_id.in_(ids)).group_by(Booking.admin_id).all()
+    ) if ids else {}
+    revenue_by_admin = dict(
+        db.query(Payment.admin_id, func.sum(Payment.amount))
+        .filter(Payment.admin_id.in_(ids), Payment.status == "captured")
+        .group_by(Payment.admin_id).all()
+    ) if ids else {}
 
     for u in users:
         profile = u.profile
         username = profile.username if profile else u.email.split("@")[0]
 
-        # Google Connection Status
-        g_conn = db.query(GoogleConnection).filter(GoogleConnection.admin_id == u.id).first()
+        g_conn = g_by_admin.get(u.id)
         g_connected = bool(g_conn and g_conn.connection_status == "connected")
         g_email = g_conn.google_email if g_conn else None
 
-        # Razorpay Connection Status
-        r_conn = db.query(RazorpayConnection).filter(RazorpayConnection.admin_id == u.id).first()
+        r_conn = r_by_admin.get(u.id)
         r_configured = bool(r_conn and r_conn.connection_status == "connected")
         r_key = r_conn.key_id if r_conn else None
 
-        # Bookings & Revenue
-        b_count = db.query(Booking).filter(Booking.admin_id == u.id).count()
-        revenue_sum = (
-            db.query(func.sum(Payment.amount))
-            .filter(Payment.admin_id == u.id, Payment.status == "captured")
-            .scalar() or 0
-        )
+        b_count = bookings_by_admin.get(u.id, 0)
+        revenue_sum = revenue_by_admin.get(u.id) or 0
 
         results.append(SuperAdminAdminItem(
             id=u.id,

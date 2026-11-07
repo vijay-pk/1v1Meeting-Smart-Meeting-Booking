@@ -200,3 +200,32 @@ def test_a_normal_admin_cannot_read_platform_figures(db, tracked, path):
 @pytest.mark.parametrize("path", ["/api/super-admin/analytics", "/api/super-admin/bookings"])
 def test_unauthenticated_caller_is_refused(path):
     assert client.get(path).status_code == 401
+
+
+def test_admin_list_reports_each_admins_own_figures_in_few_queries(db, tracked):
+    from sqlalchemy import event
+    from app.core.database import engine
+    boss = _user(db, tracked, "super_admin", "Boss")
+    a1 = _user(db, tracked, "admin", "One")
+    a2 = _user(db, tracked, "admin", "Two")
+    _user(db, tracked, "admin", "Three")
+    _booking(db, tracked, a1.id, amount=50000, payment_status="captured")
+    _booking(db, tracked, a1.id, amount=70000, payment_status="captured")
+    _booking(db, tracked, a2.id, amount=90000, payment_status="created")
+    db.commit()
+
+    n = {"c": 0}
+
+    def bump(*_a, **_k):
+        n["c"] += 1
+
+    event.listen(engine, "before_cursor_execute", bump)
+    try:
+        res = client.get("/api/super-admin/admins", headers=_headers(boss))
+    finally:
+        event.remove(engine, "before_cursor_execute", bump)
+    assert res.status_code == 200
+    rows = {r["id"]: r for r in res.json()}
+    assert rows[a1.id]["bookings_count"] == 2 and rows[a1.id]["total_revenue"] == 120000
+    assert rows[a2.id]["bookings_count"] == 1 and rows[a2.id]["total_revenue"] == 0  # not captured
+    assert n["c"] <= 12, n["c"]  # constant in the number of admins

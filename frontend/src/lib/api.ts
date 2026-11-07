@@ -238,6 +238,9 @@ function persistSession(data: any) {
   if (data.name) authSet('bmm_logged_admin_name', data.name);
 }
 
+const PUBLIC_PROFILE_TTL_MS = 15_000;
+const publicProfileCache = new Map<string, { promise: Promise<any>; expires: number }>();
+
 export const api = {
   // Auth
   login: async (username_or_email: string, password: string) => {
@@ -423,17 +426,29 @@ export const api = {
   // Throws with `notFound` set only for a genuine 404. Everything else -- a 500, a CORS
   // failure, the API being unreachable -- is a *transient* failure, and the public page must
   // not tell a visitor the host's booking page "has been removed" because of one.
-  getPublicProfile: async (username: string) => {
-    const res = await request(`/profiles/public/${encodeURIComponent(username)}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      const error = new Error(
-        typeof err.detail === 'string' ? err.detail : 'Could not load this profile.'
-      ) as Error & { notFound?: boolean };
-      error.notFound = res.status === 404;
-      throw error;
-    }
-    return res.json();
+  // A visitor moves host page -> schedule -> checkout and each page asks for the same profile, so a
+  // successful answer (and an in-flight one) is reused for a few seconds. Failures are never kept.
+  // Nothing about booking, price confirmation or payment is decided from this copy: the backend
+  // re-reads the session and the slot on every order.
+  getPublicProfile: (username: string) => {
+    const key = username.trim().toLowerCase();
+    const hit = publicProfileCache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.promise;
+    const promise = (async () => {
+      const res = await request(`/profiles/public/${encodeURIComponent(username)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const error = new Error(
+          typeof err.detail === 'string' ? err.detail : 'Could not load this profile.'
+        ) as Error & { notFound?: boolean };
+        error.notFound = res.status === 404;
+        throw error;
+      }
+      return res.json();
+    })();
+    publicProfileCache.set(key, { promise, expires: Date.now() + PUBLIC_PROFILE_TTL_MS });
+    promise.catch(() => publicProfileCache.delete(key));
+    return promise;
   },
 
   updateMyProfile: async (updates: any) => {
