@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface GoogleAuthButtonProps {
   /** Shown on the button. Wording differs between the sign-in and sign-up pages. */
@@ -29,6 +28,8 @@ export function GoogleAuthButton({ label = 'Continue with Google', onError, onSt
     setLoading(true);
     try {
       const origin = import.meta.env.VITE_APP_URL || window.location.origin;
+      // Loaded on demand: the client is ~55 KB gzipped and most visits to the sign-in page never press this.
+      const { supabase } = await import('@/lib/supabase');
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${origin}/auth/callback` },

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /super-admin
+Disallow: /student
+Disallow: /booking/
+Disallow: /auth/
+Disallow: /signup
+Disallow: /login

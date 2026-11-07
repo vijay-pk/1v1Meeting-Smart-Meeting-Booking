@@ -13,6 +13,7 @@ import { HostProfilePanel } from '@/components/booking/HostProfilePanel';
 import { SessionCard } from '@/components/booking/SessionCard';
 import { BenefitsStrip } from '@/components/booking/BenefitsStrip';
 import { PublicSections } from '@/components/booking/PublicSections';
+import { applyPageMeta } from '@/lib/pageMeta';
 
 // The backend default for welcome_message; shown as the subtitle only when the host wrote their own.
 const DEFAULT_WELCOME = 'Welcome to my booking portal';
@@ -59,6 +60,26 @@ export const SuperProfileHomePage: React.FC = () => {
     fetchRemote();
     return () => { isMounted = false; };
   }, [username, reloadKey]);
+
+  // Title, description, canonical and sharing image for THIS host, so a shared or indexed link
+  // carries their name and bio. A page that does not exist (or is disabled) is marked noindex.
+  useEffect(() => {
+    if (loading) return;
+    if (!remoteProfile) {
+      return applyPageMeta({ title: 'Booking page not found | BookMyMeet', noindex: true });
+    }
+    const plain = (remoteProfile.bio || remoteProfile.description || remoteProfile.heading_text || '')
+      .replace(/\s+/g, ' ').trim();
+    const photo = typeof remoteProfile.profile_photo === 'string' && /^https?:\/\//.test(remoteProfile.profile_photo)
+      ? remoteProfile.profile_photo : null;
+    return applyPageMeta({
+      title: `${remoteProfile.name}${remoteProfile.title ? ` - ${remoteProfile.title}` : ''} | Book a session`,
+      description: plain ? plain.slice(0, 160) : `Book a session with ${remoteProfile.name}.`,
+      canonicalPath: `/${remoteProfile.username}`,
+      image: photo,
+      noindex: remoteProfile.status !== 'ACTIVE',
+    });
+  }, [loading, remoteProfile]);
 
   const activeAdmin: AdminUser | null = useMemo(() => {
     if (remoteProfile) {
