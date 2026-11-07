@@ -10,13 +10,15 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 // Auth Pages
 
 // Public Pages
+import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 import { SuperProfileHomePage } from '@/pages/public/SuperProfileHomePage';
 
 // Student Pages
 
 import { warmUpBackend } from '@/lib/api';
 
-// Everything except the sign-in page and the public booking page loads on demand, so a visitor
+// Everything except the sign-in page (the `/` landing page, so it must not wait on a second
+// download) and the public booking page loads on demand, so a visitor
 // to a booking link does not download the admin, super-admin and student consoles first.
 const AdminLayout = lazy(() => import('@/components/layout/AdminLayout').then((m) => ({ default: m.AdminLayout })));
 const DashboardPage = lazy(() => import('@/pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })));
@@ -45,8 +47,6 @@ const StudentOverviewPage = lazy(() => import('@/pages/student/StudentOverviewPa
 const StudentBookPage = lazy(() => import('@/pages/student/StudentBookPage').then((m) => ({ default: m.StudentBookPage })));
 const StudentMeetingsPage = lazy(() => import('@/pages/student/StudentMeetingsPage').then((m) => ({ default: m.StudentMeetingsPage })));
 const StudentRecordingsPage = lazy(() => import('@/pages/student/StudentRecordingsPage').then((m) => ({ default: m.StudentRecordingsPage })));
-
-const AdminLoginPage = lazy(() => import('@/pages/auth/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })));
 
 function RouteFallback() {
   return <div className="min-h-screen" aria-busy="true" />;
