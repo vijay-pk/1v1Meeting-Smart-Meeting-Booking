@@ -8,7 +8,7 @@ from app.models.models import (
 from app.schemas.schemas import AdminProfileUpdate, PublicAdminProfile, PublicSessionResponse
 from app.api.deps import get_current_admin
 from app.services.onboarding import get_onboarding_status
-from app.services import profile_sections, availability_cache
+from app.services import profile_sections, availability_cache, public_profile_cache
 
 router = APIRouter()
 
@@ -42,6 +42,9 @@ def _ensure_profile(db: Session, current_admin: User) -> AdminProfile:
 def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
     clean_identifier = username.strip().lower()
     raw_identifier = username.strip()
+    cached = public_profile_cache.get(clean_identifier)
+    if cached is not None:
+        return cached
     # Compared lowercased on both sides. Usernames are stored lowercase, but a row written
     # before that rule -- or by a direct database edit -- must still answer its own URL, and
     # a visitor typing /Ameen must reach the same page as /ameen.
@@ -87,7 +90,7 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
     g_conn = db.query(GoogleConnection).filter(GoogleConnection.admin_id == user.id).first()
     google_connected = bool(g_conn and g_conn.connection_status == "connected")
 
-    return {
+    payload = {
         "id": user.id,
         "username": profile.username,
         "name": user.name,
@@ -108,6 +111,8 @@ def get_public_admin_profile(username: str, db: Session = Depends(get_db)):
         "google_connected": google_connected,
         "sections": profile_sections.serialize(db, user.id, published_only=True),
     }
+    public_profile_cache.put(clean_identifier, payload)
+    return payload
 
 @router.get("/me")
 def get_my_profile(current_admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
