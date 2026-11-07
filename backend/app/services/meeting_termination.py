@@ -666,18 +666,25 @@ async def run_due_terminations(db: Session, now: Optional[datetime] = None) -> d
     return summary
 
 
+def _sweep_once() -> dict:
+    """One sweep on a fresh session. Runs in a worker thread with its own event loop (like the
+    reminder worker): the sweep's database calls are synchronous, and on the API's own loop each
+    one froze every request while it waited on the network."""
+    db = SessionLocal()
+    try:
+        return asyncio.run(run_due_terminations(db))
+    finally:
+        db.close()
+
+
 async def termination_worker(stop_event: asyncio.Event) -> None:
     """Runs a sweep every settings.TERMINATION_POLL_SECONDS until stop_event is set."""
     logger.info("Meeting termination worker started (poll interval: %ds).", settings.TERMINATION_POLL_SECONDS)
     while not stop_event.is_set():
         try:
-            db = SessionLocal()
-            try:
-                summary = await run_due_terminations(db)
-                if summary["terminated"] or summary["failed"] or summary["already_ended"]:
-                    logger.info("Meeting termination pass: %s", summary)
-            finally:
-                db.close()
+            summary = await asyncio.to_thread(_sweep_once)
+            if summary["terminated"] or summary["failed"] or summary["already_ended"]:
+                logger.info("Meeting termination pass: %s", summary)
         except Exception as exc:
             logger.exception("Error in meeting termination worker loop: %s", exc)
 

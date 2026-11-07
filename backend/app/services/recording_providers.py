@@ -300,16 +300,22 @@ async def recording_worker(stop: asyncio.Event) -> None:
 
     interval = max(30, settings.RECORDING_POLL_SECONDS)
     logger.info("Recording worker started (every %ss).", interval)
-    while not stop.is_set():
+    def sweep_once() -> dict:
+        # A worker thread with its own event loop, so the sweep's synchronous database calls never
+        # stall the API's loop (see the same pattern in services/reminders.py).
         db = SessionLocal()
         try:
-            summary = await process_due_recordings(db)
+            return asyncio.run(process_due_recordings(db))
+        finally:
+            db.close()
+
+    while not stop.is_set():
+        try:
+            summary = await asyncio.to_thread(sweep_once)
             if summary.get("scanned"):
                 logger.info("Recordings: %s", summary)
         except Exception:  # noqa: BLE001 -- the loop must survive a bad run
             logger.exception("Recording run failed")
-        finally:
-            db.close()
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
         except asyncio.TimeoutError:
