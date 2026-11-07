@@ -32,6 +32,9 @@ export const HostProfilePanel: React.FC<{
           <img
             src={photoUrl || DEFAULT_AVATAR}
             alt={`${name}`}
+            width={80}
+            height={80}
+            decoding="async"
             onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR; }}
             className="h-16 w-16 shrink-0 rounded-full object-cover object-top ring-2 sm:h-20 sm:w-20"
             style={{ ['--tw-ring-color' as any]: 'var(--bm-border)' }}

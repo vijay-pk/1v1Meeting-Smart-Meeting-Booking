@@ -164,6 +164,8 @@ class Settings(BaseSettings):
     #    reused for this many seconds and cleared whenever it is edited.
     GOOGLE_TOKEN_CACHE_ENABLED: bool = os.getenv("GOOGLE_TOKEN_CACHE_ENABLED", "true").lower() == "true"
     GOOGLE_FREEBUSY_CACHE_SECONDS: int = int(os.getenv("GOOGLE_FREEBUSY_CACHE_SECONDS", "45"))
+    # Finished public booking-page payload; any API write clears it (see services/public_profile_cache.py).
+    PUBLIC_PROFILE_CACHE_SECONDS: int = int(os.getenv("PUBLIC_PROFILE_CACHE_SECONDS", "60"))
     AVAILABILITY_CONFIG_CACHE_SECONDS: int = int(os.getenv("AVAILABILITY_CONFIG_CACHE_SECONDS", "20"))
     # Google gives no ETA for a recording, so the student page shows scheduled end + this many
     # minutes as a clearly labelled ESTIMATE. Tunable without a deploy of code.

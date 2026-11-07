@@ -247,6 +247,17 @@ app.add_middleware(
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+
+@app.middleware("http")
+async def _invalidate_public_profile_cache(request: Request, call_next):
+    """Any state-changing API call may alter what a public booking page shows, so it clears the
+    cache (services/public_profile_cache.py). Cleared after the handler has committed."""
+    response = await call_next(request)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        from app.services import public_profile_cache
+        public_profile_cache.clear()
+    return response
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled server error: %s", exc)

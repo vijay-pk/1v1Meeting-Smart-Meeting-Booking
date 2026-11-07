@@ -1,49 +1,55 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useAuthStore } from '@/stores/authStore';
 
 // Layouts
-import { AdminLayout } from '@/components/layout/AdminLayout';
 
 // Admin Pages
-import { DashboardPage } from '@/pages/admin/DashboardPage';
-import { BookingsPage } from '@/pages/admin/BookingsPage';
-import { PaymentsPage } from '@/pages/admin/PaymentsPage';
-import { CustomersPage } from '@/pages/admin/CustomersPage';
-import { SettingsPage } from '@/pages/admin/SettingsPage';
-import { SetupPage } from '@/pages/admin/SetupPage';
-import { CalendarPage } from '@/pages/admin/CalendarPage';
 
 // Super Admin Pages
-import { SuperAdminDashboardPage } from '@/pages/super-admin/SuperAdminDashboardPage';
-import { SuperAdminSettingsPage } from '@/pages/super-admin/SuperAdminSettingsPage';
-import { SuperAdminLoginPage } from '@/pages/auth/SuperAdminLoginPage';
 import { AdminLoginPage } from '@/pages/auth/AdminLoginPage';
 
 // Auth Pages
-import { SignupPage } from '@/pages/auth/SignupPage';
-import { GoogleCallbackPage } from '@/pages/auth/GoogleCallbackPage';
 
 // Public Pages
 import { SuperProfileHomePage } from '@/pages/public/SuperProfileHomePage';
-import { TimeAvailabilityPage } from '@/pages/public/TimeAvailabilityPage';
-import { PaymentCheckoutPage } from '@/pages/public/PaymentCheckoutPage';
-import { BookingConfirmationPage } from '@/pages/public/BookingConfirmationPage';
-import { BookingStatusPage } from '@/pages/public/BookingStatusPage';
-import { PrivacyPolicyPage } from '@/pages/public/PrivacyPolicyPage';
-import { TermsPage } from '@/pages/public/TermsPage';
-import { CancelBookingPage } from '@/pages/public/CancelBookingPage';
-import { RescheduleBookingPage } from '@/pages/public/RescheduleBookingPage';
 
 // Student Pages
-import { StudentLayout } from '@/components/layout/StudentLayout';
-import { StudentChangePasswordPage } from '@/pages/student/StudentChangePasswordPage';
-import { StudentOverviewPage } from '@/pages/student/StudentOverviewPage';
-import { StudentBookPage } from '@/pages/student/StudentBookPage';
-import { StudentMeetingsPage } from '@/pages/student/StudentMeetingsPage';
-import { StudentRecordingsPage } from '@/pages/student/StudentRecordingsPage';
 
 import { warmUpBackend } from '@/lib/api';
+
+// Everything except the sign-in page and the public booking page loads on demand, so a visitor
+// to a booking link does not download the admin, super-admin and student consoles first.
+const AdminLayout = lazy(() => import('@/components/layout/AdminLayout').then((m) => ({ default: m.AdminLayout })));
+const DashboardPage = lazy(() => import('@/pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const BookingsPage = lazy(() => import('@/pages/admin/BookingsPage').then((m) => ({ default: m.BookingsPage })));
+const PaymentsPage = lazy(() => import('@/pages/admin/PaymentsPage').then((m) => ({ default: m.PaymentsPage })));
+const CustomersPage = lazy(() => import('@/pages/admin/CustomersPage').then((m) => ({ default: m.CustomersPage })));
+const SettingsPage = lazy(() => import('@/pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const SetupPage = lazy(() => import('@/pages/admin/SetupPage').then((m) => ({ default: m.SetupPage })));
+const CalendarPage = lazy(() => import('@/pages/admin/CalendarPage').then((m) => ({ default: m.CalendarPage })));
+const SuperAdminDashboardPage = lazy(() => import('@/pages/super-admin/SuperAdminDashboardPage').then((m) => ({ default: m.SuperAdminDashboardPage })));
+const SuperAdminSettingsPage = lazy(() => import('@/pages/super-admin/SuperAdminSettingsPage').then((m) => ({ default: m.SuperAdminSettingsPage })));
+const SuperAdminLoginPage = lazy(() => import('@/pages/auth/SuperAdminLoginPage').then((m) => ({ default: m.SuperAdminLoginPage })));
+const SignupPage = lazy(() => import('@/pages/auth/SignupPage').then((m) => ({ default: m.SignupPage })));
+const GoogleCallbackPage = lazy(() => import('@/pages/auth/GoogleCallbackPage').then((m) => ({ default: m.GoogleCallbackPage })));
+const TimeAvailabilityPage = lazy(() => import('@/pages/public/TimeAvailabilityPage').then((m) => ({ default: m.TimeAvailabilityPage })));
+const PaymentCheckoutPage = lazy(() => import('@/pages/public/PaymentCheckoutPage').then((m) => ({ default: m.PaymentCheckoutPage })));
+const BookingConfirmationPage = lazy(() => import('@/pages/public/BookingConfirmationPage').then((m) => ({ default: m.BookingConfirmationPage })));
+const BookingStatusPage = lazy(() => import('@/pages/public/BookingStatusPage').then((m) => ({ default: m.BookingStatusPage })));
+const PrivacyPolicyPage = lazy(() => import('@/pages/public/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage })));
+const TermsPage = lazy(() => import('@/pages/public/TermsPage').then((m) => ({ default: m.TermsPage })));
+const CancelBookingPage = lazy(() => import('@/pages/public/CancelBookingPage').then((m) => ({ default: m.CancelBookingPage })));
+const RescheduleBookingPage = lazy(() => import('@/pages/public/RescheduleBookingPage').then((m) => ({ default: m.RescheduleBookingPage })));
+const StudentLayout = lazy(() => import('@/components/layout/StudentLayout').then((m) => ({ default: m.StudentLayout })));
+const StudentChangePasswordPage = lazy(() => import('@/pages/student/StudentChangePasswordPage').then((m) => ({ default: m.StudentChangePasswordPage })));
+const StudentOverviewPage = lazy(() => import('@/pages/student/StudentOverviewPage').then((m) => ({ default: m.StudentOverviewPage })));
+const StudentBookPage = lazy(() => import('@/pages/student/StudentBookPage').then((m) => ({ default: m.StudentBookPage })));
+const StudentMeetingsPage = lazy(() => import('@/pages/student/StudentMeetingsPage').then((m) => ({ default: m.StudentMeetingsPage })));
+const StudentRecordingsPage = lazy(() => import('@/pages/student/StudentRecordingsPage').then((m) => ({ default: m.StudentRecordingsPage })));
+
+function RouteFallback() {
+  return <div className="min-h-screen" aria-busy="true" />;
+}
 
 function RedirectWithSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -57,6 +63,7 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         {/* Sign In is the front door (Section 7): a fresh visit lands on the login form, with
             a "Sign up" link beneath it. Signup still lives at /signup. */}
@@ -126,6 +133,7 @@ export const App: React.FC = () => {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 };
