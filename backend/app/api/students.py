@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -126,6 +127,74 @@ def _student_row(db: Session, student: User, *, detail: bool = False) -> dict:
     return out
 
 
+def _student_rows(db: Session, students: list) -> list:
+    """
+    The list view's rows, computed with three queries however many students there are.
+
+    `_student_row` costs about six round trips per student, which across regions made the Students
+    tab take seconds once a few dozen existed. The numbers are the same ones, counted by the same
+    rules (see services/student_allowance.py -- CONSUMING_ATTENDANCE, completed, available =
+    max(0, allocated - consumed)); a test asserts this agrees with `_student_row` row for row.
+    """
+    if not students:
+        return []
+    ids = [st.id for st in students]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    allocated = {
+        sid: int(val or 0)
+        for sid, val in db.query(StudentAllowance.student_id, StudentAllowance.allocated)
+        .filter(StudentAllowance.student_id.in_(ids)).all()
+    }
+    free = Booking.category == "student_free"
+    counts = {
+        row[0]: row[1:]
+        for row in db.query(
+            Booking.student_id,
+            func.sum(case((free & Booking.attendance_status.in_(student_allowance.CONSUMING_ATTENDANCE), 1), else_=0)),
+            func.sum(case((free & (Booking.attendance_status == "completed"), 1), else_=0)),
+            func.sum(case(((Booking.status == "confirmed") & (Booking.start_time > now_iso), 1), else_=0)),
+            func.sum(case((Booking.category == "student_paid", 1), else_=0)),
+        ).filter(Booking.student_id.in_(ids)).group_by(Booking.student_id).all()
+    }
+    latest_email: dict = {}
+    for row in (
+        db.query(StudentCredentialEmail)
+        .filter(StudentCredentialEmail.student_id.in_(ids))
+        .order_by(StudentCredentialEmail.created_at.desc())
+        .all()
+    ):
+        latest_email.setdefault(row.student_id, row)
+
+    out = []
+    for st in students:
+        consumed, completed, upcoming, paid = (int(v or 0) for v in counts.get(st.id, (0, 0, 0, 0)))
+        alloc = allocated.get(st.id, 0)
+        mail = latest_email.get(st.id)
+        out.append({
+            "id": st.id,
+            "name": st.name,
+            "email": st.email,
+            "status": st.status,
+            "must_change_password": bool(st.must_change_password),
+            "allocated": alloc,
+            "completed": completed,
+            "remaining": max(0, alloc - consumed),
+            "upcoming": upcoming,
+            "paid_sessions": paid,
+            "created_at": st.created_at.isoformat() if st.created_at else None,
+            "credential_email": (
+                {"status": "unknown", "attempts": 0} if mail is None else {
+                    "status": mail.status,
+                    "attempts": mail.attempts,
+                    "last_error": mail.last_error,
+                    "sent_at": mail.sent_at.isoformat() if mail.sent_at else None,
+                }
+            ),
+        })
+    return out
+
+
 def _get_student_or_404(db: Session, student_id: str) -> User:
     student = db.query(User).filter(User.id == student_id, User.role == "student").first()
     if not student:
@@ -202,7 +271,7 @@ def list_students(current=Depends(get_current_super_admin), db: Session = Depend
         .order_by(User.created_at.desc())
         .all()
     )
-    return [_student_row(db, s) for s in students]
+    return _student_rows(db, students)
 
 
 @router.get("/students/{student_id}")
